@@ -1,10 +1,12 @@
 #include "../../RcConn/include/rc_conn.hpp"
 #include "../../rdma-api/include/rdma-api.hpp"
 #include "../../shared/util.hpp"
-#include "include/mnistTrain.hpp"
-#include "include/globalConstants.hpp"
-#include "include/rdmaOps.hpp"
-#include <logger.hpp>
+#include "../include/mnistTrain.hpp"
+#include "../include/globalConstants.hpp"
+#include "../include/rdmaOps.hpp"
+#include "../include/logger.hpp"
+
+//#include <logger.hpp>
 
 #include <chrono>
 #include <cstring>
@@ -21,7 +23,7 @@ using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 int main(int argc, char* argv[]) {
   Logger::instance().log("Server starting execution\n");
   int n_clients;
-  
+
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;

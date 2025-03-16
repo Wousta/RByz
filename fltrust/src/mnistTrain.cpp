@@ -1,5 +1,5 @@
-#include "include/mnistTrain.hpp"
-#include "include/logger.hpp"
+#include "../include/mnistTrain.hpp"
+#include "../include/logger.hpp"
 
 #include <cstddef>
 #include <cstdio>

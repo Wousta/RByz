@@ -1,11 +1,12 @@
 #include "../../RcConn/include/rc_conn.hpp"
 #include "../../rdma-api/include/rdma-api.hpp"
 #include "../../shared/util.hpp"
-#include "include/mnistTrain.hpp"
-#include "include/globalConstants.hpp"
-#include "include/rdmaOps.hpp"
+#include "../include/rdmaOps.hpp"
+#include "../include/mnistTrain.hpp"
+#include "../include/globalConstants.hpp"
+#include "../include/logger.hpp"
 
-#include <logger.hpp>
+//#include <logger.hpp>
 #include <lyra/lyra.hpp>
 #include <memory>
 #include <string>

@@ -3,9 +3,9 @@
 #ifndef RDMA_OPS_HPP
 #define RDMA_OPS_HPP
 
-#include "../../../RcConn/include/rc_conn.hpp"
-#include "../../../rdma-api/include/rdma-api.hpp"
-#include "../../../shared/util.hpp"
+#include "../../RcConn/include/rc_conn.hpp"
+#include "../../rdma-api/include/rdma-api.hpp"
+#include "../../shared/util.hpp"
 
 #include <vector>
 

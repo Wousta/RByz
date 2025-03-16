@@ -1,3 +1,4 @@
+project(RByz)
 cmake_minimum_required(VERSION 3.22.1)
 include(${CMAKE_BINARY_DIR}/conan_toolchain.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cache.cmake)
@@ -34,9 +35,9 @@ target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC ${TORCH_INCLUDE_DIRS})
 
-target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/include/pch.hpp)
-target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/include/pch.hpp)
-target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/include/pch.hpp)
+target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
+target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
+target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 
 target_link_libraries(mnistTrain PUBLIC ${TORCH_LIBRARIES})
 
