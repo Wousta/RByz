@@ -1,0 +1,50 @@
+# Compiled source files
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Packages
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.vscode/
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# C/C++
+*.out
+*.dSYM/
+*.obj
+*.elf
+*.map
+*.dep
+
+# Directories
+fltrust/build
+fltrust/data
+fltrust/logs
+RcConn/build
+rdma-api/build
