@@ -95,19 +95,17 @@ int main(int argc, char* argv[]) {
     conn_data.push_back(conns[i].getConnData());
   }
 
-  TensorOps tensor_ops;
-  std::cout << "Testing MNIST original\n";
-  std::vector<torch::Tensor> test =  testOG();
-  std::cout << "Test MNIST DONE\n";
-  tensor_ops.printTensorSlices(test, 0, 15);
 
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
+  TensorOps tensor_ops;
   std::vector<torch::Tensor> w_dummy;
   w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
-  std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
-  tensor_ops.printTensorSlices(w, 0, 15);
+  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
+  std::vector<torch::Tensor> w = runMnistTrainDummy(w_dummy);
+  tensor_ops.printTensorSlices(w, 0, 10);
   Logger::instance().log("\nInitial run of minstrain done\n");
+
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
     // Store w in shared memory
@@ -119,7 +117,8 @@ int main(int argc, char* argv[]) {
     // Now use this pointer with memcpy
     std::memcpy(srvr_w, global_w, total_bytes);
 
-    std::cout << "\nServer wrote bytes = " << total_bytes << "\n";
+    //std::cout << "\nServer wrote bytes = " << total_bytes << "\n";
+    Logger::instance().log("\nServer wrote bytes = " + std::to_string(total_bytes) + "\n");
     {
       std::ostringstream oss;
       oss << "Updated weights from server:" << "\n";
@@ -132,7 +131,7 @@ int main(int argc, char* argv[]) {
     srvr_ready_flag = round;
 
     // Run local training
-    std::vector<torch::Tensor> g = runMnistTrain(w);
+    //std::vector<torch::Tensor> g = runMnistTrain(w);
 
     // Read the gradients from the clients
     //NOTE: RIGHT NOW SOME CLIENTS DO TRAINING, BUT EVERY CLIENT READS THE AGGREGATED W IN EACH ROUND
@@ -146,36 +145,36 @@ int main(int argc, char* argv[]) {
     //   std::memcpy(clnt_ws[client], g_flat.data_ptr<float>(), total_bytes_g);
     // }
 
-    int clnt_idx = 0;
-    while (clnt_idx != n_clients) {
-      if(clnt_ready_flags[clnt_idx] == round) {
-        auto g_flat = torch::cat(g).contiguous();
-        size_t total_bytes_g = g_flat.numel() * sizeof(float);
-        std::memcpy(clnt_ws[clnt_idx], g_flat.data_ptr<float>(), total_bytes_g);
-        clnt_idx++;
-      }
-    }
+    // int clnt_idx = 0;
+    // while (clnt_idx != n_clients) {
+    //   if(clnt_ready_flags[clnt_idx] == round) {
+    //     auto g_flat = torch::cat(g).contiguous();
+    //     size_t total_bytes_g = g_flat.numel() * sizeof(float);
+    //     std::memcpy(clnt_ws[clnt_idx], g_flat.data_ptr<float>(), total_bytes_g);
+    //     clnt_idx++;
+    //   }
+    // }
 
-    {
-      std::ostringstream oss;
-      oss << "Server read gradients from clients:" << "\n";
-      for (int i = 0; i < n_clients; i++) {
-        oss << "Client " << i << ":\n";
-        oss << torch::from_blob(clnt_ws[i], { static_cast<long>(REG_SZ_DATA / sizeof(float)) }, torch::kFloat32).slice(0, 0, std::min<size_t>(REG_SZ_DATA / sizeof(float), 10)) << " ";
-        oss << "...\n";
-      }
-      Logger::instance().log(oss.str());
-    }
+    // {
+    //   std::ostringstream oss;
+    //   oss << "Server read gradients from clients:" << "\n";
+    //   for (int i = 0; i < n_clients; i++) {
+    //     oss << "Client " << i << ":\n";
+    //     oss << torch::from_blob(clnt_ws[i], { static_cast<long>(REG_SZ_DATA / sizeof(float)) }, torch::kFloat32).slice(0, 0, std::min<size_t>(REG_SZ_DATA / sizeof(float), 10)) << " ";
+    //     oss << "...\n";
+    //   }
+    //   Logger::instance().log(oss.str());
+    // }
 
-    // AGGREGATION PHASE //////////////////////
+    // // AGGREGATION PHASE //////////////////////
 
-    // Poll just some of the client updates
-    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
+    // // Poll just some of the client updates
+    // std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
 
-    std::vector<torch::Tensor> aggregated_update = aggregateResults(g, clnt_ws, polled_clients);
+    // std::vector<torch::Tensor> aggregated_update = aggregateResults(g, clnt_ws, polled_clients);
 
-    // Update w for the next round
-    w = aggregated_update;
+    // // Update w for the next round
+    // w = aggregated_update;
 
   }
 

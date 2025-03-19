@@ -76,22 +76,19 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops(conn_data);
 
   TensorOps tensor_ops;
-  std::cout << "Testing in CLIENT MNIST original\n";
-  std::vector<torch::Tensor> test =  testOG();
-  std::cout << "Test IN CLIENT MNIST DONE\n";
-  tensor_ops.printTensorSlices(test, 0, 15);
-
-  std::vector<torch::Tensor> w_dummy;
-  w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
-  std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
+  //std::cout << "Testing in CLIENT MNIST original\n";
+  //std::vector<torch::Tensor> w_dummy;
+  //w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
+  std::vector<torch::Tensor> w;
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
     } while (srvr_ready_flag != round);
 
-    std::cout << "Client read flag = " << srvr_ready_flag << "\n";
     Logger::instance().log("Client read flag = " + std::to_string(srvr_ready_flag) + "\n");
+    
+    //std::this_thread::sleep_for(std::chrono::hours(1));
 
     // Read the weights from the server
     rdma_ops.exec_rdma_read(REG_SZ_DATA, SRVR_W_IDX);

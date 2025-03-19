@@ -33,7 +33,7 @@ struct Net : torch::nn::Module {
     torch::nn::Linear fc2;
 };
 
-std::vector<torch::Tensor> runMNISTTrainDummy(std::vector<torch::Tensor>& w);
+std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
 std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
 std::vector<torch::Tensor> testOG();
 std::vector<torch::Tensor> aggregateResults(

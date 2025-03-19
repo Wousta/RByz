@@ -32,7 +32,7 @@ const double learnRate = 0.001;
 
 const int64_t subset_size = 1000;
 
-std::vector<torch::Tensor> runMNISTTrainDummy(std::vector<torch::Tensor>& w) {
+std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w) {
   std::cout << "Running dummy MNIST training\n";
   
   for(size_t i = 0; i < w.size(); i++) {
@@ -139,31 +139,30 @@ std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w) {
                            .map(torch::data::transforms::Stack<>());
   const size_t train_dataset_size = train_dataset.size().value();
 
-  // Create a subset random sampler with these indices
-  auto sampler = torch::data::samplers::RandomSampler(train_dataset_size);
+  std::vector<size_t> subset_indices(subset_size);
+  std::iota(subset_indices.begin(), subset_indices.end(), 0);
 
-  // Create the data loader with the sampler
+  SubsetSampler sampler(subset_indices);
   auto train_loader = torch::data::make_data_loader(
-      train_dataset,
-      sampler,
-      torch::data::DataLoaderOptions().batch_size(1).workers(2)
-  );
+    std::move(train_dataset),
+    sampler,
+    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
 
-  // auto train_loader =
-  //     torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
-  //         std::move(train_dataset), kTrainBatchSize);
   auto test_dataset = torch::data::datasets::MNIST(
                           kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
                           .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                           .map(torch::data::transforms::Stack<>());
   const size_t test_dataset_size = test_dataset.size().value();
+
   auto test_loader =
       torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
+
   torch::optim::SGD optimizer(
       model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
+
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, model, device, *train_loader, optimizer, train_dataset_size);
-    test(model, device, *test_loader, test_dataset_size);
+    train(epoch, model, device, *train_loader, optimizer, subset_size);
+    //test(model, device, *test_loader, test_dataset_size);
   }
   
   // Extract model weights after training
@@ -221,7 +220,7 @@ std::vector<torch::Tensor> testOG() {
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
-    test(model, device, *test_loader, test_dataset_size);
+    //test(model, device, *test_loader, test_dataset_size);
   }
 
   // Extract model weights after training
