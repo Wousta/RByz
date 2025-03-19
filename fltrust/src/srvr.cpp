@@ -1,10 +1,11 @@
 #include "../../RcConn/include/rc_conn.hpp"
 #include "../../rdma-api/include/rdma-api.hpp"
 #include "../../shared/util.hpp"
-#include "include/mnistTrain.hpp"
-#include "include/globalConstants.hpp"
-#include "include/rdmaOps.hpp"
-#include <logger.hpp>
+#include "../include/mnistTrain.hpp"
+#include "../include/globalConstants.hpp"
+#include "../include/rdmaOps.hpp"
+#include "../include/tensorOps.hpp"
+#include "../include/logger.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -12,16 +13,31 @@
 #include <lyra/lyra.hpp>
 #include <string>
 #include <thread>
-//#include <torch/torch.h>
+#include <vector>
+#include <random>
+#include <ctime>
+#include <algorithm>
+#include <set>
+#include <numeric>
 
-#define MSG_SZ 322
+
+#define MSG_SZ 32
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+std::vector<int> generateRandomUniqueVector(int n_clients);
+void update_global_model(float* global_w, const torch::Tensor& update, size_t model_size);
+std::vector<torch::Tensor> flTrustAggregation(
+    const std::vector<torch::Tensor>& server_update,
+    const std::vector<float*>& clnt_ws,
+    const std::vector<int>& polled_clients,
+    int n_clients,
+    const std::vector<size_t>& tensor_sizes,
+    size_t total_params);
 
 int main(int argc, char* argv[]) {
   Logger::instance().log("Server starting execution\n");
   int n_clients;
-  
+
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -79,20 +95,31 @@ int main(int argc, char* argv[]) {
     conn_data.push_back(conns[i].getConnData());
   }
 
+  TensorOps tensor_ops;
+  std::cout << "Testing MNIST original\n";
+  std::vector<torch::Tensor> test =  testOG();
+  std::cout << "Test MNIST DONE\n";
+  tensor_ops.printTensorSlices(test, 0, 15);
+
+
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
   std::vector<torch::Tensor> w_dummy;
   w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
-  //std::vector<torch::Tensor> w = runMNISTTrain();
-
-  std::vector<torch::Tensor> w = runMNISTTrainDummy(w_dummy);
+  std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
+  tensor_ops.printTensorSlices(w, 0, 15);
+  Logger::instance().log("\nInitial run of minstrain done\n");
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
     // Store w in shared memory
     auto all_tensors = torch::cat(w).contiguous();
     size_t total_bytes = all_tensors.numel() * sizeof(float);
-    std::memcpy(srvr_w, all_tensors.data_ptr<float>(), total_bytes);
+    // Extract the float pointer from all_tensors
+    float* global_w = all_tensors.data_ptr<float>();
 
-    std::cout << "Server wrote bytes = " << total_bytes << "\n";
+    // Now use this pointer with memcpy
+    std::memcpy(srvr_w, global_w, total_bytes);
+
+    std::cout << "\nServer wrote bytes = " << total_bytes << "\n";
     {
       std::ostringstream oss;
       oss << "Updated weights from server:" << "\n";
@@ -105,9 +132,20 @@ int main(int argc, char* argv[]) {
     srvr_ready_flag = round;
 
     // Run local training
-    std::vector<torch::Tensor> g = runMNISTTrainDummy(w);
+    std::vector<torch::Tensor> g = runMnistTrain(w);
 
     // Read the gradients from the clients
+    //NOTE: RIGHT NOW SOME CLIENTS DO TRAINING, BUT EVERY CLIENT READS THE AGGREGATED W IN EACH ROUND
+    // for (int client : polled_clients) {
+    //   while(clnt_ready_flags[client] != round) { 
+    //     // Active waiting wasting resources, could be improved
+    //   }
+
+    //   auto g_flat = torch::cat(g).contiguous();
+    //   size_t total_bytes_g = g_flat.numel() * sizeof(float);
+    //   std::memcpy(clnt_ws[client], g_flat.data_ptr<float>(), total_bytes_g);
+    // }
+
     int clnt_idx = 0;
     while (clnt_idx != n_clients) {
       if(clnt_ready_flags[clnt_idx] == round) {
@@ -129,6 +167,16 @@ int main(int argc, char* argv[]) {
       Logger::instance().log(oss.str());
     }
 
+    // AGGREGATION PHASE //////////////////////
+
+    // Poll just some of the client updates
+    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
+
+    std::vector<torch::Tensor> aggregated_update = aggregateResults(g, clnt_ws, polled_clients);
+
+    // Update w for the next round
+    w = aggregated_update;
+
   }
 
   // free memory
@@ -147,3 +195,25 @@ int main(int argc, char* argv[]) {
   std::this_thread::sleep_for(std::chrono::hours(1));
   return 0;
 }
+
+std::vector<int> generateRandomUniqueVector(int n_clients) {
+  // Initialize random number generator
+  std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
+  
+  // Create a vector with all possible values from 0 to n
+  std::vector<int> allValues(n_clients + 1);
+  for (int i = 0; i <= n_clients; i++) {
+      allValues[i] = i;
+  }
+  
+  // Shuffle the vector
+  std::shuffle(allValues.begin(), allValues.end(), rng);
+  
+  // Generate random size (must be less than n+1 to ensure we have enough unique values)
+  std::uniform_int_distribution<int> sizeDist(0, n_clients);
+  int size = sizeDist(rng);
+  
+  // Return the first 'size' elements
+  return std::vector<int>(allValues.begin(), allValues.begin() + size);
+}
+

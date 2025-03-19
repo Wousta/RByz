@@ -1,11 +1,13 @@
 #include "../../RcConn/include/rc_conn.hpp"
 #include "../../rdma-api/include/rdma-api.hpp"
 #include "../../shared/util.hpp"
-#include "include/mnistTrain.hpp"
-#include "include/globalConstants.hpp"
-#include "include/rdmaOps.hpp"
+#include "../include/rdmaOps.hpp"
+#include "../include/tensorOps.hpp"
+#include "../include/mnistTrain.hpp"
+#include "../include/globalConstants.hpp"
+#include "../include/logger.hpp"
 
-#include <logger.hpp>
+//#include <logger.hpp>
 #include <lyra/lyra.hpp>
 #include <memory>
 #include <string>
@@ -73,7 +75,15 @@ int main(int argc, char* argv[]) {
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
 
-  std::vector<torch::Tensor> w;
+  TensorOps tensor_ops;
+  std::cout << "Testing in CLIENT MNIST original\n";
+  std::vector<torch::Tensor> test =  testOG();
+  std::cout << "Test IN CLIENT MNIST DONE\n";
+  tensor_ops.printTensorSlices(test, 0, 15);
+
+  std::vector<torch::Tensor> w_dummy;
+  w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
+  std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
     do {
@@ -81,6 +91,7 @@ int main(int argc, char* argv[]) {
     } while (srvr_ready_flag != round);
 
     std::cout << "Client read flag = " << srvr_ready_flag << "\n";
+    Logger::instance().log("Client read flag = " + std::to_string(srvr_ready_flag) + "\n");
 
     // Read the weights from the server
     rdma_ops.exec_rdma_read(REG_SZ_DATA, SRVR_W_IDX);
@@ -94,12 +105,12 @@ int main(int argc, char* argv[]) {
       std::ostringstream oss;
       oss << "Number of elements in updated tensor: " << updated_tensor.numel() << "\n";
       oss << "Updated weights from server:" << "\n";
-      oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 12)) << "\n";
+      oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
       Logger::instance().log(oss.str());
     }
 
     // Run the training on the updated weights
-    std::vector<torch::Tensor> g = runMNISTTrainDummy(w);
+    std::vector<torch::Tensor> g = runMnistTrain(w);
 
     // Send the updated weights back to the server
     auto g_flat = torch::cat(g).contiguous();
@@ -121,7 +132,7 @@ int main(int argc, char* argv[]) {
     clnt_ready_flag = round;
     rdma_ops.exec_rdma_write(sizeof(int), CLNT_READY_IDX);
 
-    Logger::instance().log("Client: Done with iteration\n");
+    Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
 
   }
 
