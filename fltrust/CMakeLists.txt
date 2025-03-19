@@ -16,6 +16,7 @@ find_package(lyra REQUIRED)
 
 add_library(mnistTrain STATIC src/mnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
+add_library(tensorOps STATIC src/tensorOps.cpp)
 add_executable(srvr src/srvr.cpp)
 add_executable(clnt src/clnt.cpp)
 
@@ -31,15 +32,22 @@ target_include_directories(rdmaOps PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src/include 
 )
 
+target_include_directories(tensorOps PUBLIC 
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/include 
+  ${TORCH_INCLUDE_DIRS}
+)
+
 target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC ${TORCH_INCLUDE_DIRS})
 
 target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
+target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 
 target_link_libraries(mnistTrain PUBLIC ${TORCH_LIBRARIES})
+target_link_libraries(tensorOps PUBLIC ${TORCH_LIBRARIES})
 
 target_link_libraries(srvr PUBLIC  
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
@@ -47,6 +55,7 @@ target_link_libraries(srvr PUBLIC
   ${TORCH_LIBRARIES}
   mnistTrain  
   rdmaOps
+  tensorOps
 )
 
 target_link_libraries(clnt PUBLIC 
@@ -55,4 +64,5 @@ target_link_libraries(clnt PUBLIC
   ${TORCH_LIBRARIES}
   mnistTrain
   rdmaOps
+  tensorOps
 )

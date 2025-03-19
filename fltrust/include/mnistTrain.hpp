@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-//#include <torch/torch.h>
 
 struct Net : torch::nn::Module {
     Net()
@@ -35,5 +34,9 @@ struct Net : torch::nn::Module {
 };
 
 std::vector<torch::Tensor> runMNISTTrainDummy(std::vector<torch::Tensor>& w);
-
-std::vector<torch::Tensor> runMNISTTrain(std::vector<torch::Tensor>& w);
+std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
+std::vector<torch::Tensor> testOG();
+std::vector<torch::Tensor> aggregateResults(
+  const std::vector<torch::Tensor>& server_update,
+  std::vector<float*>& client_weights,
+  const std::vector<int>& polled_clients);
