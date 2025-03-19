@@ -74,7 +74,12 @@ int main(int argc, char* argv[]) {
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
-  TensorOps tensor_ops();
+
+  TensorOps tensor_ops;
+  std::cout << "Testing in CLIENT MNIST original\n";
+  std::vector<torch::Tensor> test =  testOG();
+  std::cout << "Test IN CLIENT MNIST DONE\n";
+  tensor_ops.printTensorSlices(test, 0, 15);
 
   std::vector<torch::Tensor> w_dummy;
   w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));

@@ -18,6 +18,7 @@ void TensorOps::printTensorSlices(const std::vector<torch::Tensor>& model_weight
         // Handle the end_idx
         if (end_idx < 0 || end_idx > tensor.numel()) {
             end_idx = tensor.numel();
+            oss << "Max length of this tensor is: " << end_idx << "\n";
         }
         
         // Make sure indices are valid
