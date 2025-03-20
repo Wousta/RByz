@@ -99,28 +99,26 @@ int main(int argc, char* argv[]) {
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
   TensorOps tensor_ops;
+  std::vector<torch::Tensor> w_intial = testOG();
+  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   std::vector<torch::Tensor> w_dummy;
   w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
-  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
-  std::vector<torch::Tensor> w = runMnistTrainDummy(w_dummy);
+  std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   tensor_ops.printTensorSlices(w, 0, 10);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
-    // Store w in shared memory
-    auto all_tensors = torch::cat(w).contiguous();
-    size_t total_bytes = all_tensors.numel() * sizeof(float);
-    // Extract the float pointer from all_tensors
-    float* global_w = all_tensors.data_ptr<float>();
+    auto all_tensors = tensor_ops.flatten_tensor_vector(w);
 
-    // Now use this pointer with memcpy
+    // Copy to shared memory
+    size_t total_bytes = all_tensors.numel() * sizeof(float);
+    float* global_w = all_tensors.data_ptr<float>();
     std::memcpy(srvr_w, global_w, total_bytes);
 
-    //std::cout << "\nServer wrote bytes = " << total_bytes << "\n";
-    Logger::instance().log("\nServer wrote bytes = " + std::to_string(total_bytes) + "\n");
     {
       std::ostringstream oss;
+      oss << "\nServer wrote bytes = " << total_bytes << "\n";
       oss << "Updated weights from server:" << "\n";
       oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 10)) << " ";
       oss << "...\n";
