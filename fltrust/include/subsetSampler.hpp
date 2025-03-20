@@ -1,3 +1,4 @@
+#pragma once
 #include <torch/torch.h>
 #include <optional>
 #include <numeric>
@@ -5,11 +6,13 @@
 #include <cstring> 
 
 class SubsetSampler : public torch::data::samplers::Sampler<std::vector<size_t>> {
+    private: 
+    std::vector<size_t> indices_; size_t current_; 
+
     public:
     // Type alias required by the Sampler interface.
     using BatchRequestType = std::vector<size_t>;
 
-    // Constructor: takes a vector of indices.
     explicit SubsetSampler(std::vector<size_t> indices)
         : indices_(std::move(indices)), current_(0) {}
 
@@ -59,9 +62,8 @@ class SubsetSampler : public torch::data::samplers::Sampler<std::vector<size_t>>
         for (size_t i = 0; i < numel; ++i) {
             indices_[i] = static_cast<size_t>(temp[i]);
         }
-            current_ = static_cast<size_t>(current_tensor.item<int64_t>());
-        }
+        current_ = static_cast<size_t>(current_tensor.item<int64_t>());
+    }
 
-    private: std::vector<size_t> indices_; size_t current_; 
 
 };

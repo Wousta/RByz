@@ -75,56 +75,61 @@ int main(int argc, char* argv[]) {
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
 
-  TensorOps tensor_ops;
-  std::cout << "Testing in CLIENT MNIST original\n";
-  std::vector<torch::Tensor> test =  testOG();
-  std::cout << "Test IN CLIENT MNIST DONE\n";
-  tensor_ops.printTensorSlices(test, 0, 15);
+  MnistTrain mnist;
+  std::vector<torch::Tensor> w = mnist.testOG();
+  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
+  printTensorSlices(w, 0, 10);
 
-  std::vector<torch::Tensor> w_dummy;
-  w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
-  std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
     } while (srvr_ready_flag != round);
 
-    std::cout << "Client read flag = " << srvr_ready_flag << "\n";
     Logger::instance().log("Client read flag = " + std::to_string(srvr_ready_flag) + "\n");
+    
+    //std::this_thread::sleep_for(std::chrono::hours(1));
 
     // Read the weights from the server
     rdma_ops.exec_rdma_read(REG_SZ_DATA, SRVR_W_IDX);
 
     size_t numel_server = REG_SZ_DATA / sizeof(float);
-    auto updated_tensor = torch::from_blob(srvr_w, { static_cast<long>(numel_server) }, torch::kFloat32).clone();
-    w = { updated_tensor };
+    torch::Tensor flat_tensor = torch::from_blob(
+        srvr_w, 
+        {static_cast<long>(numel_server)}, 
+        torch::kFloat32
+    ).clone();
+
+    w = reconstruct_tensor_vector(flat_tensor, w);
 
     // Print the first few updated weight values from server
     {
       std::ostringstream oss;
-      oss << "Number of elements in updated tensor: " << updated_tensor.numel() << "\n";
+      oss << "Number of elements in updated tensor: " << flat_tensor.numel() << "\n";
       oss << "Updated weights from server:" << "\n";
-      oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
+      oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 10)) << " ";
       Logger::instance().log(oss.str());
     }
 
     // Run the training on the updated weights
-    std::vector<torch::Tensor> g = runMnistTrain(w);
+    std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
 
     // Send the updated weights back to the server
-    auto g_flat = torch::cat(g).contiguous();
-    size_t total_bytes_g = g_flat.numel() * sizeof(float);
-    float* raw_ptr_g = g_flat.data_ptr<float>();
-    std::memcpy(castV(reg_info.addr_locs[CLNT_W_IDX]), raw_ptr_g, total_bytes_g);
-    unsigned int total_bytes_g_int = static_cast<unsigned int>(total_bytes_g);
+    auto all_tensors = flatten_tensor_vector(g);
+    size_t total_bytes_g = all_tensors.numel() * sizeof(float);
+    if(total_bytes_g != (size_t)REG_SZ_DATA) {
+      Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
+    }
+    float* client_w = all_tensors.data_ptr<float>();
+    std::memcpy(castV(reg_info.addr_locs[CLNT_W_IDX]), client_w, total_bytes_g);
+    unsigned int total_bytes_g_int = static_cast<unsigned int>(REG_SZ_DATA);
     rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
 
     // Print the first few updated weights sent by client
     {
       std::ostringstream oss;
       oss << "Updated weights sent by client:" << "\n";
-      oss << g_flat.slice(0, 0, std::min<size_t>(g_flat.numel(), 10)) << "\n";
+      oss << all_tensors.slice(0, 0, std::min<size_t>(all_tensors.numel(), 10)) << "\n";
       Logger::instance().log(oss.str());
     }
 
@@ -134,6 +139,13 @@ int main(int argc, char* argv[]) {
 
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
 
+  }
+
+  {
+    std::ostringstream oss;
+    oss << "\nFINAL W:\n";
+    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
+    Logger::instance().log(oss.str());
   }
 
   free(srvr_w);
