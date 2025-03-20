@@ -5,11 +5,8 @@
 #include <vector>
 #include <sstream>
 
-TensorOps::TensorOps(){}
-TensorOps::~TensorOps(){}
-
 // Function to flatten a vector of tensors into a single contiguous tensor
-torch::Tensor TensorOps::flatten_tensor_vector(const std::vector<torch::Tensor>& tensor_vec) {
+torch::Tensor flatten_tensor_vector(const std::vector<torch::Tensor>& tensor_vec) {
     std::vector<torch::Tensor> flattened_tensors;
 
     for (const auto& tensor : tensor_vec) {
@@ -23,7 +20,7 @@ torch::Tensor TensorOps::flatten_tensor_vector(const std::vector<torch::Tensor>&
 
 // Function to reconstruct a vector of tensors from a flattened tensor
 // Uses locally known reference tensor, so the client must do one dummy run of the model to get the reference W
-std::vector<torch::Tensor> TensorOps::reconstruct_tensor_vector(
+std::vector<torch::Tensor> reconstruct_tensor_vector(
     const torch::Tensor& flat_tensor, 
     const std::vector<torch::Tensor>& reference_tensors) {
     
@@ -45,7 +42,7 @@ std::vector<torch::Tensor> TensorOps::reconstruct_tensor_vector(
     return result;
 }
 
-void TensorOps::printTensorSlices(const std::vector<torch::Tensor>& model_weights, int start_idx, int end_idx) {
+void printTensorSlices(const std::vector<torch::Tensor>& model_weights, int start_idx, int end_idx) {
     std::ostringstream oss;
     oss << "Tensor slices:" << "\n";
     

@@ -25,14 +25,9 @@
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
 std::vector<int> generateRandomUniqueVector(int n_clients);
-void update_global_model(float* global_w, const torch::Tensor& update, size_t model_size);
-std::vector<torch::Tensor> flTrustAggregation(
-    const std::vector<torch::Tensor>& server_update,
-    const std::vector<float*>& clnt_ws,
-    const std::vector<int>& polled_clients,
-    int n_clients,
-    const std::vector<size_t>& tensor_sizes,
-    size_t total_params);
+std::vector<torch::Tensor> aggregate_updates(
+  const std::vector<std::vector<torch::Tensor>>& client_updates,
+  const std::vector<torch::Tensor>& server_update);
 
 int main(int argc, char* argv[]) {
   Logger::instance().log("Server starting execution\n");
@@ -98,18 +93,19 @@ int main(int argc, char* argv[]) {
 
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
-  TensorOps tensor_ops;
   std::vector<torch::Tensor> w_intial = testOG();
   //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   std::vector<torch::Tensor> w_dummy;
   w_dummy.push_back(torch::arange(0, 10, torch::kFloat32));
   std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
-  tensor_ops.printTensorSlices(w, 0, 10);
+  printTensorSlices(w, 0, 10);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
 
-    auto all_tensors = tensor_ops.flatten_tensor_vector(w);
+    auto all_tensors = flatten_tensor_vector(w);
+    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
+    std::vector<std::vector<torch::Tensor>> clnt_g_vecs(polled_clients.size());
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
@@ -129,51 +125,56 @@ int main(int argc, char* argv[]) {
     srvr_ready_flag = round;
 
     // Run local training
-    //std::vector<torch::Tensor> g = runMnistTrain(w);
+    std::vector<torch::Tensor> g = runMnistTrain(w);
 
     // Read the gradients from the clients
     //NOTE: RIGHT NOW SOME CLIENTS DO TRAINING, BUT EVERY CLIENT READS THE AGGREGATED W IN EACH ROUND
-    // for (int client : polled_clients) {
-    //   while(clnt_ready_flags[client] != round) { 
-    //     // Active waiting wasting resources, could be improved
-    //   }
+    Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
+    for (size_t i = 0; i < polled_clients.size(); i++) {
+      int client = polled_clients[i];
+      Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
+      while(clnt_ready_flags[client] != round) { 
+        // Active waiting wasting resources, could be improved
+      }
 
-    //   auto g_flat = torch::cat(g).contiguous();
-    //   size_t total_bytes_g = g_flat.numel() * sizeof(float);
-    //   std::memcpy(clnt_ws[client], g_flat.data_ptr<float>(), total_bytes_g);
-    // }
+      size_t numel_server = REG_SZ_DATA / sizeof(float);
+      torch::Tensor flat_tensor = torch::from_blob(
+          clnt_ws[client], 
+          {static_cast<long>(numel_server)}, 
+          torch::kFloat32
+      ).clone();
 
-    // int clnt_idx = 0;
-    // while (clnt_idx != n_clients) {
-    //   if(clnt_ready_flags[clnt_idx] == round) {
-    //     auto g_flat = torch::cat(g).contiguous();
-    //     size_t total_bytes_g = g_flat.numel() * sizeof(float);
-    //     std::memcpy(clnt_ws[clnt_idx], g_flat.data_ptr<float>(), total_bytes_g);
-    //     clnt_idx++;
-    //   }
-    // }
+      std::vector<torch::Tensor> clnt_w_vec = reconstruct_tensor_vector(flat_tensor, w);
+      clnt_g_vecs[i] = clnt_w_vec;
 
-    // {
-    //   std::ostringstream oss;
-    //   oss << "Server read gradients from clients:" << "\n";
-    //   for (int i = 0; i < n_clients; i++) {
-    //     oss << "Client " << i << ":\n";
-    //     oss << torch::from_blob(clnt_ws[i], { static_cast<long>(REG_SZ_DATA / sizeof(float)) }, torch::kFloat32).slice(0, 0, std::min<size_t>(REG_SZ_DATA / sizeof(float), 10)) << " ";
-    //     oss << "...\n";
-    //   }
-    //   Logger::instance().log(oss.str());
-    // }
+    }
+
+    {
+      std::ostringstream oss;
+      oss << "Server read gradients from clients:" << "\n";
+      for(std::vector<torch::Tensor> clnt_g : clnt_g_vecs) {
+        oss << "\n  Client g:\n";
+        oss << "    " << clnt_g[0].slice(0, 0, std::min<size_t>(clnt_g[0].numel(), 10)) << " ";
+      }
+      Logger::instance().log(oss.str());
+    }
 
     // // AGGREGATION PHASE //////////////////////
 
-    // // Poll just some of the client updates
-    // std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
-
-    // std::vector<torch::Tensor> aggregated_update = aggregateResults(g, clnt_ws, polled_clients);
+    std::vector<torch::Tensor> aggregated_update = aggregate_updates(clnt_g_vecs, g);
 
     // // Update w for the next round
-    // w = aggregated_update;
+    for (size_t i = 0; i < w.size(); i++) {
+      w[i] = w[i] - GLOBAL_LEARN_RATE * aggregated_update[i];
+    }
 
+  }
+
+  {
+    std::ostringstream oss;
+    oss << "\nFINAL W:\n";
+    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
+    Logger::instance().log(oss.str());
   }
 
   // free memory
@@ -197,20 +198,89 @@ std::vector<int> generateRandomUniqueVector(int n_clients) {
   // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
   
-  // Create a vector with all possible values from 0 to n
-  std::vector<int> allValues(n_clients + 1);
-  for (int i = 0; i <= n_clients; i++) {
+  // Create a vector with all possible values from 0 to n-1
+  std::vector<int> allValues(n_clients);
+  for (int i = 0; i < n_clients; i++) {
       allValues[i] = i;
   }
   
   // Shuffle the vector
   std::shuffle(allValues.begin(), allValues.end(), rng);
   
-  // Generate random size (must be less than n+1 to ensure we have enough unique values)
-  std::uniform_int_distribution<int> sizeDist(0, n_clients);
+  // Generate random size
+  std::uniform_int_distribution<int> sizeDist(1, n_clients);
   int size = sizeDist(rng);
   
   // Return the first 'size' elements
   return std::vector<int>(allValues.begin(), allValues.begin() + size);
+}
+
+std::vector<torch::Tensor> aggregate_updates(
+  const std::vector<std::vector<torch::Tensor>>& client_updates,
+  const std::vector<torch::Tensor>& server_update) {
+  
+  // Step 1: Flatten each client's update and the server update
+  std::vector<torch::Tensor> flattened_client_updates;
+  for (const auto& client_update : client_updates) {
+      flattened_client_updates.push_back(flatten_tensor_vector(client_update));
+  }
+  
+  // Flatten server update
+  torch::Tensor flattened_server_update = flatten_tensor_vector(server_update);
+  
+  // Step 2: Compute cosine similarity between each client update and server update
+  std::vector<float> trust_scores;
+  for (const auto& flat_client_update : flattened_client_updates) {
+      // Compute dot product
+      torch::Tensor dot_product = torch::dot(flat_client_update, flattened_server_update);
+      
+      // Compute magnitudes
+      float client_norm = torch::norm(flat_client_update, 2).item<float>();
+      float server_norm = torch::norm(flattened_server_update, 2).item<float>();
+      
+      // Compute cosine similarity
+      float cosine_sim = dot_product.item<float>() / (client_norm * server_norm + 1e-10);
+      
+      // Apply ReLU (max with 0)
+      float trust_score = std::max(0.0f, cosine_sim);
+      trust_scores.push_back(trust_score);
+  }
+  
+  // Step 3: Normalize trust scores
+  float sum_trust = 0.0f;
+  for (float score : trust_scores) {
+      sum_trust += score;
+  }
+  
+  std::vector<float> normalized_scores;
+  if (sum_trust > 0) {
+      for (float score : trust_scores) {
+          normalized_scores.push_back(score / sum_trust);
+      }
+  } else {
+      // If all scores are 0, use uniform weights
+      float uniform_weight = 1.0f / trust_scores.size();
+      for (size_t i = 0; i < trust_scores.size(); i++) {
+          normalized_scores.push_back(uniform_weight);
+      }
+  }
+  
+  // Step 4: Prepare the aggregated update with zeros
+  std::vector<torch::Tensor> aggregated_update;
+  // Initialize with the right shapes based on the first client (or server)
+  for (const auto& tensor : server_update) {
+      aggregated_update.push_back(torch::zeros_like(tensor));
+  }
+  
+  // Step 5: Add scaled client updates to the aggregated update
+  for (size_t i = 0; i < client_updates.size(); i++) {
+      float weight = normalized_scores[i];
+      for (size_t j = 0; j < client_updates[i].size(); j++) {
+          aggregated_update[j] += client_updates[i][j] * weight;
+      }
+  }
+  
+  // Step 6: Return the aggregated update
+  return aggregated_update;
 }
 

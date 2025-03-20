@@ -36,7 +36,3 @@ struct Net : torch::nn::Module {
 std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
 std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
 std::vector<torch::Tensor> testOG();
-std::vector<torch::Tensor> aggregateResults(
-  const std::vector<torch::Tensor>& server_update,
-  std::vector<float*>& client_weights,
-  const std::vector<int>& polled_clients);
