@@ -75,7 +75,8 @@ int main(int argc, char* argv[]) {
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
 
-  std::vector<torch::Tensor> w = testOG();
+  MnistTrain mnist;
+  std::vector<torch::Tensor> w = mnist.testOG();
   //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   printTensorSlices(w, 0, 10);
 
@@ -111,7 +112,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Run the training on the updated weights
-    std::vector<torch::Tensor> g = runMnistTrain(w);
+    std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
 
     // Send the updated weights back to the server
     auto all_tensors = flatten_tensor_vector(g);

@@ -55,8 +55,8 @@ target_link_libraries(mnistTrain PUBLIC
   ${TORCH_LIBRARIES}
   subsetSampler
 )
-target_link_libraries(tensorOps PUBLIC ${TORCH_LIBRARIES})
 
+target_link_libraries(tensorOps PUBLIC ${TORCH_LIBRARIES})
 
 target_link_libraries(srvr PUBLIC  
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so

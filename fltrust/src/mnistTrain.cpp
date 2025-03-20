@@ -10,29 +10,71 @@
 
 int counter = 1;
 
-// The model instance
-Net model;
-
 // Where to find the MNIST dataset.
 const char* kDataRoot = "./data";
-
-// The batch size for training.
 const int64_t kTrainBatchSize = 1;
-
-// The batch size for testing.
 const int64_t kTestBatchSize = 1;
-
-// The number of epochs to train.
 const int64_t kNumberOfEpochs = 1;
-
-// After how many batches to log a new update with the loss value.
 const int64_t kLogInterval = 1;
-
 const double learnRate = 0.001;
-
 const int64_t subset_size = 1000;
 
-std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w) {
+SubsetSampler get_subset_sampler() {
+  std::vector<size_t> subset_indices(subset_size);
+  std::iota(subset_indices.begin(), subset_indices.end(), 0);
+  return SubsetSampler(subset_indices);
+}
+
+SubsetSampler sampler = get_subset_sampler();
+
+auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
+  .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+  .map(torch::data::transforms::Stack<>());
+
+auto test_dataset = torch::data::datasets::MNIST(
+  kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
+  .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+  .map(torch::data::transforms::Stack<>());
+
+auto train_loader = torch::data::make_data_loader(
+  std::move(train_dataset),
+  sampler,
+  torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+
+auto test_loader = torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
+
+
+MnistTrain::MnistTrain() 
+  : device(get_device()) {
+
+  if (torch::cuda::is_available()) {
+    std::cout << "CUDA available! Training on GPU." << std::endl;
+    device_type = torch::kCUDA;
+  } else {
+    std::cout << "Training on CPU." << std::endl;
+    device_type = torch::kCPU;
+  }
+
+  model.to(device);
+}
+
+MnistTrain::~MnistTrain() {
+  // Do nothing
+}
+
+torch::Device MnistTrain::get_device() {
+  torch::DeviceType device_type;
+  if (torch::cuda::is_available()) {
+    std::cout << "CUDA available! Training on GPU." << std::endl;
+    device_type = torch::kCUDA;
+  } else {
+    std::cout << "Training on CPU." << std::endl;
+    device_type = torch::kCPU;
+  }
+  return torch::Device(device_type);
+}
+
+std::vector<torch::Tensor> MnistTrain::runMnistTrainDummy(std::vector<torch::Tensor>& w) {
   std::cout << "Running dummy MNIST training\n";
   
   for(size_t i = 0; i < w.size(); i++) {
@@ -103,19 +145,8 @@ void test(
   Logger::instance().log("Testing donete\n");
 }
 
-std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w) {
+std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Tensor>& w) {
   torch::manual_seed(1);
-  torch::DeviceType device_type;
-  if (torch::cuda::is_available()) {
-    std::cout << "CUDA available! Training on GPU." << std::endl;
-    device_type = torch::kCUDA;
-  } else {
-    std::cout << "Training on CPU." << std::endl;
-    device_type = torch::kCPU;
-  }
-  torch::Device device(device_type);
-  Net model;
-  model.to(device);
   
   // Update model parameters with input weights if sizes match
   auto params = model.parameters();
@@ -133,29 +164,6 @@ std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w) {
       Logger::instance().log(oss.str());
     }
   }
-  
-  auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
-                           .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-                           .map(torch::data::transforms::Stack<>());
-  const size_t train_dataset_size = train_dataset.size().value();
-
-  std::vector<size_t> subset_indices(subset_size);
-  std::iota(subset_indices.begin(), subset_indices.end(), 0);
-
-  SubsetSampler sampler(subset_indices);
-  auto train_loader = torch::data::make_data_loader(
-    std::move(train_dataset),
-    sampler,
-    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
-
-  auto test_dataset = torch::data::datasets::MNIST(
-                          kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
-                          .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-                          .map(torch::data::transforms::Stack<>());
-  const size_t test_dataset_size = test_dataset.size().value();
-
-  auto test_loader =
-      torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
 
   torch::optim::SGD optimizer(
       model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
@@ -175,48 +183,11 @@ std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w) {
   return model_weights;
 }
 
-
-std::vector<torch::Tensor> testOG() {
+std::vector<torch::Tensor> MnistTrain::testOG() {
   torch::manual_seed(1);
 
-  torch::DeviceType device_type;
-  if (torch::cuda::is_available()) {
-    std::cout << "CUDA available! Training on GPU." << std::endl;
-    device_type = torch::kCUDA;
-  } else {
-    std::cout << "Training on CPU." << std::endl;
-    device_type = torch::kCPU;
-  }
-  torch::Device device(device_type);
-
-  Net model;
-  model.to(device);
-
-  auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
-                           .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-                           .map(torch::data::transforms::Stack<>());
-  const size_t train_dataset_size = train_dataset.size().value();
-
-  std::vector<size_t> subset_indices(subset_size);
-  std::iota(subset_indices.begin(), subset_indices.end(), 0);
-
-  SubsetSampler sampler(subset_indices);
-  auto train_loader = torch::data::make_data_loader(
-    std::move(train_dataset),
-    sampler,
-    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
-
-  auto test_dataset = torch::data::datasets::MNIST(
-                          kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
-                          .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-                          .map(torch::data::transforms::Stack<>());
-  const size_t test_dataset_size = test_dataset.size().value();
-
-  auto test_loader =
-      torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
-
   torch::optim::SGD optimizer(
-      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
+    model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
@@ -229,6 +200,6 @@ std::vector<torch::Tensor> testOG() {
     // Clone the parameter to ensure we're not just storing references
     model_weights.push_back(param.clone().detach());
   }
-  
+
   return model_weights;
 }
