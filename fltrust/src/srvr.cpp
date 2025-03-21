@@ -24,6 +24,14 @@
 #define MSG_SZ 32
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+std::vector<torch::Tensor> run_fltrust_srvr(
+  int n_clients,
+  int rounds, 
+  MnistTrain& mnist,
+  int& srvr_ready_flag,
+  float* srvr_w,
+  std::vector<int>& clnt_ready_flags,
+  std::vector<float*>& clnt_ws);
 std::vector<int> generateRandomUniqueVector(int n_clients);
 std::vector<torch::Tensor> aggregate_updates(
   const std::vector<std::vector<torch::Tensor>>& client_updates,
@@ -90,17 +98,57 @@ int main(int argc, char* argv[]) {
     conn_data.push_back(conns[i].getConnData());
   }
 
-
-
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
   //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   MnistTrain mnist;
+  std::vector<torch::Tensor> w = run_fltrust_srvr(
+    GLOBAL_ITERS,
+    n_clients,
+    mnist,
+    srvr_ready_flag,
+    srvr_w,
+    clnt_ready_flags,
+    clnt_ws
+  );
+
+  {
+    std::ostringstream oss;
+    oss << "\nFINAL W:\n";
+    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
+    Logger::instance().log(oss.str());
+  }
+
+  // free memory
+  free(srvr_w);
+  for (int i = 0; i < n_clients; i++) {
+    free(clnt_ws[i]);
+  }
+  free(addr_info.ipv4_addr);
+  free(addr_info.port);
+
+  std::cout << "Server done\n";
+
+  // sleep for server to be available
+  Logger::instance().log("Sleeping for 1 hour\n");
+
+  std::this_thread::sleep_for(std::chrono::hours(1));
+  return 0;
+}
+
+std::vector<torch::Tensor> run_fltrust_srvr(
+  int rounds, 
+  int n_clients,
+  MnistTrain& mnist,
+  int& srvr_ready_flag,
+  float* srvr_w,
+  std::vector<int>& clnt_ready_flags,
+  std::vector<float*>& clnt_ws) {
+
   std::vector<torch::Tensor> w = mnist.testOG();
   printTensorSlices(w, 0, 10);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
-  for (int round = 1; round <= GLOBAL_ITERS; round++) {
-
+  for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
     std::vector<std::vector<torch::Tensor>> clnt_g_vecs(polled_clients.size());
@@ -166,28 +214,7 @@ int main(int argc, char* argv[]) {
 
   }
 
-  {
-    std::ostringstream oss;
-    oss << "\nFINAL W:\n";
-    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
-    Logger::instance().log(oss.str());
-  }
-
-  // free memory
-  free(srvr_w);
-  for (int i = 0; i < n_clients; i++) {
-    free(clnt_ws[i]);
-  }
-  free(addr_info.ipv4_addr);
-  free(addr_info.port);
-
-  std::cout << "Server done\n";
-
-  // sleep for server to be available
-  Logger::instance().log("Sleeping for 1 hour\n");
-
-  std::this_thread::sleep_for(std::chrono::hours(1));
-  return 0;
+  return w;
 }
 
 std::vector<int> generateRandomUniqueVector(int n_clients) {
@@ -233,6 +260,15 @@ std::vector<torch::Tensor> aggregate_updates(
       // Apply ReLU (max with 0)
       float trust_score = std::max(0.0f, cosine_sim);
       trust_scores.push_back(trust_score);
+  }
+
+  {
+    std::ostringstream oss;
+    oss << "\nTRUST SCORES:\n";
+    for(int i = 0; i < trust_scores.size(); i++) {
+      oss << "Client " << i << " score: " << trust_scores[i] << "\n";
+    }
+    Logger::instance().log(oss.str());
   }
   
   // Normalize trust scores

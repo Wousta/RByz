@@ -178,7 +178,22 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
     model_weights.push_back(param.clone().detach());
   }
   
-  return model_weights;
+  // Return update
+  // Create a new vector to store the result
+  std::vector<torch::Tensor> result;
+  result.reserve(model_weights.size());
+  
+  // Ensure both vectors have the same size
+  if (model_weights.size() != w.size()) {
+      throw std::runtime_error("Tensor vectors must have the same size for subtraction");
+  }
+  
+  // Perform element-wise subtraction
+  for (size_t i = 0; i < model_weights.size(); ++i) {
+      result.push_back(model_weights[i] - w[i]);
+  }
+  
+  return result;
 }
 
 std::vector<torch::Tensor> MnistTrain::testOG() {
