@@ -45,6 +45,6 @@ venv.bak/
 fltrust/build
 fltrust/data
 fltrust/logs
-#fltrust/clients.pid
+fltrust/clients.pid
 RcConn/build
 rdma-api/build

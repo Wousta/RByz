@@ -2,7 +2,7 @@
 
 srvr_ip=192.168.117.103
 port=2000
-n_clients=1
+n_clients=2
 
 # Array for client PIDs
 CLNT_PIDS=()
@@ -35,11 +35,11 @@ rm -rf logs/*
 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
 #valgrind --leak-check=full build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
 SRVR_PID=$!
-
 # Start the client processes and store their PIDs.
 #ssh bustaman@lpdquatro4 "/home/bustaman/rbyz/fltrust/run_client.sh" &
 #CLNT_PID=$!
 for id in $(seq 1 $n_clients); do
+  sleep 1
   build/clnt --srvr_ip $srvr_ip --port $port --id $id &
   # gdb -ex "break /home/bustaman/usr-rdma-api-main/fltrust/src/clnt.cpp:92" \
   #     -ex "break /home/bustaman/usr-rdma-api-main/rdma-api/src/rdma-api.cpp:125" \

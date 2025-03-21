@@ -1,5 +1,6 @@
 #pragma once
 
+inline constexpr int BYZ_INDEX = 1;
 inline constexpr int GLOBAL_ITERS = 5;
 inline constexpr int GLOBAL_LEARN_RATE = 0.01;
 inline constexpr uint64_t REG_SZ_DATA = 87360;

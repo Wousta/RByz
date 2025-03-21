@@ -164,7 +164,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
   }
 
   torch::optim::SGD optimizer(
-      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
+      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(1));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);

@@ -3,7 +3,7 @@
 # Configuration
 srvr_ip=192.168.117.103
 port=2000
-n_clients=1
+n_clients=2
 remote_user="bustaman"
 remote_host="lpdquatro4"
 remote_script_path="/home/bustaman/rbyz/fltrust"

@@ -31,11 +31,13 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   int& srvr_ready_flag,
   float* srvr_w,
   std::vector<int>& clnt_ready_flags,
-  std::vector<float*>& clnt_ws);
+  std::vector<float*>& clnt_ws
+);
 std::vector<int> generateRandomUniqueVector(int n_clients);
 std::vector<torch::Tensor> aggregate_updates(
   const std::vector<std::vector<torch::Tensor>>& client_updates,
-  const std::vector<torch::Tensor>& server_update);
+  const std::vector<torch::Tensor>& server_update
+);
 
 int main(int argc, char* argv[]) {
   Logger::instance().log("Server starting execution\n");
@@ -122,6 +124,9 @@ int main(int argc, char* argv[]) {
   free(srvr_w);
   for (int i = 0; i < n_clients; i++) {
     free(clnt_ws[i]);
+  }
+  for(RcConn conn : conns) {
+    conn.disconnect();
   }
   free(addr_info.ipv4_addr);
   free(addr_info.port);

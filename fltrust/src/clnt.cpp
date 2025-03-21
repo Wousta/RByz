@@ -17,9 +17,15 @@
 #define MSG_SZ 32
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-int exec_rdma_op(int loc_info_idx, int rem_info_idx, uint64_t size, int op_type) {
-  return 0;
-}
+std::vector<torch::Tensor> run_fltrust_clnt(
+  int rounds,
+  RdmaOps& rdma_ops,
+  MnistTrain& mnist,
+  int& srvr_ready_flag,
+  int& clnt_ready_flag,
+  float* srvr_w,
+  float* clnt_w
+);
 
 int main(int argc, char* argv[]) {
   Logger::instance().log("Client starting execution\n");
@@ -60,7 +66,7 @@ int main(int argc, char* argv[]) {
   reg_info.addr_locs.push_back(castI(&srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(srvr_w));
   reg_info.addr_locs.push_back(castI(&clnt_ready_flag));
-  reg_info.addr_locs.push_back(castI(srvr_w));
+  reg_info.addr_locs.push_back(castI(clnt_w));
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
@@ -76,19 +82,50 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops(conn_data);
 
   MnistTrain mnist;
+  std::vector<torch::Tensor> w = run_fltrust_clnt(
+    GLOBAL_ITERS,
+    rdma_ops,
+    mnist,
+    srvr_ready_flag,
+    clnt_ready_flag,
+    srvr_w,
+    clnt_w
+  );
+
+  {
+    std::ostringstream oss;
+    oss << "\nFINAL W:\n";
+    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
+    Logger::instance().log(oss.str());
+  }
+
+  free(srvr_w);
+  free(clnt_w);
+  free(addr_info.ipv4_addr);
+  free(addr_info.port);
+  conn.disconnect();
+
+  std::cout << "Client done\n";
+
+  return 0;
+}
+
+std::vector<torch::Tensor> run_fltrust_clnt(
+  int rounds,
+  RdmaOps& rdma_ops,
+  MnistTrain& mnist,
+  int& srvr_ready_flag,
+  int& clnt_ready_flag,
+  float* srvr_w,
+  float* clnt_w) {
+
   std::vector<torch::Tensor> w = mnist.testOG();
-  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
-  printTensorSlices(w, 0, 10);
+  //printTensorSlices(w, 0, 10);
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
-
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
     } while (srvr_ready_flag != round);
-
-    Logger::instance().log("Client read flag = " + std::to_string(srvr_ready_flag) + "\n");
-    
-    //std::this_thread::sleep_for(std::chrono::hours(1));
 
     // Read the weights from the server
     rdma_ops.exec_rdma_read(REG_SZ_DATA, SRVR_W_IDX);
@@ -115,13 +152,13 @@ int main(int argc, char* argv[]) {
     std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
 
     // Send the updated weights back to the server
-    auto all_tensors = flatten_tensor_vector(g);
+    torch::Tensor all_tensors = flatten_tensor_vector(g);
     size_t total_bytes_g = all_tensors.numel() * sizeof(float);
     if(total_bytes_g != (size_t)REG_SZ_DATA) {
       Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
     }
-    float* client_w = all_tensors.data_ptr<float>();
-    std::memcpy(castV(reg_info.addr_locs[CLNT_W_IDX]), client_w, total_bytes_g);
+    float* all_tensors_float = all_tensors.data_ptr<float>();
+    std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
     unsigned int total_bytes_g_int = static_cast<unsigned int>(REG_SZ_DATA);
     rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
 
@@ -141,20 +178,5 @@ int main(int argc, char* argv[]) {
 
   }
 
-  {
-    std::ostringstream oss;
-    oss << "\nFINAL W:\n";
-    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
-    Logger::instance().log(oss.str());
-  }
-
-  free(srvr_w);
-  free(clnt_w);
-  free(addr_info.ipv4_addr);
-  free(addr_info.port);
-  conn.disconnect();
-
-  std::cout << "Client done\n";
-
-  return 0;
+  return w;
 }
