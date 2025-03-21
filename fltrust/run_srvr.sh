@@ -11,6 +11,7 @@ CLNT_PIDS=()
 cleanup() {
   echo "Terminating srvr and clnt processes..."
   kill $SRVR_PID "${CLNT_PIDS[@]}" 2>/dev/null
+  #kill $SRVR_PID $CLNT_PID 2>/dev/null 
   exit 0
 }
 
@@ -36,6 +37,8 @@ build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
 SRVR_PID=$!
 
 # Start the client processes and store their PIDs.
+#ssh bustaman@lpdquatro4 "/home/bustaman/rbyz/fltrust/run_client.sh" &
+#CLNT_PID=$!
 for id in $(seq 1 $n_clients); do
   build/clnt --srvr_ip $srvr_ip --port $port --id $id &
   # gdb -ex "break /home/bustaman/usr-rdma-api-main/fltrust/src/clnt.cpp:92" \
@@ -47,5 +50,6 @@ for id in $(seq 1 $n_clients); do
   CLNT_PIDS+=($!)
 done
 
-# Wait for the srvr and all client processes.
+# # Wait for the srvr and all client processes.
 wait $SRVR_PID "${CLNT_PIDS[@]}"
+#wait $SRVR_PID $CLNT_PID

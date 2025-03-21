@@ -48,10 +48,10 @@ MnistTrain::MnistTrain()
   : device(get_device()) {
 
   if (torch::cuda::is_available()) {
-    std::cout << "CUDA available! Training on GPU." << std::endl;
+    Logger::instance().log("CUDA available! Training on GPU.\n");
     device_type = torch::kCUDA;
   } else {
-    std::cout << "Training on CPU." << std::endl;
+    Logger::instance().log("Training on CPU.\n");
     device_type = torch::kCPU;
   }
 
@@ -65,10 +65,8 @@ MnistTrain::~MnistTrain() {
 torch::Device MnistTrain::get_device() {
   torch::DeviceType device_type;
   if (torch::cuda::is_available()) {
-    std::cout << "CUDA available! Training on GPU." << std::endl;
     device_type = torch::kCUDA;
   } else {
-    std::cout << "Training on CPU." << std::endl;
     device_type = torch::kCPU;
   }
   return torch::Device(device_type);
@@ -142,7 +140,7 @@ void test(
       "\nTest set: Average loss: %.4f | Accuracy: %.3f\n",
       test_loss,
       static_cast<double>(correct) / dataset_size);
-  Logger::instance().log("Testing donete\n");
+  Logger::instance().log("Testing done\n");
 }
 
 std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Tensor>& w) {
