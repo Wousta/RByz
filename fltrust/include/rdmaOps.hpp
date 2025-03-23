@@ -1,7 +1,5 @@
 // Class for RDMA operations
-
-#ifndef RDMA_OPS_HPP
-#define RDMA_OPS_HPP
+#pragma once
 
 #include "../../RcConn/include/rc_conn.hpp"
 #include "../../rdma-api/include/rdma-api.hpp"
@@ -27,5 +25,3 @@ class RdmaOps {
   int exec_rdma_write(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx);
   int exec_rdma_write(uint32_t size, uint32_t same_idx);
 };
-
-#endif // RDMA_OPS_HPP

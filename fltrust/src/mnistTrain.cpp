@@ -97,7 +97,7 @@ void train(
     optimizer.zero_grad();
     auto output = model.forward(data);
     auto loss = torch::nll_loss(output, targets);
-    //AT_ASSERT(!std::isnan(loss.template item<float>()));
+    AT_ASSERT(!std::isnan(loss.template item<float>()));
     loss.backward();
     optimizer.step();
 

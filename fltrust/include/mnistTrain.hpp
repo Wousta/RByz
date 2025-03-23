@@ -1,6 +1,4 @@
 #pragma once
-#ifndef MNISTTRAIN_HPP
-#define MNISTTRAIN_HPP
 
 #include <vector>
 
@@ -53,5 +51,3 @@ class MnistTrain {
   std::vector<torch::Tensor> testOG();
 
 };
-
-#endif // MNISTTRAIN_HPP

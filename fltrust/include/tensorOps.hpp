@@ -1,6 +1,4 @@
 #pragma once
-#ifndef TENSOROPS_HPP
-#define TENSOROPS_HPP
 
 #include <vector>
 #include "logger.hpp"
@@ -17,5 +15,3 @@ void printTensorSlices(
   int start_idx = 0, 
   int end_idx = -1
 );
-
-#endif // TENSOROPS_HPP
