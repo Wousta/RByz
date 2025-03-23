@@ -1,4 +1,7 @@
 #pragma once
+#ifndef SUBSETSAMPLER_HPP
+#define SUBSETSAMPLER_HPP
+
 #include <torch/torch.h>
 #include <optional>
 #include <numeric>
@@ -67,3 +70,5 @@ class SubsetSampler : public torch::data::samplers::Sampler<std::vector<size_t>>
 
 
 };
+
+#endif // SUBSETSAMPLER_HPP

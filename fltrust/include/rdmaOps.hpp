@@ -28,4 +28,4 @@ class RdmaOps {
   int exec_rdma_write(uint32_t size, uint32_t same_idx);
 };
 
-#endif
+#endif // RDMA_OPS_HPP

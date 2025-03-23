@@ -1,4 +1,6 @@
 #pragma once
+#ifndef LOGGER_HPP
+#define LOGGER_HPP
 
 #include <fstream>
 #include <iostream>
@@ -57,3 +59,5 @@ private:
     std::ofstream logFile_;
     std::mutex mtx_;
 };
+
+#endif // LOGGER_HPP

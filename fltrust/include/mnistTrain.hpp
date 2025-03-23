@@ -54,4 +54,4 @@ class MnistTrain {
 
 };
 
-#endif
+#endif // MNISTTRAIN_HPP
