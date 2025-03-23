@@ -14,7 +14,6 @@
 #include <thread>
 #include <vector>
 
-#define MSG_SZ 32
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
 std::vector<torch::Tensor> run_fltrust_clnt(
