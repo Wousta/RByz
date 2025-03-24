@@ -27,6 +27,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 );
 
 int main(int argc, char* argv[]) {
+  std::this_thread::sleep_for(std::chrono::seconds(3));
   Logger::instance().log("Client starting execution\n");
 
   int id;
@@ -74,11 +75,11 @@ int main(int argc, char* argv[]) {
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
   // connect to server
-  Logger::instance().log("Connecting to server\n");
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
+  Logger::instance().log("Connected to server\n");
 
   MnistTrain mnist;
   std::vector<torch::Tensor> w = run_fltrust_clnt(
@@ -91,12 +92,8 @@ int main(int argc, char* argv[]) {
     clnt_w
   );
 
-  {
-    std::ostringstream oss;
-    oss << "\nFINAL W:\n";
-    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
-    Logger::instance().log(oss.str());
-  }
+  Logger::instance().log("Client: Final weights\n");
+  printTensorSlices(w, 0, 5);
 
   free(srvr_w);
   free(clnt_w);
@@ -119,12 +116,15 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* clnt_w) {
 
   std::vector<torch::Tensor> w = mnist.testOG();
+  Logger::instance().log("Client: Initial run of minstrain done\n");
   //printTensorSlices(w, 0, 10);
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
     } while (srvr_ready_flag != round);
+
+    Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
 
     // Read the weights from the server
     rdma_ops.exec_rdma_read(REG_SZ_DATA, SRVR_W_IDX);
@@ -138,14 +138,8 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 
     w = reconstruct_tensor_vector(flat_tensor, w);
 
-    // Print the first few updated weight values from server
-    {
-      std::ostringstream oss;
-      oss << "Number of elements in updated tensor: " << flat_tensor.numel() << "\n";
-      oss << "Updated weights from server:" << "\n";
-      oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 10)) << " ";
-      Logger::instance().log(oss.str());
-    }
+    Logger::instance().log("Client: Read weights from server numel = " + std::to_string(flat_tensor.numel()) + "\n");
+    printTensorSlices(w, 0, 5);
 
     // Run the training on the updated weights
     std::vector<torch::Tensor> g = mnist.runMnistTrain(w);

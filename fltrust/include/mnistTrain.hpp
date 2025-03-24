@@ -40,14 +40,15 @@ class MnistTrain {
   torch::Device device;
   Net model;
 
-  torch::Device get_device();
+  torch::Device init_device();
 
   public:
   MnistTrain();
   ~MnistTrain();
 
-  std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> testOG();
+  Net getModel() { return model; }
+  torch::Device getDevice() { return device; }
 
 };

@@ -6,6 +6,7 @@
 #include "../include/rdmaOps.hpp"
 #include "../include/tensorOps.hpp"
 #include "../include/logger.hpp"
+#include "../include/attacks.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -32,7 +33,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws
 );
-std::vector<int> generateRandomUniqueVector(int n_clients);
+std::vector<int> generateRandomUniqueVector(int min_sz, int n_clients);
 torch::Tensor aggregate_updates(
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update
@@ -97,6 +98,7 @@ int main(int argc, char* argv[]) {
     // connect to clients
     conns[i].acceptConn(addr_info, reg_info[i]);
     conn_data.push_back(conns[i].getConnData());
+    std::cout << "Connected to client " << i << "\n";
   }
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
@@ -115,7 +117,7 @@ int main(int argc, char* argv[]) {
   {
     std::ostringstream oss;
     oss << "\nFINAL W:\n";
-    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 20)) << " ";
+    oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 10)) << " ";
     Logger::instance().log(oss.str());
   }
 
@@ -154,31 +156,26 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
-    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
-    std::vector<torch::Tensor> clnt_g_vecs(polled_clients.size());
+    std::vector<int> polled_clients = generateRandomUniqueVector(4, n_clients);
+    std::vector<torch::Tensor> clnt_updates(polled_clients.size());
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
     float* global_w = all_tensors.data_ptr<float>();
     std::memcpy(srvr_w, global_w, total_bytes);
 
-    {
-      std::ostringstream oss;
-      oss << "\nServer wrote bytes = " << total_bytes << "\n";
-      oss << "Updated weights from server:" << "\n";
-      oss << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 10)) << " ";
-      oss << "...\n";
-      Logger::instance().log(oss.str());
-    }
+    Logger::instance().log("\nServer wrote bytes = " + std::to_string(total_bytes) + "\n");
+    printTensorSlices(w, 0, 5);
 
     // Set the flag to indicate that the weights are ready for the clients to read
     srvr_ready_flag = round;
 
+    Logger::instance().log("Server ready flag set to " + std::to_string(srvr_ready_flag) + "\n");
     // Run local training
     std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
 
-    // Read the gradients from the clients
-    //NOTE: RIGHT NOW SOME CLIENTS DO TRAINING, BUT EVERY CLIENT READS THE AGGREGATED W IN EACH ROUND
+    //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
+    //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
@@ -195,24 +192,36 @@ std::vector<torch::Tensor> run_fltrust_srvr(
       ).clone();
 
       //std::vector<torch::Tensor> clnt_w_vec = reconstruct_tensor_vector(flat_tensor, w);
-      clnt_g_vecs[i] = flat_tensor;
-
+      clnt_updates[i] = flat_tensor;
     }
 
     {
       std::ostringstream oss;
       oss << "Server read gradients from clients:" << "\n";
-      for(torch::Tensor clnt_g : clnt_g_vecs) {
+      for(torch::Tensor clnt_g : clnt_updates) {
         oss << "\n  Client g:\n";
-        oss << "    " << clnt_g.slice(0, 0, std::min<size_t>(clnt_g.numel(), 10)) << " ";
+        oss << "    " << clnt_g.slice(0, 0, std::min<size_t>(clnt_g.numel(), 5)) << " ";
       }
       Logger::instance().log(oss.str());
     }
 
+    // Use attacks to simulate Byzantine clients
+    Logger::instance().log("Server: Starting Byzantine attack\n");
+    //clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates = trim_attack(
+      clnt_updates, 
+      mnist.getModel(), 
+      GLOBAL_LEARN_RATE, 
+      N_BYZ_CLNTS, 
+      mnist.getDevice()
+    );
+
+    Logger::instance().log("Server: Done with Byzantine attack\n");
+
     // AGGREGATION PHASE //////////////////////
     // Update w for the next round
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
-    torch::Tensor aggregated_update = aggregate_updates(clnt_g_vecs, flat_srvr_update);
+    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] - GLOBAL_LEARN_RATE * aggregated_update_vec[i];
@@ -223,7 +232,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   return w;
 }
 
-std::vector<int> generateRandomUniqueVector(int n_clients) {
+std::vector<int> generateRandomUniqueVector(int min_sz, int n_clients) {
   // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
   
@@ -235,7 +244,7 @@ std::vector<int> generateRandomUniqueVector(int n_clients) {
   std::shuffle(allValues.begin(), allValues.end(), rng);
   
   // Generate random size
-  std::uniform_int_distribution<int> sizeDist(1, n_clients);
+  std::uniform_int_distribution<int> sizeDist(min_sz, n_clients);
   int size = sizeDist(rng);
   
   // Return the first 'size' elements
@@ -289,10 +298,9 @@ torch::Tensor aggregate_updates(
       }
   }
   
-  // Prepare the aggregated update with zeros
-  torch::Tensor aggregated_update = torch::zeros_like(server_update);
 
   // Add scaled client updates to the aggregated update
+  torch::Tensor aggregated_update = torch::zeros_like(server_update);
   for (size_t i = 0; i < client_updates.size(); i++) {
     float weight = normalized_scores[i];
     aggregated_update += client_updates[i] * weight;

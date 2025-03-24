@@ -45,7 +45,7 @@ auto test_loader = torch::data::make_data_loader(std::move(test_dataset), kTestB
 
 
 MnistTrain::MnistTrain() 
-  : device(get_device()) {
+  : device(init_device()) {
 
   if (torch::cuda::is_available()) {
     Logger::instance().log("CUDA available! Training on GPU.\n");
@@ -62,7 +62,7 @@ MnistTrain::~MnistTrain() {
   // Do nothing
 }
 
-torch::Device MnistTrain::get_device() {
+torch::Device MnistTrain::init_device() {
   torch::DeviceType device_type;
   if (torch::cuda::is_available()) {
     device_type = torch::kCUDA;
@@ -70,16 +70,6 @@ torch::Device MnistTrain::get_device() {
     device_type = torch::kCPU;
   }
   return torch::Device(device_type);
-}
-
-std::vector<torch::Tensor> MnistTrain::runMnistTrainDummy(std::vector<torch::Tensor>& w) {
-  std::cout << "Running dummy MNIST training\n";
-  
-  for(size_t i = 0; i < w.size(); i++) {
-    w[i] = w[i] + 1;  // element-wise addition of 1
-  }
-  
-  return w;
 }
 
 template <typename DataLoader>
@@ -149,7 +139,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
   // Update model parameters with input weights if sizes match
   auto params = model.parameters();
   if (w.size() == params.size()) {
-    std::cout << "Updating model parameters with input weights." << std::endl;
+    std::cout << "\nUpdating model parameters with input weights." << std::endl;
     for (size_t i = 0; i < params.size(); ++i) {
       // Copy the input weight tensor to the corresponding model parameter
       params[i].data().copy_(w[i]);
