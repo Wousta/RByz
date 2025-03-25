@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
     // connect to clients
     conns[i].acceptConn(addr_info, reg_info[i]);
     conn_data.push_back(conns[i].getConnData());
-    std::cout << "Connected to client " << i << "\n";
+    std::cout << "\nConnected to client " << i << "\n";
   }
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
@@ -156,7 +156,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
-    std::vector<int> polled_clients = generateRandomUniqueVector(4, n_clients);
+    std::vector<int> polled_clients = generateRandomUniqueVector(6, n_clients);
     std::vector<torch::Tensor> clnt_updates(polled_clients.size());
 
     // Copy to shared memory

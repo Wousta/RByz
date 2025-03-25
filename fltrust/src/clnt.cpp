@@ -27,7 +27,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 );
 
 int main(int argc, char* argv[]) {
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  std::this_thread::sleep_for(std::chrono::seconds(12));
   Logger::instance().log("Client starting execution\n");
 
   int id;
@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
-  Logger::instance().log("Connected to server\n");
+  std:: cout << "\nClient num: " << id << " connected to server ret: " << ret << "\n";
 
   MnistTrain mnist;
   std::vector<torch::Tensor> w = run_fltrust_clnt(

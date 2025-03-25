@@ -36,9 +36,21 @@ struct Net : torch::nn::Module {
 
 class MnistTrain {
   private:
+  const char* kDataRoot = "./data";
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
+  size_t train_dataset_size;
+  size_t test_dataset_size;
+  
+  using DatasetType = decltype(
+    torch::data::datasets::MNIST(kDataRoot)
+    .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+    .map(torch::data::transforms::Stack<>())
+  );
+
+  DatasetType train_dataset;
+  DatasetType test_dataset;
 
   torch::Device init_device();
 
@@ -46,6 +58,7 @@ class MnistTrain {
   MnistTrain();
   ~MnistTrain();
 
+  std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> testOG();
   Net getModel() { return model; }

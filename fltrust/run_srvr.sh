@@ -2,7 +2,7 @@
 
 srvr_ip=192.168.117.103
 port=2000
-n_clients=1
+n_clients=6
 
 # Array for client PIDs
 CLNT_PIDS=()
@@ -43,8 +43,7 @@ for id in $(seq 1 $n_clients); do
   CLNT_PIDS+=($!)
 done
 
-# gdb -ex "break attacks.cpp:47" \
-#     -ex "break attacks.cpp:51" \
+# gdb -ex "break attacks.cpp:60" \
 #     -ex "start" \
 #     --args build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients 
 # #valgrind --leak-check=full build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &

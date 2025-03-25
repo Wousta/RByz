@@ -3,7 +3,7 @@
 # Configuration
 srvr_ip=192.168.117.103
 port=2000
-n_clients=4
+n_clients=3
 remote_user="bustaman"
 remote_host="lpdquatro4"
 remote_script_path="/home/bustaman/rbyz/fltrust"
@@ -57,7 +57,9 @@ SRVR_PID=$!
 
 # Start the client processes remotely
 echo "Starting clients on remote machine..."
-ssh $remote_user@$remote_host "cd $remote_script_path && rm -f $remote_script_path/clients.pid && for id in \$(seq 1 $n_clients); do build/clnt --srvr_ip $srvr_ip --port $port --id \$id & echo \$! >> $remote_script_path/clients.pid; done" &
+ssh $remote_user@$remote_host "cd $remote_script_path && rm -f $remote_script_path/clients.pid && for id in \$(seq 1 $n_clients);\
+                              do build/clnt --srvr_ip $srvr_ip --port $port --id \$id & echo \$! >> $remote_script_path/clients.pid;\
+                              sleep 0.5; done" &
 SSH_PIDS+=($!)
 
 # Wait for the local server process
