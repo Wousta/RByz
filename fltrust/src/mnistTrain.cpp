@@ -8,20 +8,19 @@
 #include <string>
 #include <vector>
 
-int counter = 1;
-
 // Where to find the MNIST dataset.
-const int64_t kTrainBatchSize = 1;
+const char* kDataRoot = "./data";
+const int64_t kTrainBatchSize = 8;
 const int64_t kTestBatchSize = 1;
-const int64_t kNumberOfEpochs = 1;
+const int64_t kNumberOfEpochs = 3;
 const int64_t kLogInterval = 1;
 const double learnRate = 0.001;
-const int64_t subset_size = 150;
+const int64_t subset_size = 10000;
 
-// auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
-//   .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-//   .map(torch::data::transforms::Stack<>());
-// const size_t train_dataset_size = train_dataset.size().value();
+auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
+  .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+  .map(torch::data::transforms::Stack<>());
+const size_t train_dataset_size = train_dataset.size().value();
 
 // auto test_dataset = torch::data::datasets::MNIST(
 //   kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
@@ -161,7 +160,7 @@ void test(
 }
 
 std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Tensor>& w) {
-  torch::manual_seed(1);
+  //torch::manual_seed(1);
   
   // Update model parameters with input weights if sizes match
   auto params = model.parameters();
@@ -180,19 +179,19 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
     }
   }
 
-  SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
-
-  auto train_loader = torch::data::make_data_loader(
-    train_dataset,
-    train_sampler,
-    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
-
   auto test_loader = torch::data::make_data_loader(test_dataset, kTestBatchSize);
 
   torch::optim::SGD optimizer(
-      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(1));
+      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+    SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
+
+    auto train_loader = torch::data::make_data_loader(
+      train_dataset,
+      train_sampler,
+      torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+
     train(epoch, model, device, *train_loader, optimizer, subset_size);
     //test(model, device, *test_loader, test_dataset_size);
   }
@@ -205,16 +204,13 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
   }
   
   // Return update
-  // Create a new vector to store the result
   std::vector<torch::Tensor> result;
   result.reserve(model_weights.size());
-  
-  // Ensure both vectors have the same size
+
   if (model_weights.size() != w.size()) {
       throw std::runtime_error("Tensor vectors must have the same size for subtraction");
   }
-  
-  // Perform element-wise subtraction
+
   for (size_t i = 0; i < model_weights.size(); ++i) {
       result.push_back(model_weights[i] - w[i]);
   }
@@ -223,9 +219,9 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
 }
 
 std::vector<torch::Tensor> MnistTrain::testOG() {
-  torch::manual_seed(1);
+  //torch::manual_seed(1);
 
-  SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
+  SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, 5);
 
   auto train_loader = torch::data::make_data_loader(
     train_dataset,
@@ -238,7 +234,7 @@ std::vector<torch::Tensor> MnistTrain::testOG() {
     model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, model, device, *train_loader, optimizer, subset_size);
+    train(epoch, model, device, *train_loader, optimizer, 5);
     //test(model, device, *test_loader, test_dataset_size);
   }
 
@@ -246,7 +242,11 @@ std::vector<torch::Tensor> MnistTrain::testOG() {
   std::vector<torch::Tensor> model_weights;
   for (const auto& param : model.parameters()) {
     // Clone the parameter to ensure we're not just storing references
-    model_weights.push_back(param.clone().detach());
+    //model_weights.push_back(param.clone().detach());
+    auto shape = param.sizes();
+    auto random_tensor = torch::rand(shape, param.options());
+    random_tensor = random_tensor * 0.1;
+    model_weights.push_back(random_tensor);
   }
 
   return model_weights;

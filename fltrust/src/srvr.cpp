@@ -33,7 +33,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws
 );
-std::vector<int> generateRandomUniqueVector(int min_sz, int n_clients);
+std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1);
 torch::Tensor aggregate_updates(
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update
@@ -156,7 +156,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
-    std::vector<int> polled_clients = generateRandomUniqueVector(6, n_clients);
+    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
     std::vector<torch::Tensor> clnt_updates(polled_clients.size());
 
     // Copy to shared memory
@@ -208,7 +208,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     // Use attacks to simulate Byzantine clients
     Logger::instance().log("Server: Starting Byzantine attack\n");
     //clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    clnt_updates = trim_attack(
+    clnt_updates = krum_attack(
       clnt_updates, 
       mnist.getModel(), 
       GLOBAL_LEARN_RATE, 
@@ -233,10 +233,13 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 }
 
 std::vector<int> generateRandomUniqueVector(int min_sz, int n_clients) {
+  if (min_sz == -1) {
+    min_sz = n_clients;
+  }
+  
   // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
   
-  // Create a vector with all possible values from 0 to n-1 and shuffle
   std::vector<int> allValues(n_clients);
   for (int i = 0; i < n_clients; i++) {
       allValues[i] = i;
