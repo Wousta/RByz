@@ -39,6 +39,7 @@ struct Net : torch::nn::Module {
 class MnistTrain {
   private:
   const char* kDataRoot = "./data";
+  const int worker_id;
   const int64_t subset_size;
   const int64_t kTrainBatchSize = 32;
   const int64_t kTestBatchSize = 1;
@@ -71,10 +72,10 @@ class MnistTrain {
   std::unique_ptr<TestDataLoaderType> test_loader;
 
   torch::Device init_device();
-  SubsetSampler get_subset_sampler(size_t dataset_size, int64_t subset_size);
+  SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
 
   public:
-  MnistTrain(int64_t subset_size);
+  MnistTrain(int worker_id, int64_t subset_size);
   ~MnistTrain() = default;
 
   template <typename DataLoader>

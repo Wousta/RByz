@@ -7,9 +7,10 @@
 #include <string>
 #include <vector>
 
-MnistTrain::MnistTrain(int64_t subset_size) 
+MnistTrain::MnistTrain(int worker_id, int64_t subset_size) 
   : device(init_device()),
   subset_size(subset_size),
+  worker_id(worker_id),
   train_dataset(torch::data::datasets::MNIST(kDataRoot)
     .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
     .map(torch::data::transforms::Stack<>())),
@@ -18,6 +19,14 @@ MnistTrain::MnistTrain(int64_t subset_size)
     .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
     .map(torch::data::transforms::Stack<>()))
   {
+
+  // Worker with id = 0 is the server, needs different random seed for the sampler randperm
+  if(worker_id == 0) {
+    torch::manual_seed(1);
+  }
+  else {
+    torch::manual_seed(2);
+  }
 
   if (torch::cuda::is_available()) {
     Logger::instance().log("CUDA available! Training on GPU.\n");
@@ -31,7 +40,7 @@ MnistTrain::MnistTrain(int64_t subset_size)
   train_dataset_size = train_dataset.size().value();
   test_dataset_size = test_dataset.size().value();
 
-  SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
+  SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
   auto train_loader_temp = torch::data::make_data_loader(
     train_dataset, 
     train_sampler,
@@ -45,9 +54,20 @@ MnistTrain::MnistTrain(int64_t subset_size)
   test_loader = std::move(test_loader_temp);
 }
 
-SubsetSampler MnistTrain::get_subset_sampler(size_t dataset_size, int64_t subset_size) {
+SubsetSampler MnistTrain::get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size) {
   auto indices_tensor = torch::randperm(dataset_size);
-  auto subset_tensor = indices_tensor.slice(0, 0, subset_size);
+
+  int64_t start = (worker_id - 1) * subset_size;
+  if(worker_id == 0) {
+    start = 0;
+  }
+  
+  int64_t end = start + subset_size;
+  if (end > dataset_size) {
+    end = dataset_size;
+  }
+
+  auto subset_tensor = indices_tensor.slice(0, start, end);
 
   std::vector<size_t> subset_indices(subset_size);
   for (int64_t i = 0; i < subset_size; ++i) {
@@ -139,8 +159,7 @@ void MnistTrain::test(
 }
 
 std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Tensor>& w) {
-  //torch::manual_seed(1);
-  
+
   // Update model parameters with input weights if sizes match
   auto params = model.parameters();
   if (w.size() == params.size()) {
@@ -198,7 +217,6 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
 }
 
 std::vector<torch::Tensor> MnistTrain::testOG() {
-  //torch::manual_seed(1);
 
   // SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, 5);
 
