@@ -190,7 +190,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
       ).clone();
 
       //std::vector<torch::Tensor> clnt_w_vec = reconstruct_tensor_vector(flat_tensor, w);
-      clnt_updates[i] = flat_tensor;
+      clnt_updates[client] = flat_tensor;
     }
 
     // {
