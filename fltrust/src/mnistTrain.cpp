@@ -10,23 +10,23 @@
 
 // Where to find the MNIST dataset.
 const char* kDataRoot = "./data";
-const int64_t kTrainBatchSize = 8;
+const int64_t kTrainBatchSize = 32;
 const int64_t kTestBatchSize = 1;
-const int64_t kNumberOfEpochs = 3;
+const int64_t kNumberOfEpochs = 1;
 const int64_t kLogInterval = 1;
-const double learnRate = 0.001;
-const int64_t subset_size = 10000;
+const double learnRate = 0.0003;
+const int64_t subset_size = 100;
 
 auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
   .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
   .map(torch::data::transforms::Stack<>());
 const size_t train_dataset_size = train_dataset.size().value();
 
-// auto test_dataset = torch::data::datasets::MNIST(
-//   kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
-//   .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-//   .map(torch::data::transforms::Stack<>());
-// const size_t test_dataset_size = test_dataset.size().value();
+auto test_dataset = torch::data::datasets::MNIST(
+  kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
+  .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+  .map(torch::data::transforms::Stack<>());
+const size_t test_dataset_size = test_dataset.size().value();
 
 SubsetSampler get_subset_sampler(size_t dataset_size, int64_t subset_size) {
   auto indices_tensor = torch::randperm(dataset_size);
@@ -40,14 +40,19 @@ SubsetSampler get_subset_sampler(size_t dataset_size, int64_t subset_size) {
   return SubsetSampler(subset_indices);
 }
 
-// SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
+SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
+auto train_loader = torch::data::make_data_loader(
+  std::move(train_dataset),
+  train_sampler,
+  torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
 
-// auto train_loader = torch::data::make_data_loader(
+// SubsetSampler test_sampler = get_subset_sampler(test_dataset_size, 3000);
+// auto test_loader = torch::data::make_data_loader(
 //   std::move(train_dataset),
-//   train_sampler,
+//   test_sampler,
 //   torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
 
-// auto test_loader = torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
+auto test_loader = torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
 
 
 MnistTrain::MnistTrain() 
@@ -185,12 +190,12 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
       model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
+    // SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
 
-    auto train_loader = torch::data::make_data_loader(
-      train_dataset,
-      train_sampler,
-      torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+    // auto train_loader = torch::data::make_data_loader(
+    //   train_dataset,
+    //   train_sampler,
+    //   torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
 
     train(epoch, model, device, *train_loader, optimizer, subset_size);
     //test(model, device, *test_loader, test_dataset_size);
@@ -221,21 +226,19 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
 std::vector<torch::Tensor> MnistTrain::testOG() {
   //torch::manual_seed(1);
 
-  SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, 5);
+  // SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, 5);
 
-  auto train_loader = torch::data::make_data_loader(
-    train_dataset,
-    train_sampler,
-    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+  // auto train_loader = torch::data::make_data_loader(
+  //   train_dataset,
+  //   train_sampler,
+  //   torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
 
-  auto test_loader = torch::data::make_data_loader(test_dataset, kTestBatchSize);
 
   torch::optim::SGD optimizer(
     model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, 5);
-    //test(model, device, *test_loader, test_dataset_size);
   }
 
   // Extract model weights after training
@@ -250,4 +253,8 @@ std::vector<torch::Tensor> MnistTrain::testOG() {
   }
 
   return model_weights;
+}
+
+void MnistTrain::testModel() {
+  test(model, device, *test_loader, test_dataset_size);
 }

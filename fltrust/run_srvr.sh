@@ -43,7 +43,7 @@ for id in $(seq 1 $n_clients); do
   CLNT_PIDS+=($!)
 done
 
-# gdb -ex "break attacks.cpp:60" \
+# gdb -ex "break srvr.cpp:107" \
 #     -ex "start" \
 #     --args build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients 
 # #valgrind --leak-check=full build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &

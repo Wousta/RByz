@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
   free(addr_info.port);
   conn.disconnect();
 
-  std::cout << "Client done\n";
+  std::cout << "\nClient done\n";
 
   return 0;
 }
@@ -117,7 +117,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 
   std::vector<torch::Tensor> w = mnist.testOG();
   Logger::instance().log("Client: Initial run of minstrain done\n");
-  //printTensorSlices(w, 0, 10);
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
     do {
@@ -139,7 +138,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(
     w = reconstruct_tensor_vector(flat_tensor, w);
 
     Logger::instance().log("Client: Read weights from server numel = " + std::to_string(flat_tensor.numel()) + "\n");
-    printTensorSlices(w, 0, 5);
 
     // Run the training on the updated weights
     std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
@@ -156,12 +154,12 @@ std::vector<torch::Tensor> run_fltrust_clnt(
     rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
 
     // Print the first few updated weights sent by client
-    {
-      std::ostringstream oss;
-      oss << "Updated weights sent by client:" << "\n";
-      oss << all_tensors.slice(0, 0, std::min<size_t>(all_tensors.numel(), 10)) << "\n";
-      Logger::instance().log(oss.str());
-    }
+    // {
+    //   std::ostringstream oss;
+    //   oss << "Updated weights sent by client:" << "\n";
+    //   oss << all_tensors.slice(0, 0, std::min<size_t>(all_tensors.numel(), 10)) << "\n";
+    //   Logger::instance().log(oss.str());
+    // }
 
     // Update the ready flag
     clnt_ready_flag = round;

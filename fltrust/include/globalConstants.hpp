@@ -1,7 +1,7 @@
 #pragma once
 
 inline constexpr int N_BYZ_CLNTS = 2;
-inline constexpr int GLOBAL_ITERS = 1;
+inline constexpr int GLOBAL_ITERS = 2;
 inline constexpr int GLOBAL_LEARN_RATE = 0.01;
 inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;

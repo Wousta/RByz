@@ -121,6 +121,8 @@ int main(int argc, char* argv[]) {
     Logger::instance().log(oss.str());
   }
 
+  mnist.testModel();
+
   // free memory
   free(srvr_w);
   for (int i = 0; i < n_clients; i++) {
@@ -132,10 +134,10 @@ int main(int argc, char* argv[]) {
   free(addr_info.ipv4_addr);
   free(addr_info.port);
 
-  std::cout << "Server done\n";
+  std::cout << "\nServer done\n";
 
   // sleep for server to be available
-  Logger::instance().log("Sleeping for 1 hour\n");
+  Logger::instance().log("\nSleeping for 1 hour\n");
 
   std::this_thread::sleep_for(std::chrono::hours(1));
   return 0;
@@ -164,13 +166,9 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     float* global_w = all_tensors.data_ptr<float>();
     std::memcpy(srvr_w, global_w, total_bytes);
 
-    Logger::instance().log("\nServer wrote bytes = " + std::to_string(total_bytes) + "\n");
-    printTensorSlices(w, 0, 5);
-
     // Set the flag to indicate that the weights are ready for the clients to read
     srvr_ready_flag = round;
 
-    Logger::instance().log("Server ready flag set to " + std::to_string(srvr_ready_flag) + "\n");
     // Run local training
     std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
 
@@ -195,18 +193,17 @@ std::vector<torch::Tensor> run_fltrust_srvr(
       clnt_updates[i] = flat_tensor;
     }
 
-    {
-      std::ostringstream oss;
-      oss << "Server read gradients from clients:" << "\n";
-      for(torch::Tensor clnt_g : clnt_updates) {
-        oss << "\n  Client g:\n";
-        oss << "    " << clnt_g.slice(0, 0, std::min<size_t>(clnt_g.numel(), 5)) << " ";
-      }
-      Logger::instance().log(oss.str());
-    }
+    // {
+    //   std::ostringstream oss;
+    //   oss << "Server read gradients from clients:" << "\n";
+    //   for(torch::Tensor clnt_g : clnt_updates) {
+    //     oss << "\n  Client g:\n";
+    //     oss << "    " << clnt_g.slice(0, 0, std::min<size_t>(clnt_g.numel(), 5)) << " ";
+    //   }
+    //   Logger::instance().log(oss.str());
+    // }
 
     // Use attacks to simulate Byzantine clients
-    Logger::instance().log("Server: Starting Byzantine attack\n");
     //clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
     clnt_updates = krum_attack(
       clnt_updates, 
@@ -232,10 +229,12 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   return w;
 }
 
-std::vector<int> generateRandomUniqueVector(int min_sz, int n_clients) {
+std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   if (min_sz == -1) {
     min_sz = n_clients;
   }
+
+  std::cout << "Generating random unique vector of size " << n_clients << "\n";
   
   // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
@@ -249,6 +248,8 @@ std::vector<int> generateRandomUniqueVector(int min_sz, int n_clients) {
   // Generate random size
   std::uniform_int_distribution<int> sizeDist(min_sz, n_clients);
   int size = sizeDist(rng);
+
+  std::cout << "Random size: " << size << "\n";
   
   // Return the first 'size' elements
   return std::vector<int>(allValues.begin(), allValues.begin() + size);
