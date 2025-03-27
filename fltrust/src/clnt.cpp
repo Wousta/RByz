@@ -140,7 +140,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
     Logger::instance().log("Client: Read weights from server numel = " + std::to_string(flat_tensor.numel()) + "\n");
 
     // Run the training on the updated weights
-    std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
+    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     // Send the updated weights back to the server
     torch::Tensor all_tensors = flatten_tensor_vector(g);

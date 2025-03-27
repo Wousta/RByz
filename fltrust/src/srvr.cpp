@@ -170,7 +170,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     srvr_ready_flag = round;
 
     // Run local training
-    std::vector<torch::Tensor> g = mnist.runMnistTrain(w);
+    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
     //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS

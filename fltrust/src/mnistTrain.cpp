@@ -158,7 +158,7 @@ void MnistTrain::test(
   Logger::instance().log("Testing done\n");
 }
 
-std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Tensor>& w) {
+std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
 
   // Update model parameters with input weights if sizes match
   auto params = model.parameters();
@@ -183,15 +183,11 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
       model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    // SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, subset_size);
-
-    // auto train_loader = torch::data::make_data_loader(
-    //   train_dataset,
-    //   train_sampler,
-    //   torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
-
     train(epoch, model, device, *train_loader, optimizer, subset_size);
-    //test(model, device, *test_loader, test_dataset_size);
+
+    if (worker_id == 0 && round % 100 == 0) {
+      test(model, device, *test_loader, test_dataset_size);
+    }
   }
   
   // Extract model weights after training
@@ -218,19 +214,20 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(const std::vector<torch::Te
 
 std::vector<torch::Tensor> MnistTrain::testOG() {
 
-  // SubsetSampler train_sampler = get_subset_sampler(train_dataset_size, 5);
+  int local_subset_size = 2;
+  SubsetSampler train_sampler_local = get_subset_sampler(worker_id, train_dataset_size, local_subset_size);
 
-  // auto train_loader = torch::data::make_data_loader(
-  //   train_dataset,
-  //   train_sampler,
-  //   torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+  auto train_loader_local = torch::data::make_data_loader(
+    train_dataset,
+    train_sampler_local,
+    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
 
 
   torch::optim::SGD optimizer(
     model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, model, device, *train_loader, optimizer, 5);
+    train(epoch, model, device, *train_loader_local, optimizer, local_subset_size);
   }
 
   // Extract model weights after training
