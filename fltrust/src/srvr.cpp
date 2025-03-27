@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
   //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
-  MnistTrain mnist;
+  MnistTrain mnist(100);
   std::vector<torch::Tensor> w = run_fltrust_srvr(
     GLOBAL_ITERS,
     n_clients,

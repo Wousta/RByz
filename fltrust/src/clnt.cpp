@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops(conn_data);
   std:: cout << "\nClient num: " << id << " connected to server ret: " << ret << "\n";
 
-  MnistTrain mnist;
+  MnistTrain mnist(1000);
   std::vector<torch::Tensor> w = run_fltrust_clnt(
     GLOBAL_ITERS,
     rdma_ops,

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../include/subsetSampler.hpp"
+
 #include <vector>
 
 
@@ -37,6 +39,12 @@ struct Net : torch::nn::Module {
 class MnistTrain {
   private:
   const char* kDataRoot = "./data";
+  const int64_t subset_size;
+  const int64_t kTrainBatchSize = 32;
+  const int64_t kTestBatchSize = 1;
+  const int64_t kNumberOfEpochs = 1;
+  const int64_t kLogInterval = 1;
+  const double learnRate = 0.0003;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
@@ -49,14 +57,41 @@ class MnistTrain {
     .map(torch::data::transforms::Stack<>())
   );
 
+  using SubsetSamplerType = SubsetSampler;
+
+  // Define the DataLoader type with sampler (for train_loader)
+  using TrainDataLoaderType = torch::data::StatelessDataLoader<DatasetType, SubsetSamplerType>;
+  
+  // Define the DataLoader type without sampler (for test_loader)
+  using TestDataLoaderType = torch::data::StatelessDataLoader<DatasetType, torch::data::samplers::RandomSampler>;
+
   DatasetType train_dataset;
   DatasetType test_dataset;
+  std::unique_ptr<TrainDataLoaderType> train_loader;
+  std::unique_ptr<TestDataLoaderType> test_loader;
 
   torch::Device init_device();
+  SubsetSampler get_subset_sampler(size_t dataset_size, int64_t subset_size);
 
   public:
-  MnistTrain();
-  ~MnistTrain();
+  MnistTrain(int64_t subset_size);
+  ~MnistTrain() = default;
+
+  template <typename DataLoader>
+  void train(
+      size_t epoch,
+      Net& model,
+      torch::Device device,
+      DataLoader& data_loader,
+      torch::optim::Optimizer& optimizer,
+      size_t dataset_size);
+
+  template <typename DataLoader>
+  void test(
+      Net& model,
+      torch::Device device,
+      DataLoader& data_loader,
+      size_t dataset_size);
 
   std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
