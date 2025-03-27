@@ -123,9 +123,7 @@ int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
   if (net_flags.is_sync) {
     auto start = NOW();
     ret = ibv_post_send(send_info[0].qp, send_wr, &send_failure);
-    //std::cout << "posted send " << ret << "\n";
     ret = poll_cq(send_info[0].cq, send_info[0].wqe_depth);
-    //std::cout << "polled cq " << ret << "\n";
     auto end = NOW();
     latency->push_back({send_info[0].wqe_depth, get_dur(start, end)});
     posted_wqes += send_info[0].wqe_depth;
@@ -136,8 +134,11 @@ int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
   if (ret) {
     std::cerr << "post send failed\n";
     ret = -1;
+    delete[] send_wr;
     exit(-1);
   }
+  
+  delete[] send_wr;
   return ret;
 }
 int post_recv(const comm_info &recv_info, const NetFlags &net_flags,
@@ -205,9 +206,10 @@ int post_recv(const comm_info &recv_info, const NetFlags &net_flags,
     ret = ibv_post_recv(recv_info.qp, recv_wr, &recv_failure);
   }
   posted_wqes += recv_info.wqe_depth;
-  if (ret)
+  if (ret) {}
     ret = -1;
 
+  delete[] recv_wr;
   return ret;
 }
 int poll_cq(ibv_cq *cq, unsigned int poll_no) {
