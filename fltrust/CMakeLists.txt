@@ -14,6 +14,10 @@ endif()
 
 find_package(lyra REQUIRED)
 
+add_library(libnorm SHARED IMPORTED)
+set_target_properties(libnorm PROPERTIES
+  IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
+  IMPORTED_NO_SONAME TRUE)
 add_library(subsetSampler INTERFACE)
 add_library(mnistTrain STATIC src/mnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
@@ -59,6 +63,7 @@ target_precompile_headers(attacks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pc
 target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 
+target_link_libraries(rdmaOps PUBLIC libnorm)
 
 target_link_libraries(mnistTrain PUBLIC 
   ${TORCH_LIBRARIES}
@@ -83,10 +88,10 @@ target_link_libraries(srvr PUBLIC
 )
 
 target_link_libraries(clnt PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
+  rdmaOps
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
+  ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   ${TORCH_LIBRARIES}
   mnistTrain
-  rdmaOps
   tensorOps
 )
