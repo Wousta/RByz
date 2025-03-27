@@ -251,8 +251,10 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 
   std::cout << "Random size: " << size << "\n";
   
-  // Return the first 'size' elements
-  return std::vector<int>(allValues.begin(), allValues.begin() + size);
+  std::vector<int> result(allValues.begin(), allValues.begin() + size);
+  std::sort(result.begin(), result.end());
+  
+  return result;
 }
 
 torch::Tensor aggregate_updates(
