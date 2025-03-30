@@ -1,6 +1,4 @@
-#ifndef PCH_H
-#define PCH_H
+#pragma once
 
+// Precompiled header file
 #include <torch/torch.h>
-
-#endif // PCH_H

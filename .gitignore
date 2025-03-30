@@ -42,9 +42,9 @@ venv.bak/
 *.map
 *.dep
 
-# Directories
 fltrust/build
 fltrust/data
 fltrust/logs
+fltrust/clients.pid
 RcConn/build
 rdma-api/build

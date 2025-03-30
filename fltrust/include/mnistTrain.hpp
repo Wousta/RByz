@@ -1,6 +1,7 @@
 #pragma once
-#ifndef MNISTTRAIN_HPP
-#define MNISTTRAIN_HPP
+
+#include "../include/subsetSampler.hpp"
+#include "../include/globalConstants.hpp"
 
 #include <vector>
 
@@ -38,20 +39,67 @@ struct Net : torch::nn::Module {
 
 class MnistTrain {
   private:
+  const char* kDataRoot = "./data";
+  const int worker_id;
+  const int64_t subset_size;
+  const int64_t kTrainBatchSize = 32;
+  const int64_t kTestBatchSize = 1;
+  const int64_t kNumberOfEpochs = 1;
+  const int64_t kLogInterval = 1;
+  const double learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
+  size_t train_dataset_size;
+  size_t test_dataset_size;
+  
+  using DatasetType = decltype(
+    torch::data::datasets::MNIST(kDataRoot)
+    .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+    .map(torch::data::transforms::Stack<>())
+  );
 
-  torch::Device get_device();
+  using SubsetSamplerType = SubsetSampler;
+
+  // Define the DataLoader type with sampler (for train_loader)
+  using TrainDataLoaderType = torch::data::StatelessDataLoader<DatasetType, SubsetSamplerType>;
+  
+  // Define the DataLoader type without sampler (for test_loader)
+  using TestDataLoaderType = torch::data::StatelessDataLoader<DatasetType, torch::data::samplers::RandomSampler>;
+
+  DatasetType train_dataset;
+  DatasetType test_dataset;
+  std::unique_ptr<TrainDataLoaderType> train_loader;
+  std::unique_ptr<TestDataLoaderType> test_loader;
+
+  torch::Device init_device();
+  SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
 
   public:
-  MnistTrain();
-  ~MnistTrain();
+  MnistTrain(int worker_id, int64_t subset_size);
+  ~MnistTrain() = default;
+
+  template <typename DataLoader>
+  void train(
+      size_t epoch,
+      Net& model,
+      torch::Device device,
+      DataLoader& data_loader,
+      torch::optim::Optimizer& optimizer,
+      size_t dataset_size);
+
+  template <typename DataLoader>
+  void test(
+      Net& model,
+      torch::Device device,
+      DataLoader& data_loader,
+      size_t dataset_size);
 
   std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
-  std::vector<torch::Tensor> runMnistTrain(const std::vector<torch::Tensor>& w);
+  std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> testOG();
+  void testModel();
+  Net getModel() { return model; }
+  torch::Device getDevice() { return device; }
 
 };
-
-#endif
