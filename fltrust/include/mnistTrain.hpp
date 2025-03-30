@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../include/subsetSampler.hpp"
+#include "../include/globalConstants.hpp"
 
 #include <vector>
 
@@ -45,7 +46,7 @@ class MnistTrain {
   const int64_t kTestBatchSize = 1;
   const int64_t kNumberOfEpochs = 1;
   const int64_t kLogInterval = 1;
-  const double learnRate = 0.0003;
+  const double learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;

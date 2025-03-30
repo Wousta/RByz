@@ -1,9 +1,11 @@
 #include "../include/mnistTrain.hpp"
 #include "../include/logger.hpp"
+#include "../include/tensorOps.hpp"
+
 
 #include <cstddef>
 #include <cstdio>
-#include <iostream>
+#include <iostream> 
 #include <string>
 #include <vector>
 
@@ -208,6 +210,9 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   for (size_t i = 0; i < model_weights.size(); ++i) {
       result.push_back(model_weights[i] - w[i]);
   }
+
+  Logger::instance().log("Weight updates:\n");
+  printTensorSlices(result, 0, 5);
   
   return result;
 }
