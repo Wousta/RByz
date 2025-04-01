@@ -38,20 +38,23 @@ struct Net : torch::nn::Module {
 };
 
 class MnistTrain {
-  private:
+private:
   const char* kDataRoot = "./data";
   const int worker_id;
   const int64_t subset_size;
-  const int64_t kTrainBatchSize = 32;
+  const int64_t kTrainBatchSize = 64;
   const int64_t kTestBatchSize = 1;
-  const int64_t kNumberOfEpochs = 1;
-  const int64_t kLogInterval = 1;
+  const int64_t kNumberOfEpochs = 10;
+  const int64_t kLogInterval = 10;
   const double learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
   size_t train_dataset_size;
   size_t test_dataset_size;
+  torch::Tensor output;
+  torch::Tensor loss;
+  double error_rate;
   
   using DatasetType = decltype(
     torch::data::datasets::MNIST(kDataRoot)
@@ -75,7 +78,7 @@ class MnistTrain {
   torch::Device init_device();
   SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
 
-  public:
+public:
   MnistTrain(int worker_id, int64_t subset_size);
   ~MnistTrain() = default;
 
@@ -101,5 +104,7 @@ class MnistTrain {
   void testModel();
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
-
+  torch::Tensor getOutput() { return output; }
+  torch::Tensor getLoss() { return loss; }
+  double getErrorRate() { return error_rate; }
 };

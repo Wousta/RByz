@@ -109,14 +109,23 @@ void MnistTrain::train(
     size_t dataset_size) {
   model.train();
   size_t batch_idx = 0;
+  int32_t correct = 0;
+  size_t total = 0;
   for (auto& batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     optimizer.zero_grad();
-    auto output = model.forward(data);
-    auto loss = torch::nll_loss(output, targets);
+    output = model.forward(data);
+    loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(loss.template item<float>()));
     loss.backward();
     optimizer.step();
+
+    // Calculate accuracy and error rate for this batch
+    auto pred = output.argmax(1);
+    int32_t batch_correct = pred.eq(targets).sum().item<int32_t>();
+    correct += batch_correct;
+    total += targets.size(0);
+    error_rate = 1.0 - (static_cast<double>(correct) / total);
 
     if (batch_idx++ % kLogInterval == 0) {
       std::printf(
@@ -153,11 +162,14 @@ void MnistTrain::test(
   }
 
   test_loss /= dataset_size;
-  std::printf(
-      "\nTest set: Average loss: %.4f | Accuracy: %.3f\n",
-      test_loss,
-      static_cast<double>(correct) / dataset_size);
+  std::ostringstream oss;
+  oss << "\nTest set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
+      << " | Accuracy: " << std::fixed << std::setprecision(3) 
+      << static_cast<double>(correct) / dataset_size << std::endl;
+  Logger::instance().log(oss.str());
   Logger::instance().log("Testing done\n");
+
+  
 }
 
 std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
@@ -184,10 +196,13 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   torch::optim::SGD optimizer(
       model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
+  std::cout << "Training model for round " << round << "\n";
+
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
 
-    if (worker_id == 0 && round % 100 == 0) {
+    if (worker_id == 0 && round % 10 == 0) {
+      Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
       test(model, device, *test_loader, test_dataset_size);
     }
   }

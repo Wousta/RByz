@@ -24,6 +24,7 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+
 std::vector<torch::Tensor> run_fltrust_srvr(
   int n_clients,
   int rounds, 
@@ -189,34 +190,22 @@ std::vector<torch::Tensor> run_fltrust_srvr(
           torch::kFloat32
       ).clone();
 
-      //std::vector<torch::Tensor> clnt_w_vec = reconstruct_tensor_vector(flat_tensor, w);
       clnt_updates[client] = flat_tensor;
     }
 
-    // {
-    //   std::ostringstream oss;
-    //   oss << "Server read gradients from clients:" << "\n";
-    //   for(torch::Tensor clnt_g : clnt_updates) {
-    //     oss << "\n  Client g:\n";
-    //     oss << "    " << clnt_g.slice(0, 0, std::min<size_t>(clnt_g.numel(), 5)) << " ";
-    //   }
-    //   Logger::instance().log(oss.str());
-    // }
-
     // Use attacks to simulate Byzantine clients
-    //clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    clnt_updates = trim_attack(
-      clnt_updates, 
-      mnist.getModel(), 
-      GLOBAL_LEARN_RATE, 
-      N_BYZ_CLNTS, 
-      mnist.getDevice()
-    );
+    clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    // clnt_updates = trim_attack(
+    //   clnt_updates, 
+    //   mnist.getModel(), 
+    //   GLOBAL_LEARN_RATE, 
+    //   N_BYZ_CLNTS, 
+    //   mnist.getDevice()
+    // );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
 
     // AGGREGATION PHASE //////////////////////
-    // Update w for the next round
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
