@@ -46,15 +46,15 @@ private:
   const int64_t kTestBatchSize = 1;
   const int64_t kNumberOfEpochs = 10;
   const int64_t kLogInterval = 10;
-  const double learnRate = GLOBAL_LEARN_RATE;
+  const float learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
   size_t train_dataset_size;
   size_t test_dataset_size;
   torch::Tensor output;
-  torch::Tensor loss;
-  double error_rate;
+  float loss;
+  float error_rate;
   
   using DatasetType = decltype(
     torch::data::datasets::MNIST(kDataRoot)
@@ -105,6 +105,6 @@ public:
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
   torch::Tensor getOutput() { return output; }
-  torch::Tensor getLoss() { return loss; }
-  double getErrorRate() { return error_rate; }
+  float getLoss() { return loss; }
+  float getErrorRate() { return error_rate; }
 };

@@ -115,17 +115,20 @@ void MnistTrain::train(
     auto data = batch.data.to(device), targets = batch.target.to(device);
     optimizer.zero_grad();
     output = model.forward(data);
-    loss = torch::nll_loss(output, targets);
-    AT_ASSERT(!std::isnan(loss.template item<float>()));
-    loss.backward();
-    optimizer.step();
+    auto nll_loss = torch::nll_loss(output, targets);
+    AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
+    loss = nll_loss.template item<float>();
 
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
-    int32_t batch_correct = pred.eq(targets).sum().item<int32_t>();
+    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
     correct += batch_correct;
     total += targets.size(0);
-    error_rate = 1.0 - (static_cast<double>(correct) / total);
+    error_rate = 1.0 - (static_cast<float>(correct) / total);
+
+    // Backpropagation
+    nll_loss.backward();
+    optimizer.step();
 
     if (batch_idx++ % kLogInterval == 0) {
       std::printf(
@@ -133,7 +136,7 @@ void MnistTrain::train(
           epoch,
           batch_idx * batch.data.size(0),
           dataset_size,
-          loss.template item<float>());
+          nll_loss.template item<float>());
     }
   }
 }
