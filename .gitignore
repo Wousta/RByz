@@ -45,6 +45,12 @@ venv.bak/
 fltrust/build
 fltrust/data
 fltrust/logs
+fltrust/include/globalConstants.hpp
 fltrust/clients.pid
+rbyz/build
+rbyz/data
+rbyz/logs
+#rbyz/include/globalConstants.hpp
+rbyz/clients.pid
 RcConn/build
 rdma-api/build

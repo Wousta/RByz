@@ -36,7 +36,7 @@ SRVR_PID=$!
 for id in $(seq 1 $n_clients); do
   sleep 1
   build/clnt --srvr_ip $srvr_ip --port $port --id $id &
-  # gdb -ex "break /home/bustaman/usr-rdma-api-main/fltrust/src/clnt.cpp:92" \
+  # gdb -ex "break /home/bustaman/usr-rdma-api-main/rbyz/src/clnt.cpp:92" \
   #     -ex "start" \
   #     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id 
   #valgrind --leak-check=full build/clnt --srvr_ip $srvr_ip --port $port --id $id &

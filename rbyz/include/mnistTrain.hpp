@@ -79,7 +79,11 @@ private:
   SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
 
 public:
-  MnistTrain(int worker_id, int64_t subset_size);
+  MnistTrain(
+    int worker_id, 
+    int64_t subset_size,
+    
+  );
   ~MnistTrain() = default;
 
   template <typename DataLoader>

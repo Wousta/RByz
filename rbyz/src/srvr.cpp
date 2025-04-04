@@ -41,7 +41,7 @@ torch::Tensor aggregate_updates(
 );
 
 int main(int argc, char* argv[]) {
-  Logger::instance().log("Server starting execution\n");
+  Logger::instance().log("Server starting\n");
   int n_clients;
 
   std::string srvr_ip;
@@ -78,8 +78,13 @@ int main(int argc, char* argv[]) {
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   std::vector<int> clnt_ready_flags(n_clients, 0);
   std::vector<float*> clnt_ws(n_clients);
+  std::vector<float*> clnt_rbyz_data(n_clients);
+  std::vector<float> clnt_losses(n_clients); 
+  std::vector<float> clnt_errors(n_clients);
+
+  //Contains the data for the clients, the error and loss values
   for (int i = 0; i < n_clients; i++) {
-    clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
+    clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float)));
   }
 
   // memory registration
@@ -88,11 +93,12 @@ int main(int argc, char* argv[]) {
     reg_info[i].addr_locs.push_back(castI(srvr_w));
     reg_info[i].addr_locs.push_back(castI(&clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(clnt_ws[i]));
+
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(REG_SZ_DATA);
-    // // reg_info[i].data_sizes.push_back(CAS_SIZE);
+    reg_info[i].data_sizes.push_back(REG_SZ_DATA + 2 * sizeof(float));
+    
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
       IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
@@ -114,6 +120,8 @@ int main(int argc, char* argv[]) {
     clnt_ready_flags,
     clnt_ws
   );
+
+  
 
   {
     std::ostringstream oss;
