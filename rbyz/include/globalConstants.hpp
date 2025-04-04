@@ -9,6 +9,11 @@ inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 
+// RBYZ
+inline constexpr int GLOBAL_ITERS_RBYZ = 5;
+inline constexpr uint64_t REG_SZ_CLNT = REG_SZ_DATA + 2 * sizeof(float);
+
+
 // addr_locs of buffers
 inline constexpr int SRVR_READY_IDX = 0;
 inline constexpr int SRVR_W_IDX = 1;

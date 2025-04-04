@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
   int srvr_ready_flag = 0;
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   int clnt_ready_flag = 0;
-  float* clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float) ));
+  float* clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
 
   // memory registration
   reg_info.addr_locs.push_back(castI(&srvr_ready_flag));
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_DATA + 2 * sizeof(float));
+  reg_info.data_sizes.push_back(REG_SZ_CLNT);
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
@@ -92,9 +92,29 @@ int main(int argc, char* argv[]) {
     clnt_w
   );
 
-  // Copy the error and loss values to the clnt_w buffer
-  std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &mnist.getClntLoss(), sizeof(float));
-  std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + sizeof(float), &mnist.getClntError(), sizeof(float));
+  // RBYZ client
+  clnt_ready_flag = 0;
+  for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
+    w = mnist.runMnistTrain(round, w);
+
+    // Store the updated weights in clnt_w
+    torch::Tensor all_tensors = flatten_tensor_vector(w);
+    size_t total_bytes_g = all_tensors.numel() * sizeof(float);
+    if(total_bytes_g != (size_t)REG_SZ_DATA) {
+      Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
+    }
+
+    float* all_tensors_float = all_tensors.data_ptr<float>();
+    std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
+
+    // Store the error and loss values in clnt_w
+    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &mnist.getClntLoss(), sizeof(float));
+    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + sizeof(float), &mnist.getClntError(), sizeof(float));
+
+    // Server is ready to read the updated data
+    // TODO: might be necessary to make it atomic
+    clnt_ready_flag = round;
+  }
 
   Logger::instance().log("Client: Final weights\n");
   printTensorSlices(w, 0, 5);
