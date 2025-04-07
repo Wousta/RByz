@@ -81,8 +81,7 @@ private:
 public:
   MnistTrain(
     int worker_id, 
-    int64_t subset_size,
-    
+    int64_t subset_size
   );
   ~MnistTrain() = default;
 

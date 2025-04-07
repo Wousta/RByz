@@ -121,7 +121,26 @@ int main(int argc, char* argv[]) {
     clnt_ws
   );
 
-  
+  // Global rounds of RByz
+  for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
+    
+    // Individual rounds of RByz, it will perform aggregation at the last step
+    int n = 15;
+    for(int i = 0; i < n; i++) {
+
+      for(int j = 0; j < n_clients; j++) {
+        if(i != 1) {
+          // UpdateTS
+        }
+
+        // Byz detection
+
+        if(i == n) {
+          // Aggregate
+        }
+      }
+    }
+  }
 
   {
     std::ostringstream oss;

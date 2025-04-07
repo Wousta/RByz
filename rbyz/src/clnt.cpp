@@ -105,15 +105,19 @@ int main(int argc, char* argv[]) {
     }
 
     float* all_tensors_float = all_tensors.data_ptr<float>();
+
+    // Make server wait until memory is written
+    clnt_ready_flag = 0;
+
+    // Store the updates, error and loss values in clnt_w
     std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
 
-    // Store the error and loss values in clnt_w
-    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &mnist.getClntLoss(), sizeof(float));
-    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + sizeof(float), &mnist.getClntError(), sizeof(float));
+    float loss_val = mnist.getLoss();
+    float error_rate_val = mnist.getErrorRate();
+    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &loss_val, sizeof(float));
+    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + 1, &error_rate_val, sizeof(float));
 
-    // Server is ready to read the updated data
-    // TODO: might be necessary to make it atomic
-    clnt_ready_flag = round;
+    clnt_ready_flag = 1;
   }
 
   Logger::instance().log("Client: Final weights\n");
