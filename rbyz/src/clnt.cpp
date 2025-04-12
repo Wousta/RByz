@@ -26,6 +26,11 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* clnt_w
 );
 
+void writeErrorAndLoss(
+  MnistTrain& mnist,
+  float* clnt_w
+);
+
 int main(int argc, char* argv[]) {
   std::this_thread::sleep_for(std::chrono::seconds(12));
   Logger::instance().log("Client starting execution\n");
@@ -61,16 +66,19 @@ int main(int argc, char* argv[]) {
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   int clnt_ready_flag = 0;
   float* clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
+  std::atomic<int> clnt_CAS(MEM_OCCUPIED);
 
   // memory registration
   reg_info.addr_locs.push_back(castI(&srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(srvr_w));
   reg_info.addr_locs.push_back(castI(&clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(clnt_w));
+  reg_info.addr_locs.push_back(castI(&clnt_CAS));
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_CLNT);
+  reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
@@ -78,7 +86,7 @@ int main(int argc, char* argv[]) {
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
-  RdmaOps rdma_ops(conn_data);
+  RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
   MnistTrain mnist(id ,CLNT_SUBSET_SIZE);
@@ -92,8 +100,12 @@ int main(int argc, char* argv[]) {
     clnt_w
   );
 
+  // Before rbyz, the client has to write error and loss for the first time
+  writeErrorAndLoss(mnist, clnt_w);
+  Logger::instance().log("Client: Initial loss and error values\n");
+  clnt_CAS.store(MEM_FREE);
+
   // RBYZ client
-  clnt_ready_flag = 0;
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     w = mnist.runMnistTrain(round, w);
 
@@ -107,17 +119,17 @@ int main(int argc, char* argv[]) {
     float* all_tensors_float = all_tensors.data_ptr<float>();
 
     // Make server wait until memory is written
-    clnt_ready_flag = 0;
+    int expected = MEM_FREE;
+    while(!clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
+      std::this_thread::yield();
+    }
 
     // Store the updates, error and loss values in clnt_w
     std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
+    writeErrorAndLoss(mnist, clnt_w);
 
-    float loss_val = mnist.getLoss();
-    float error_rate_val = mnist.getErrorRate();
-    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &loss_val, sizeof(float));
-    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + 1, &error_rate_val, sizeof(float));
-
-    clnt_ready_flag = 1;
+    // Reset the memory ready flag
+    clnt_CAS.store(MEM_FREE);
   }
 
   Logger::instance().log("Client: Final weights\n");
@@ -198,4 +210,13 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   }
 
   return w;
+}
+
+void writeErrorAndLoss(
+  MnistTrain& mnist,
+  float* clnt_w) {
+  float loss_val = mnist.getLoss();
+  float error_rate_val = mnist.getErrorRate();
+  std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &loss_val, sizeof(float));
+  std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + 1, &error_rate_val, sizeof(float));
 }

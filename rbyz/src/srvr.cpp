@@ -24,6 +24,24 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+struct ClientData {
+  float* updates;
+  float* loss;        
+  float* error_rate; 
+};
+
+void updateTS(
+  int clnt_index,
+  std::vector<float>& clnt_losses, 
+  std::vector<float>& clnt_errors, 
+  int n_clients
+);
+
+void readClntsRByz(
+  int n_clients,
+  RdmaOps& rdma_ops,
+  std::vector<std::atomic<int>>& clnt_CAS
+);
 
 std::vector<torch::Tensor> run_fltrust_srvr(
   int n_clients,
@@ -34,7 +52,9 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws
 );
+
 std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1);
+
 torch::Tensor aggregate_updates(
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update
@@ -78,13 +98,16 @@ int main(int argc, char* argv[]) {
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   std::vector<int> clnt_ready_flags(n_clients, 0);
   std::vector<float*> clnt_ws(n_clients);
-  std::vector<float*> clnt_rbyz_data(n_clients);
-  std::vector<float> clnt_losses(n_clients); 
-  std::vector<float> clnt_errors(n_clients);
+  std::vector<std::atomic<int>> clnt_CAS(n_clients);
+  std::vector<ClientData> clnt_data_vec(n_clients);
 
-  //Contains the data for the clients, the error and loss values
+  //Point clnt_ws buffer parts to the right place
   for (int i = 0; i < n_clients; i++) {
     clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float)));
+
+    clnt_data_vec[i].updates = clnt_ws[i];
+    clnt_data_vec[i].loss = clnt_ws[i] + REG_SZ_DATA / sizeof(float);
+    clnt_data_vec[i].error_rate = clnt_ws[i] + REG_SZ_DATA / sizeof(float) + 1;
   }
 
   // memory registration
@@ -93,11 +116,13 @@ int main(int argc, char* argv[]) {
     reg_info[i].addr_locs.push_back(castI(srvr_w));
     reg_info[i].addr_locs.push_back(castI(&clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(clnt_ws[i]));
+    reg_info[i].addr_locs.push_back(castI(&clnt_CAS[i]));
 
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(REG_SZ_DATA + 2 * sizeof(float));
+    reg_info[i].data_sizes.push_back(REG_SZ_CLNT);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
     
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
       IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -109,7 +134,6 @@ int main(int argc, char* argv[]) {
   }
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
-  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   MnistTrain mnist(0, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_srvr(
     GLOBAL_ITERS,
@@ -122,11 +146,15 @@ int main(int argc, char* argv[]) {
   );
 
   // Global rounds of RByz
+  RdmaOps rdma_ops(conn_data);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     
     // Individual rounds of RByz, it will perform aggregation at the last step
     int n = 15;
     for(int i = 0; i < n; i++) {
+
+      // Read the data from the clients
+      readClntsRByz(n_clients, rdma_ops, clnt_CAS);
 
       for(int j = 0; j < n_clients; j++) {
         if(i != 1) {
@@ -331,3 +359,26 @@ torch::Tensor aggregate_updates(
   return aggregated_update;
 }
 
+void readClntsRByz(
+  int n_clients,
+  RdmaOps& rdma_ops,
+  std::vector<std::atomic<int>>& clnt_CAS) {
+
+    int clnt_idx = 0;
+    while (clnt_idx < n_clients) {
+      rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
+
+      if(clnt_CAS[clnt_idx].load() == MEM_OCCUPIED) {
+        std::this_thread::yield();
+      }
+      else {
+        // Read the data from the client and release client lock
+        rdma_ops.exec_rdma_read(REG_SZ_CLNT, CLNT_W_IDX, clnt_idx);
+        clnt_CAS[clnt_idx].store(MEM_FREE);
+        rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
+        clnt_idx++;
+        Logger::instance().log("Client " + std::to_string(clnt_idx) + " data read\n");
+      }
+    }
+
+}
