@@ -63,7 +63,8 @@ torch::Tensor aggregate_updates(
 int main(int argc, char* argv[]) {
   Logger::instance().log("Server starting\n");
   int n_clients;
-
+  bool load_model = false;
+  std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -73,7 +74,10 @@ int main(int argc, char* argv[]) {
   auto cli = lyra::cli() |
     lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
     lyra::opt(port, "port")["-p"]["--port"]("port") | 
-    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients");
+    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
+    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
+
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -133,17 +137,35 @@ int main(int argc, char* argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
-  // Create a dummy set of weights, needed for first call to runMNISTTrain():
   MnistTrain mnist(0, SRVR_SUBSET_SIZE);
-  std::vector<torch::Tensor> w = run_fltrust_srvr(
-    GLOBAL_ITERS,
-    n_clients,
-    mnist,
-    srvr_ready_flag,
-    srvr_w,
-    clnt_ready_flags,
-    clnt_ws
-  );
+  std::vector<torch::Tensor> w;
+
+  if (load_model) {
+    w = mnist.loadModelState(model_file);
+    if (w.empty()) {
+      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
+      std::cout << "Failed to load model state from file: " << model_file << "\n";
+      load_model = false;
+    } else {
+      Logger::instance().log("Successfully loaded model from file.\n");
+      std::cout << "Loaded model state from file: " << model_file << "\n";
+      printTensorSlices(w, 0, 5);
+    }
+  }
+  
+  if (!load_model) {
+    w = run_fltrust_srvr(
+      GLOBAL_ITERS,
+      n_clients,
+      mnist,
+      srvr_ready_flag,
+      srvr_w,
+      clnt_ready_flags,
+      clnt_ws
+    );
+
+    mnist.saveModelState(w, model_file);
+  }
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conn_data);
@@ -377,8 +399,9 @@ void readClntsRByz(
         clnt_CAS[clnt_idx].store(MEM_FREE);
         rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
         clnt_idx++;
-        Logger::instance().log("Client " + std::to_string(clnt_idx) + " data read\n");
       }
     }
+
+    Logger::instance().log("Server: All clients read\n");
 
 }

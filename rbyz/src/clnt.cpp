@@ -36,6 +36,8 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("Client starting execution\n");
 
   int id;
+  bool load_model = false;
+  std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -46,7 +48,9 @@ int main(int argc, char* argv[]) {
   auto cli = lyra::cli() |
     lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
     lyra::opt(port, "port")["-p"]["--port"]("port") |
-    lyra::opt(id, "id")["-p"]["--id"]("id");
+    lyra::opt(id, "id")["-p"]["--id"]("id") |
+    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -89,16 +93,33 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
-  MnistTrain mnist(id ,CLNT_SUBSET_SIZE);
-  std::vector<torch::Tensor> w = run_fltrust_clnt(
-    GLOBAL_ITERS,
-    rdma_ops,
-    mnist,
-    srvr_ready_flag,
-    clnt_ready_flag,
-    srvr_w,
-    clnt_w
-  );
+  MnistTrain mnist(0, SRVR_SUBSET_SIZE);
+  std::vector<torch::Tensor> w;
+
+  if (load_model) {
+    w = mnist.loadModelState(model_file);
+    if (w.empty()) {
+      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
+      load_model = false;
+    } else {
+      Logger::instance().log("Successfully loaded model from file.\n");
+      printTensorSlices(w, 0, 5);
+    }
+  }
+  
+  if (!load_model) {
+    w = run_fltrust_clnt(
+      GLOBAL_ITERS,
+      rdma_ops,
+      mnist,
+      srvr_ready_flag,
+      clnt_ready_flag,
+      srvr_w,
+      clnt_w
+    );
+
+    mnist.saveModelState(w, model_file);
+  }
 
   // Before rbyz, the client has to write error and loss for the first time
   writeErrorAndLoss(mnist, clnt_w);

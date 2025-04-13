@@ -270,3 +270,25 @@ std::vector<torch::Tensor> MnistTrain::testOG() {
 void MnistTrain::testModel() {
   test(model, device, *test_loader, test_dataset_size);
 }
+
+void MnistTrain::saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename) {
+  try {
+    Logger::instance().log("Saving model state to " + filename + "...\n");
+    torch::save(w, filename);
+    Logger::instance().log("Model state saved successfully.\n");
+  } catch (const std::exception& e) {
+    Logger::instance().log("Error saving model state: " + std::string(e.what()) + "\n");
+  }
+}
+
+std::vector<torch::Tensor> MnistTrain::loadModelState(const std::string& filename) {
+  std::vector<torch::Tensor> w;
+  try {
+    Logger::instance().log("Loading model state from " + filename + "...\n");
+    torch::load(w, filename);
+    Logger::instance().log("Model state loaded successfully.\n");
+  } catch (const std::exception& e) {
+    Logger::instance().log("Error loading model state: " + std::string(e.what()) + "\n");
+  }
+  return w;
+}

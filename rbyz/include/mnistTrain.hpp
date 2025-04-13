@@ -108,6 +108,8 @@ public:
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
   torch::Tensor getOutput() { return output; }
+  void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
+  std::vector<torch::Tensor> loadModelState(const std::string& filename);
   float getLoss() { return loss; }
   float getErrorRate() { return error_rate; }
 };
