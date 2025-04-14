@@ -23,6 +23,7 @@ add_library(mnistTrain STATIC src/mnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
 add_library(tensorOps STATIC src/tensorOps.cpp)
 add_library(attacks STATIC src/attacks.cpp)
+add_library(rbyzAux STATIC src/rbyzAux.cpp)
 add_executable(srvr src/srvr.cpp)
 add_executable(clnt src/clnt.cpp)
 
@@ -53,6 +54,11 @@ target_include_directories(attacks PUBLIC
   ${TORCH_INCLUDE_DIRS}
 )
 
+target_include_directories(rbyzAux PUBLIC 
+  ${CMAKE_CURRENT_SOURCE_DIR}/include 
+  ${TORCH_INCLUDE_DIRS}
+)
+
 target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC ${TORCH_INCLUDE_DIRS})
@@ -60,6 +66,7 @@ target_include_directories(srvr PUBLIC ${TORCH_INCLUDE_DIRS})
 target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(attacks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
+target_precompile_headers(rbyzAux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 
@@ -75,6 +82,11 @@ target_link_libraries(attacks PUBLIC
   mnistTrain
 )
 
+target_link_libraries(rbyzAux PUBLIC 
+  ${TORCH_LIBRARIES}
+  rdmaOps
+)
+
 target_link_libraries(tensorOps PUBLIC ${TORCH_LIBRARIES})
 
 target_link_libraries(srvr PUBLIC  
@@ -85,6 +97,7 @@ target_link_libraries(srvr PUBLIC
   rdmaOps
   tensorOps
   attacks
+  rbyzAux
 )
 
 target_link_libraries(clnt PUBLIC 

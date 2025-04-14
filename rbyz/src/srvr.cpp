@@ -7,7 +7,9 @@
 #include "../include/tensorOps.hpp"
 #include "../include/logger.hpp"
 #include "../include/attacks.hpp"
+#include "../include/rbyzAux.hpp"
 
+#include <float.h>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -24,17 +26,11 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-struct ClientData {
-  float* updates;
-  float* loss;        
-  float* error_rate; 
-};
-
 void updateTS(
-  int clnt_index,
-  std::vector<float>& clnt_losses, 
-  std::vector<float>& clnt_errors, 
-  int n_clients
+  std::vector<ClientData>& clnt_data_vec,
+  ClientData& clnt_data, 
+  float srvr_loss, 
+  float srvr_error_rate
 );
 
 void readClntsRByz(
@@ -109,6 +105,7 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < n_clients; i++) {
     clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float)));
 
+    clnt_data_vec[i].clnt_index = i;
     clnt_data_vec[i].updates = clnt_ws[i];
     clnt_data_vec[i].loss = clnt_ws[i] + REG_SZ_DATA / sizeof(float);
     clnt_data_vec[i].error_rate = clnt_ws[i] + REG_SZ_DATA / sizeof(float) + 1;
@@ -381,27 +378,4 @@ torch::Tensor aggregate_updates(
   return aggregated_update;
 }
 
-void readClntsRByz(
-  int n_clients,
-  RdmaOps& rdma_ops,
-  std::vector<std::atomic<int>>& clnt_CAS) {
 
-    int clnt_idx = 0;
-    while (clnt_idx < n_clients) {
-      rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
-
-      if(clnt_CAS[clnt_idx].load() == MEM_OCCUPIED) {
-        std::this_thread::yield();
-      }
-      else {
-        // Read the data from the client and release client lock
-        rdma_ops.exec_rdma_read(REG_SZ_CLNT, CLNT_W_IDX, clnt_idx);
-        clnt_CAS[clnt_idx].store(MEM_FREE);
-        rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
-        clnt_idx++;
-      }
-    }
-
-    Logger::instance().log("Server: All clients read\n");
-
-}
