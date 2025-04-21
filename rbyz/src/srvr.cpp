@@ -51,13 +51,6 @@ struct RegMemSrvr {
   }
 };
 
-void updateTS(
-  std::vector<ClientData>& clnt_data_vec,
-  ClientData& clnt_data, 
-  float srvr_loss, 
-  float srvr_error_rate
-);
-
 void readClntsRByz(
   int n_clients,
   RdmaOps& rdma_ops,
@@ -239,16 +232,6 @@ int main(int argc, char* argv[]) {
 
   std::this_thread::sleep_for(std::chrono::hours(1));
   return 0;
-}
-
-void updateTS(
-  std::vector<ClientData>& clnt_data_vec,
-  ClientData& clnt_data, 
-  float srvr_loss, 
-  float srvr_error_rate) {
-  
-
-
 }
 
 std::vector<torch::Tensor> run_fltrust_srvr(
