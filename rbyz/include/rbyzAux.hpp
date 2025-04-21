@@ -11,6 +11,7 @@
 // Forward declaration of ClientData struct (since it's defined in srvr.cpp)
 struct ClientData {
     int clnt_index;
+    float trust_score;
     float* updates;
     float* loss;
     float* error_rate;

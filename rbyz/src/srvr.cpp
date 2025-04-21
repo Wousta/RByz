@@ -26,6 +26,31 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+struct RegMemSrvr {
+  private:
+  int n_clients;
+  
+  public:
+  int srvr_ready_flag = 0;
+  float* srvr_w = reinterpret_cast<float*>(malloc(REG_SZ_DATA));
+  std::vector<int> clnt_ready_flags;
+  std::vector<float*> clnt_ws;
+  std::vector<std::atomic<int>> clnt_CAS;
+  
+  RegMemSrvr(int n_clients) : 
+    n_clients(n_clients),
+    clnt_ready_flags(n_clients, 0),
+    clnt_ws(n_clients),
+    clnt_CAS(n_clients) {}
+    
+  ~RegMemSrvr() {
+    free(srvr_w);
+    for (int i = 0; i < n_clients; i++) {
+      free(clnt_ws[i]);
+    }
+  }
+};
+
 void updateTS(
   std::vector<ClientData>& clnt_data_vec,
   ClientData& clnt_data, 
@@ -43,15 +68,15 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   int n_clients,
   int rounds, 
   MnistTrain& mnist,
-  int& srvr_ready_flag,
-  float* srvr_w,
-  std::vector<int>& clnt_ready_flags,
-  std::vector<float*>& clnt_ws
+  RegMemSrvr& regMem,
+  std::vector<ClientData>& clntsData
 );
 
 std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1);
 
 torch::Tensor aggregate_updates(
+  std::vector<ClientData>& clnts_data,
+  const std::vector<int>& polled_clients,
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update
 );
@@ -94,30 +119,26 @@ int main(int argc, char* argv[]) {
   std::vector<LocalInfo> loc_info(n_clients);
 
   // Data structures for server and clients
-  int srvr_ready_flag = 0;
-  float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
-  std::vector<int> clnt_ready_flags(n_clients, 0);
-  std::vector<float*> clnt_ws(n_clients);
-  std::vector<std::atomic<int>> clnt_CAS(n_clients);
+  RegMemSrvr regMem(n_clients);
   std::vector<ClientData> clnt_data_vec(n_clients);
 
   //Point clnt_ws buffer parts to the right place
   for (int i = 0; i < n_clients; i++) {
-    clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float)));
+    regMem.clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float)));
 
     clnt_data_vec[i].clnt_index = i;
-    clnt_data_vec[i].updates = clnt_ws[i];
-    clnt_data_vec[i].loss = clnt_ws[i] + REG_SZ_DATA / sizeof(float);
-    clnt_data_vec[i].error_rate = clnt_ws[i] + REG_SZ_DATA / sizeof(float) + 1;
+    clnt_data_vec[i].updates = regMem.clnt_ws[i];
+    clnt_data_vec[i].loss = regMem.clnt_ws[i] + REG_SZ_DATA / sizeof(float);
+    clnt_data_vec[i].error_rate = regMem.clnt_ws[i] + REG_SZ_DATA / sizeof(float) + 1;
   }
 
   // memory registration
   for (int i = 0; i < n_clients; i++) {
-    reg_info[i].addr_locs.push_back(castI(&srvr_ready_flag));           
-    reg_info[i].addr_locs.push_back(castI(srvr_w));
-    reg_info[i].addr_locs.push_back(castI(&clnt_ready_flags[i]));
-    reg_info[i].addr_locs.push_back(castI(clnt_ws[i]));
-    reg_info[i].addr_locs.push_back(castI(&clnt_CAS[i]));
+    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));           
+    reg_info[i].addr_locs.push_back(castI(regMem.srvr_w));
+    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
+    reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
+    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_CAS[i]));
 
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
@@ -148,6 +169,15 @@ int main(int argc, char* argv[]) {
       std::cout << "Loaded model state from file: " << model_file << "\n";
       printTensorSlices(w, 0, 5);
     }
+
+    // Do one iteration of fltrust with ALL clients to initialize trust scores
+    w = run_fltrust_srvr(
+      1,
+      n_clients,
+      mnist,
+      regMem,
+      clnt_data_vec
+    );
   }
   
   if (!load_model) {
@@ -155,10 +185,8 @@ int main(int argc, char* argv[]) {
       GLOBAL_ITERS,
       n_clients,
       mnist,
-      srvr_ready_flag,
-      srvr_w,
-      clnt_ready_flags,
-      clnt_ws
+      regMem,
+      clnt_data_vec
     );
 
     mnist.saveModelState(w, model_file);
@@ -173,7 +201,7 @@ int main(int argc, char* argv[]) {
     for(int i = 0; i < n; i++) {
 
       // Read the data from the clients
-      readClntsRByz(n_clients, rdma_ops, clnt_CAS);
+      readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
 
       for(int j = 0; j < n_clients; j++) {
         if(i != 1) {
@@ -198,11 +226,6 @@ int main(int argc, char* argv[]) {
 
   mnist.testModel();
 
-  // free memory
-  free(srvr_w);
-  for (int i = 0; i < n_clients; i++) {
-    free(clnt_ws[i]);
-  }
   for(RcConn conn : conns) {
     conn.disconnect();
   }
@@ -218,14 +241,22 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
+void updateTS(
+  std::vector<ClientData>& clnt_data_vec,
+  ClientData& clnt_data, 
+  float srvr_loss, 
+  float srvr_error_rate) {
+  
+
+
+}
+
 std::vector<torch::Tensor> run_fltrust_srvr(
   int rounds, 
   int n_clients,
   MnistTrain& mnist,
-  int& srvr_ready_flag,
-  float* srvr_w,
-  std::vector<int>& clnt_ready_flags,
-  std::vector<float*>& clnt_ws) {
+  RegMemSrvr& regMem,
+  std::vector<ClientData>& clntsData) {
 
   std::vector<torch::Tensor> w = mnist.testOG();
   printTensorSlices(w, 0, 5);
@@ -234,15 +265,15 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
-    std::vector<torch::Tensor> clnt_updates(polled_clients.size());
+    std::vector<torch::Tensor> clnt_updates;
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
     float* global_w = all_tensors.data_ptr<float>();
-    std::memcpy(srvr_w, global_w, total_bytes);
+    std::memcpy(regMem.srvr_w, global_w, total_bytes);
 
     // Set the flag to indicate that the weights are ready for the clients to read
-    srvr_ready_flag = round;
+    regMem.srvr_ready_flag = round;
 
     // Run local training
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
@@ -250,21 +281,30 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
     //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
+    {
+      std::ostringstream oss;
+      oss << "Clients polled: \n";
+      for(int index : polled_clients) {
+        oss << index << " ";
+      }
+      oss << "\n";
+      Logger::instance().log(oss.str());
+    }
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
-      while(clnt_ready_flags[client] != round) { 
-        // Active waiting wasting resources, could be improved
+      while(regMem.clnt_ready_flags[client] != round) { 
+        std::this_thread::yield();
       }
 
       size_t numel_server = REG_SZ_DATA / sizeof(float);
       torch::Tensor flat_tensor = torch::from_blob(
-          clnt_ws[client], 
+          regMem.clnt_ws[client], 
           {static_cast<long>(numel_server)}, 
           torch::kFloat32
       ).clone();
 
-      clnt_updates[client] = flat_tensor;
+      clnt_updates.push_back(flat_tensor);
     }
 
     // Use attacks to simulate Byzantine clients
@@ -281,7 +321,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
-    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
+    torch::Tensor aggregated_update = aggregate_updates(clntsData, polled_clients, clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] - GLOBAL_LEARN_RATE * aggregated_update_vec[i];
@@ -321,22 +361,25 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 }
 
 torch::Tensor aggregate_updates(
+  std::vector<ClientData>& clnts_data,
+  const std::vector<int>& polled_clients,
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update) {
   
   // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
-  for (const auto& flat_client_update : client_updates) {
+  for(int i = 0; i < client_updates.size(); i++) {
+    torch::Tensor dot_product = torch::dot(client_updates[i], server_update);
+    float client_norm = torch::norm(client_updates[i], 2).item<float>();
+    float server_norm = torch::norm(server_update, 2).item<float>();
+    float cosine_sim = dot_product.item<float>() / (client_norm * server_norm + 1e-10);
+    
+    // Apply ReLU (max with 0)
+    float trust_score = std::max(0.0f, cosine_sim);
+    trust_scores.push_back(trust_score);
 
-      // Compute cosine similarity
-      torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
-      float client_norm = torch::norm(flat_client_update, 2).item<float>();
-      float server_norm = torch::norm(server_update, 2).item<float>();
-      float cosine_sim = dot_product.item<float>() / (client_norm * server_norm + 1e-10);
-      
-      // Apply ReLU (max with 0)
-      float trust_score = std::max(0.0f, cosine_sim);
-      trust_scores.push_back(trust_score);
+    int clnt_idx = polled_clients[i];
+    clnts_data[clnt_idx].trust_score = trust_score;
   }
 
   {
