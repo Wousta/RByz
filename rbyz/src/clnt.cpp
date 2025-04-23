@@ -156,6 +156,7 @@ int main(int argc, char* argv[]) {
     while(!clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
       std::this_thread::yield();
     }
+    Logger::instance().log("CAS LOCK AQUIRED\n");
 
     // Store the updates, error and loss values in clnt_w
     std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
@@ -163,6 +164,7 @@ int main(int argc, char* argv[]) {
 
     // Reset the memory ready flag
     clnt_CAS.store(MEM_FREE);
+    Logger::instance().log("CAS LOCK RELEASED\n");
   }
 
   Logger::instance().log("Client: Final weights\n");

@@ -115,6 +115,7 @@ void MnistTrain::train(
     auto data = batch.data.to(device), targets = batch.target.to(device);
     optimizer.zero_grad();
     output = model.forward(data);
+    
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
     loss = nll_loss.template item<float>();

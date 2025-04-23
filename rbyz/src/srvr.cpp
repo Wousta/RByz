@@ -195,11 +195,16 @@ int main(int argc, char* argv[]) {
     // For each client run N rounds of RByz
     for(int j = 0; j < n_clients; j++) {
 
-      // Read parameters from client
-      rdma_ops.exec_rdma_read(REG_SZ_DATA, CLNT_W_IDX);
-
       int n = 15;
       for(int i = 0; i < n; i++) {
+
+        // Read parameters from client
+        aquireCASLock(j, rdma_ops, regMem.clnt_CAS);
+        Logger::instance().log("CAS LOCK AQUIRED\n");
+        rdma_ops.exec_rdma_read(REG_SZ_DATA, CLNT_W_IDX);
+        releaseCASLock(j, rdma_ops, regMem.clnt_CAS);
+        Logger::instance().log("CAS LOCK RELEASED\n");
+
         if(i != 1) {
           // UpdateTS
         }

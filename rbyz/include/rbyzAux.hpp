@@ -17,6 +17,16 @@ struct ClientData {
     float* error_rate;
 };
 
+void aquireCASLock(
+    int clnt_idx, 
+    RdmaOps& rdma_ops,
+    std::vector<std::atomic<int>>& clnt_CAS);
+
+void releaseCASLock(
+    int clnt_idx, 
+    RdmaOps& rdma_ops,
+    std::vector<std::atomic<int>>& clnt_CAS);
+
 void readClntsRByz(
     int n_clients,
     RdmaOps& rdma_ops,

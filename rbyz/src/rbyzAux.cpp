@@ -7,23 +7,48 @@ void readClntsRByz(
     RdmaOps& rdma_ops,
     std::vector<std::atomic<int>>& clnt_CAS) {
   
-      int clnt_idx = 0;
-      while (clnt_idx < n_clients) {
-        rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
-  
-        if (clnt_CAS[clnt_idx].load() == MEM_OCCUPIED) {
-          std::this_thread::yield();
-        }
-        else {
-          // Read the data from the client and release client lock
-          rdma_ops.exec_rdma_read(REG_SZ_CLNT, CLNT_W_IDX, clnt_idx);
-          clnt_CAS[clnt_idx].store(MEM_FREE);
-          rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
-          clnt_idx++;
-        }
+    int clnt_idx = 0;
+    while (clnt_idx < n_clients) {
+      rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
+
+      if (clnt_CAS[clnt_idx].load() == MEM_OCCUPIED) {
+        std::this_thread::yield();
       }
-  
-      Logger::instance().log("Server: All clients read\n");
+      else {
+        // Read the data from the client and release client lock
+        rdma_ops.exec_rdma_read(REG_SZ_CLNT, CLNT_W_IDX, clnt_idx);
+        clnt_CAS[clnt_idx].store(MEM_FREE);
+        rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
+        clnt_idx++;
+      }
+    }
+
+    Logger::instance().log("Server: All clients read\n");
+}
+
+void aquireCASLock(
+  int clnt_idx, 
+  RdmaOps& rdma_ops,
+  std::vector<std::atomic<int>>& clnt_CAS) {
+
+  int current = MEM_OCCUPIED;
+  while (current == MEM_OCCUPIED) {
+    rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
+    current = clnt_CAS[clnt_idx].load();
+
+    if (current == MEM_OCCUPIED) {
+      std::this_thread::yield();
+    }
+  }
+}
+
+void releaseCASLock(
+  int clnt_idx, 
+  RdmaOps& rdma_ops,
+  std::vector<std::atomic<int>>& clnt_CAS) {
+    
+  clnt_CAS[clnt_idx].store(MEM_FREE);
+  rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
 }
 
 void updateTS(
