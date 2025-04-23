@@ -160,17 +160,16 @@ int main(int argc, char* argv[]) {
     } else {
       Logger::instance().log("Successfully loaded model from file.\n");
       std::cout << "Loaded model state from file: " << model_file << "\n";
-      printTensorSlices(w, 0, 5);
-    }
 
-    // Do one iteration of fltrust with ALL clients to initialize trust scores
-    w = run_fltrust_srvr(
-      1,
-      n_clients,
-      mnist,
-      regMem,
-      clnt_data_vec
-    );
+      // Do one iteration of fltrust with ALL clients to initialize trust scores
+      w = run_fltrust_srvr(
+        1,
+        n_clients,
+        mnist,
+        regMem,
+        clnt_data_vec
+      );
+    }
   }
   
   if (!load_model) {
@@ -186,17 +185,21 @@ int main(int argc, char* argv[]) {
   }
 
   // Global rounds of RByz
+  Logger::instance().log("Starting RBYZ\n");
   RdmaOps rdma_ops(conn_data);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
+
+    // Read the data from the clients
+    readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
     
-    // Individual rounds of RByz, it will perform aggregation at the last step
-    int n = 15;
-    for(int i = 0; i < n; i++) {
+    // For each client run N rounds of RByz
+    for(int j = 0; j < n_clients; j++) {
 
-      // Read the data from the clients
-      readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
+      // Read parameters from client
+      rdma_ops.exec_rdma_read(REG_SZ_DATA, CLNT_W_IDX);
 
-      for(int j = 0; j < n_clients; j++) {
+      int n = 15;
+      for(int i = 0; i < n; i++) {
         if(i != 1) {
           // UpdateTS
         }
@@ -260,6 +263,14 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
     // Run local training
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+  
+    // Keep updated values to follow FLtrust logic
+    for (size_t i = 0; i < g.size(); ++i) {
+        g[i] -= w[i];
+    }
+  
+    Logger::instance().log("Weight updates:\n");
+    printTensorSlices(g, 0, 5);
 
     //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
     //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS

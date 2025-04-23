@@ -104,6 +104,17 @@ int main(int argc, char* argv[]) {
     } else {
       Logger::instance().log("Successfully loaded model from file.\n");
       printTensorSlices(w, 0, 5);
+
+      // Do one iteration of fltrust with one iteration to initialize trust scores
+      w = run_fltrust_clnt(
+        1,
+        rdma_ops,
+        mnist,
+        srvr_ready_flag,
+        clnt_ready_flag,
+        srvr_w,
+        clnt_w
+      );
     }
   }
   
@@ -127,6 +138,7 @@ int main(int argc, char* argv[]) {
   clnt_CAS.store(MEM_FREE);
 
   // RBYZ client
+  Logger::instance().log("Starting RBYZ\n");
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     w = mnist.runMnistTrain(round, w);
 
@@ -179,7 +191,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   std::vector<torch::Tensor> w = mnist.testOG();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
-  for (int round = 1; round <= GLOBAL_ITERS; round++) {
+  for (int round = 1; round <= rounds; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
     } while (srvr_ready_flag != round);
@@ -202,6 +214,14 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 
     // Run the training on the updated weights
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+
+    // Keep updated values to follow FLtrust logic
+    for (size_t i = 0; i < g.size(); ++i) {
+      g[i] -= w[i];
+    }
+
+    Logger::instance().log("Weight updates:\n");
+    printTensorSlices(g, 0, 5);
 
     // Send the updated weights back to the server
     torch::Tensor all_tensors = flatten_tensor_vector(g);
