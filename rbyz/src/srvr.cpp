@@ -212,7 +212,9 @@ int main(int argc, char* argv[]) {
         Logger::instance().log("CAS LOCK RELEASED\n");
 
         if (i != 1) {
-          // UpdateTS
+          // Run inference on server model to update its VD loss and error and then update TS
+          mnist.runInference();
+          updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
         }
 
         // Byz detection

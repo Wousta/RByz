@@ -101,10 +101,10 @@ public:
       DataLoader& data_loader,
       size_t dataset_size);
 
-  std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> testOG();
   void testModel();
+  void runInference();
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
   torch::Tensor getOutput() { return output; }

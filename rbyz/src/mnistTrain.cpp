@@ -89,15 +89,6 @@ torch::Device MnistTrain::init_device() {
   return torch::Device(device_type);
 }
 
-std::vector<torch::Tensor> MnistTrain::runMnistTrainDummy(std::vector<torch::Tensor>& w) {
-  std::cout << "Running dummy MNIST training\n";
-  
-  for(size_t i = 0; i < w.size(); i++) {
-    w[i] = w[i] + 1;  // element-wise addition of 1
-  }
-  
-  return w;
-}
 
 template <typename DataLoader>
 void MnistTrain::train(
@@ -111,6 +102,8 @@ void MnistTrain::train(
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
+  double total_loss = 0.0;
+  
   for (auto& batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     optimizer.zero_grad();
@@ -118,14 +111,15 @@ void MnistTrain::train(
     
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
-    loss = nll_loss.template item<float>();
+    
+    // Accumulate loss across all batches
+    total_loss += nll_loss.template item<float>() * targets.size(0);
 
-    // Calculate accuracy and error rate for this batch
+    // Calculate accuracy for this batch
     auto pred = output.argmax(1);
     int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
     correct += batch_correct;
     total += targets.size(0);
-    error_rate = 1.0 - (static_cast<float>(correct) / total);
 
     // Backpropagation
     nll_loss.backward();
@@ -140,7 +134,12 @@ void MnistTrain::train(
           nll_loss.template item<float>());
     }
   }
+  
+  // Update class variables with final average values
+  loss = total_loss / total;
+  error_rate = 1.0 - (static_cast<float>(correct) / total);
 }
+
 
 template <typename DataLoader>
 void MnistTrain::test(
@@ -256,6 +255,34 @@ std::vector<torch::Tensor> MnistTrain::testOG() {
 void MnistTrain::testModel() {
   test(model, device, *test_loader, test_dataset_size);
 }
+
+
+void MnistTrain::runInference() {
+  torch::NoGradGuard no_grad; // Prevent gradient calculation
+  model.eval(); // Set model to evaluation mode
+  
+  int32_t correct = 0;
+  size_t total = 0;
+  double total_loss = 0.0;
+  
+  for (auto& batch : *train_loader) {
+    auto data = batch.data.to(device), targets = batch.target.to(device);
+    output = model.forward(data);
+    
+    auto nll_loss = torch::nll_loss(output, targets);
+    total_loss += nll_loss.template item<float>() * targets.size(0);
+    
+    // Calculate accuracy and error rate for this batch
+    auto pred = output.argmax(1);
+    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
+    correct += batch_correct;
+    total += targets.size(0);
+  }
+  
+  loss = total_loss / total;
+  error_rate = 1.0 - (static_cast<float>(correct) / total);
+}
+
 
 void MnistTrain::saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename) {
   try {
