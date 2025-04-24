@@ -35,18 +35,21 @@ struct RegMemSrvr {
   float* srvr_w = reinterpret_cast<float*>(malloc(REG_SZ_DATA));
   std::vector<int> clnt_ready_flags;
   std::vector<float*> clnt_ws;
+  std::vector<float*> clnt_loss_and_err;
   std::vector<std::atomic<int>> clnt_CAS;
   
   RegMemSrvr(int n_clients) : 
     n_clients(n_clients),
     clnt_ready_flags(n_clients, 0),
     clnt_ws(n_clients),
+    clnt_loss_and_err(n_clients),
     clnt_CAS(n_clients) {}
     
   ~RegMemSrvr() {
     free(srvr_w);
     for (int i = 0; i < n_clients; i++) {
       free(clnt_ws[i]);
+      free(clnt_loss_and_err[i]);
     }
   }
 };
@@ -117,12 +120,13 @@ int main(int argc, char* argv[]) {
 
   //Point clnt_ws buffer parts to the right place
   for (int i = 0; i < n_clients; i++) {
-    regMem.clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA + 2 * sizeof(float)));
+    regMem.clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
+    regMem.clnt_loss_and_err[i] = reinterpret_cast<float*>(malloc(MIN_SZ));
 
     clnt_data_vec[i].clnt_index = i;
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
-    clnt_data_vec[i].loss = regMem.clnt_ws[i] + REG_SZ_DATA / sizeof(float);
-    clnt_data_vec[i].error_rate = regMem.clnt_ws[i] + REG_SZ_DATA / sizeof(float) + 1;
+    clnt_data_vec[i].loss = regMem.clnt_loss_and_err[i];
+    clnt_data_vec[i].error_rate = regMem.clnt_loss_and_err[i] + 1;
   }
 
   // memory registration
@@ -131,12 +135,14 @@ int main(int argc, char* argv[]) {
     reg_info[i].addr_locs.push_back(castI(regMem.srvr_w));
     reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
+    reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
     reg_info[i].addr_locs.push_back(castI(&regMem.clnt_CAS[i]));
 
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(REG_SZ_CLNT);
+    reg_info[i].data_sizes.push_back(REG_SZ_DATA);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
@@ -189,29 +195,29 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops(conn_data);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
 
-    // Read the data from the clients
+    // Read the error and loss from the clients
     readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
     
     // For each client run N rounds of RByz
-    for(int j = 0; j < n_clients; j++) {
+    int n = 15;
+    for (int i = 0; i < n; i++) {
 
-      int n = 15;
-      for(int i = 0; i < n; i++) {
+      for (int j = 0; j < n_clients; j++) {
 
-        // Read parameters from client
+        // Read error and loss from client
         aquireCASLock(j, rdma_ops, regMem.clnt_CAS);
         Logger::instance().log("CAS LOCK AQUIRED\n");
-        rdma_ops.exec_rdma_read(REG_SZ_DATA, CLNT_W_IDX);
+        rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
         releaseCASLock(j, rdma_ops, regMem.clnt_CAS);
         Logger::instance().log("CAS LOCK RELEASED\n");
 
-        if(i != 1) {
+        if (i != 1) {
           // UpdateTS
         }
 
         // Byz detection
 
-        if(i == n) {
+        if (i == n) {
           // Aggregate
         }
       }
@@ -227,7 +233,7 @@ int main(int argc, char* argv[]) {
 
   mnist.testModel();
 
-  for(RcConn conn : conns) {
+  for (RcConn conn : conns) {
     conn.disconnect();
   }
   free(addr_info.ipv4_addr);

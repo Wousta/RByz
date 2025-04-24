@@ -16,7 +16,7 @@ void readClntsRByz(
       }
       else {
         // Read the data from the client and release client lock
-        rdma_ops.exec_rdma_read(REG_SZ_CLNT, CLNT_W_IDX, clnt_idx);
+        rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, clnt_idx);
         clnt_CAS[clnt_idx].store(MEM_FREE);
         rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
         clnt_idx++;

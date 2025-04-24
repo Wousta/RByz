@@ -70,6 +70,7 @@ int main(int argc, char* argv[]) {
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   int clnt_ready_flag = 0;
   float* clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
+  float* loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
   std::atomic<int> clnt_CAS(MEM_OCCUPIED);
 
   // memory registration
@@ -77,11 +78,13 @@ int main(int argc, char* argv[]) {
   reg_info.addr_locs.push_back(castI(srvr_w));
   reg_info.addr_locs.push_back(castI(&clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(clnt_w));
+  reg_info.addr_locs.push_back(castI(loss_and_err));
   reg_info.addr_locs.push_back(castI(&clnt_CAS));
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_CLNT);
+  reg_info.data_sizes.push_back(REG_SZ_DATA);
+  reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -160,7 +163,7 @@ int main(int argc, char* argv[]) {
 
     // Store the updates, error and loss values in clnt_w
     std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
-    writeErrorAndLoss(mnist, clnt_w);
+    writeErrorAndLoss(mnist, loss_and_err);
 
     // Reset the memory ready flag
     clnt_CAS.store(MEM_FREE);
@@ -172,6 +175,7 @@ int main(int argc, char* argv[]) {
 
   free(srvr_w);
   free(clnt_w);
+  free(loss_and_err);
   free(addr_info.ipv4_addr);
   free(addr_info.port);
   conn.disconnect();
@@ -255,11 +259,9 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   return w;
 }
 
-void writeErrorAndLoss(
-  MnistTrain& mnist,
-  float* clnt_w) {
+void writeErrorAndLoss(MnistTrain& mnist, float* loss_and_err) {
   float loss_val = mnist.getLoss();
   float error_rate_val = mnist.getErrorRate();
-  std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &loss_val, sizeof(float));
-  std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + 1, &error_rate_val, sizeof(float));
+  std::memcpy(loss_and_err, &loss_val, sizeof(float));
+  std::memcpy(loss_and_err + 1, &error_rate_val, sizeof(float));
 }
