@@ -1,4 +1,6 @@
 #pragma once
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <cstdint>
 #include <infiniband/ib.h>
 #include <infiniband/verbs.h>

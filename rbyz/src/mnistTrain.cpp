@@ -256,7 +256,7 @@ void MnistTrain::testModel() {
   test(model, device, *test_loader, test_dataset_size);
 }
 
-
+// Updates the error and loss of this model
 void MnistTrain::runInference() {
   torch::NoGradGuard no_grad; // Prevent gradient calculation
   model.eval(); // Set model to evaluation mode
@@ -283,7 +283,7 @@ void MnistTrain::runInference() {
   error_rate = 1.0 - (static_cast<float>(correct) / total);
 }
 
-
+// Saves the model parameters into a .pt file. Used to avoid having to run FLtrust when testing
 void MnistTrain::saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename) {
   try {
     Logger::instance().log("Saving model state to " + filename + "...\n");
@@ -294,6 +294,7 @@ void MnistTrain::saveModelState(const std::vector<torch::Tensor>& w, const std::
   }
 }
 
+// Loads the model parameters from a .pt file and returns them. Used to avoid having to run FLtrust when testing
 std::vector<torch::Tensor> MnistTrain::loadModelState(const std::string& filename) {
   std::vector<torch::Tensor> w;
   try {
@@ -304,4 +305,90 @@ std::vector<torch::Tensor> MnistTrain::loadModelState(const std::string& filenam
     Logger::instance().log("Error loading model state: " + std::string(e.what()) + "\n");
   }
   return w;
+}
+
+void MnistTrain::prepareRegisteredDataset() {
+  auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
+
+  SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
+  auto& indices = train_sampler.indices();
+  registered_samples = indices.size();
+
+  // 784 is the size of an image in MNIST dataset
+  size_t image_memory_size = registered_samples * 784 * sizeof(float);
+  size_t label_memory_size = registered_samples * sizeof(int64_t);
+  
+  registered_images = reinterpret_cast<float*>(malloc(image_memory_size));
+  registered_labels = reinterpret_cast<int64_t*>(malloc(label_memory_size));
+
+  Logger::instance().log("Allocated registered memory for dataset: " + 
+    std::to_string(image_memory_size + label_memory_size) + " bytes\n");
+
+  // Copy data from the original dataset to the registered memory
+  for (size_t i = 0; i < registered_samples; i++) {
+    size_t original_idx = indices[i];
+    auto example = plain_mnist.get(original_idx);
+    auto normalized_image = (example.data.to(torch::kFloat32) / 255.0 - 0.1307) / 0.3081;
+    
+    // Flatten the image tensor and copy to registered memory
+    auto flat_image = normalized_image.reshape({784});
+    std::memcpy(registered_images + (i * 784), 
+                flat_image.data_ptr<float>(), 
+                784 * sizeof(float));
+    
+    // Copy the label
+    registered_labels[i] = example.target.item<int64_t>();
+  }
+
+  registered_dataset = std::make_unique<RegisteredMNIST>(
+    registered_images, registered_labels, registered_samples, 784, false);
+
+  auto loader_temp = torch::data::make_data_loader(
+    *registered_dataset,
+    train_sampler,  // Reuse the same sampler
+    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+  registered_loader = std::move(loader_temp);
+
+  Logger::instance().log("Registered memory dataset prepared with " + 
+    std::to_string(registered_samples) + " samples\n");
+}
+
+std::vector<torch::Tensor> MnistTrain::runRegisteredTrain(int round, const std::vector<torch::Tensor>& w) {
+  // Same as runMnistTrain but uses registered_loader instead of train_loader
+  
+  // Update model parameters with input weights if sizes match
+  auto params = model.parameters();
+  if (w.size() == params.size()) {
+      std::cout << "\nUpdating model parameters with input weights." << std::endl;
+      for (size_t i = 0; i < params.size(); ++i) {
+          params[i].data().copy_(w[i]);
+      }
+  } else if (!w.empty()) {
+      std::ostringstream oss;
+      oss << "Warning: Input weight size (" << w.size() << ") does not match model parameter size (" 
+          << params.size() << "). Using default initialization." << std::endl;
+      Logger::instance().log(oss.str());
+  }
+
+  torch::optim::SGD optimizer(
+      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
+
+  std::cout << "Training model for round " << round << " using registered memory dataset\n";
+
+  for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+      train(epoch, model, device, *registered_loader, optimizer, registered_samples);
+
+      if (worker_id == 0 && round % 10 == 0) {
+          Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
+          test(model, device, *test_loader, test_dataset_size);
+      }
+  }
+  
+  // Extract model weights after training
+  std::vector<torch::Tensor> model_weights;
+  for (const auto& param : model.parameters()) {
+      model_weights.push_back(param.clone().detach());
+  }
+
+  return model_weights;
 }

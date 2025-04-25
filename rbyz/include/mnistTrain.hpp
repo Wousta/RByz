@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../include/subsetSampler.hpp"
+#include "../include/registeredMNIST.hpp"
 #include "../include/globalConstants.hpp"
 
 #include <vector>
@@ -75,6 +76,13 @@ private:
   std::unique_ptr<TrainDataLoaderType> train_loader;
   std::unique_ptr<TestDataLoaderType> test_loader;
 
+  // Memory registered dataset
+  float* registered_images; 
+  int64_t* registered_labels;
+  size_t registered_samples; // Number of registered samples
+  std::unique_ptr<RegisteredMNIST> registered_dataset;
+  std::unique_ptr<torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSamplerType>> registered_loader;
+
   torch::Device init_device();
   SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
 
@@ -112,4 +120,13 @@ public:
   std::vector<torch::Tensor> loadModelState(const std::string& filename);
   float getLoss() { return loss; }
   float getErrorRate() { return error_rate; }
+
+  // Methods for registered dataset
+  void prepareRegisteredDataset();
+  float* getRegisteredImages() { return registered_images; }
+  int64_t* getRegisteredLabels() { return registered_labels; }
+  size_t getRegisteredSamplesCount() { return registered_samples; }
+
+  // Use this method in place of runMnistTrain to run training in registered memory
+  std::vector<torch::Tensor> runRegisteredTrain(int round, const std::vector<torch::Tensor>& w);
 };
