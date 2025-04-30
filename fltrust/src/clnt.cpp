@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cuda_runtime.h>
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
@@ -25,6 +26,32 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* srvr_w,
   float* clnt_w
 );
+
+void test_cuda_devices() {
+  std::cout << "=== Testingg CUDA device availability ===" << std::endl;
+  
+  int deviceCount = 0;
+  cudaError_t error = cudaGetDeviceCount(&deviceCount);
+  
+  if (error != cudaSuccess) {
+    std::cerr << "cudaGetDeviceCount failed with error: " 
+              << cudaGetErrorString(error) << " (code " << error << ")" << std::endl;
+  } else {
+    std::cout << "Number of CUDA devices detected: " << deviceCount << std::endl;
+    
+    // Print information about each device
+    for (int i = 0; i < deviceCount; i++) {
+      cudaDeviceProp deviceProp;
+      cudaGetDeviceProperties(&deviceProp, i);
+      
+      std::cout << "CUDA Device " << i << ": " << deviceProp.name << std::endl;
+      std::cout << "  Total memory: " << (deviceProp.totalGlobalMem / 1024 / 1024) << " MB" << std::endl;
+      std::cout << "  Compute capability: " << deviceProp.major << "." << deviceProp.minor << std::endl;
+    }
+  }
+  
+  std::cout << "=== CUDA device test complete ===" << std::endl;
+}
 
 int main(int argc, char* argv[]) {
   std::this_thread::sleep_for(std::chrono::seconds(12));
@@ -79,6 +106,7 @@ int main(int argc, char* argv[]) {
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
   RdmaOps rdma_ops(conn_data);
+  test_cuda_devices();
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
   MnistTrain mnist(id ,CLNT_SUBSET_SIZE);
