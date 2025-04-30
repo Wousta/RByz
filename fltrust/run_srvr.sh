@@ -2,7 +2,7 @@
 
 srvr_ip=192.168.117.103
 port=2000
-n_clients=1
+n_clients=5
 
 # Array for client PIDs
 CLNT_PIDS=()

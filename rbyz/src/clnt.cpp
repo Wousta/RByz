@@ -26,11 +26,18 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* clnt_w
 );
 
+void writeErrorAndLoss(
+  MnistTrain& mnist,
+  float* clnt_w
+);
+
 int main(int argc, char* argv[]) {
   std::this_thread::sleep_for(std::chrono::seconds(12));
   Logger::instance().log("Client starting execution\n");
 
   int id;
+  bool load_model = false;
+  std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -41,7 +48,9 @@ int main(int argc, char* argv[]) {
   auto cli = lyra::cli() |
     lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
     lyra::opt(port, "port")["-p"]["--port"]("port") |
-    lyra::opt(id, "id")["-p"]["--id"]("id");
+    lyra::opt(id, "id")["-p"]["--id"]("id") |
+    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -61,16 +70,22 @@ int main(int argc, char* argv[]) {
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   int clnt_ready_flag = 0;
   float* clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
+  float* loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
+  std::atomic<int> clnt_CAS(MEM_OCCUPIED);
 
   // memory registration
   reg_info.addr_locs.push_back(castI(&srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(srvr_w));
   reg_info.addr_locs.push_back(castI(&clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(clnt_w));
+  reg_info.addr_locs.push_back(castI(loss_and_err));
+  reg_info.addr_locs.push_back(castI(&clnt_CAS));
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_CLNT);
+  reg_info.data_sizes.push_back(REG_SZ_DATA);
+  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
@@ -78,22 +93,55 @@ int main(int argc, char* argv[]) {
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
-  RdmaOps rdma_ops(conn_data);
+  RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
-  MnistTrain mnist(id ,CLNT_SUBSET_SIZE);
-  std::vector<torch::Tensor> w = run_fltrust_clnt(
-    GLOBAL_ITERS,
-    rdma_ops,
-    mnist,
-    srvr_ready_flag,
-    clnt_ready_flag,
-    srvr_w,
-    clnt_w
-  );
+  MnistTrain mnist(0, SRVR_SUBSET_SIZE);
+  std::vector<torch::Tensor> w;
+
+  if (load_model) {
+    w = mnist.loadModelState(model_file);
+    if (w.empty()) {
+      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
+      load_model = false;
+    } else {
+      Logger::instance().log("Successfully loaded model from file.\n");
+      printTensorSlices(w, 0, 5);
+
+      // Do one iteration of fltrust with one iteration to initialize trust scores
+      w = run_fltrust_clnt(
+        1,
+        rdma_ops,
+        mnist,
+        srvr_ready_flag,
+        clnt_ready_flag,
+        srvr_w,
+        clnt_w
+      );
+    }
+  }
+  
+  if (!load_model) {
+    w = run_fltrust_clnt(
+      GLOBAL_ITERS,
+      rdma_ops,
+      mnist,
+      srvr_ready_flag,
+      clnt_ready_flag,
+      srvr_w,
+      clnt_w
+    );
+
+    mnist.saveModelState(w, model_file);
+  }
+
+  // Before rbyz, the client has to write error and loss for the first time
+  writeErrorAndLoss(mnist, clnt_w);
+  Logger::instance().log("Client: Initial loss and error values\n");
+  clnt_CAS.store(MEM_FREE);
 
   // RBYZ client
-  clnt_ready_flag = 0;
+  Logger::instance().log("Starting RBYZ\n");
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     w = mnist.runMnistTrain(round, w);
 
@@ -105,15 +153,21 @@ int main(int argc, char* argv[]) {
     }
 
     float* all_tensors_float = all_tensors.data_ptr<float>();
+
+    // Make server wait until memory is written
+    int expected = MEM_FREE;
+    while(!clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
+      std::this_thread::yield();
+    }
+    Logger::instance().log("CAS LOCK AQUIRED\n");
+
+    // Store the updates, error and loss values in clnt_w
     std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
+    writeErrorAndLoss(mnist, loss_and_err);
 
-    // Store the error and loss values in clnt_w
-    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float), &mnist.getClntLoss(), sizeof(float));
-    std::memcpy(clnt_w + REG_SZ_DATA / sizeof(float) + sizeof(float), &mnist.getClntError(), sizeof(float));
-
-    // Server is ready to read the updated data
-    // TODO: might be necessary to make it atomic
-    clnt_ready_flag = round;
+    // Reset the memory ready flag
+    clnt_CAS.store(MEM_FREE);
+    Logger::instance().log("CAS LOCK RELEASED\n");
   }
 
   Logger::instance().log("Client: Final weights\n");
@@ -121,6 +175,7 @@ int main(int argc, char* argv[]) {
 
   free(srvr_w);
   free(clnt_w);
+  free(loss_and_err);
   free(addr_info.ipv4_addr);
   free(addr_info.port);
   conn.disconnect();
@@ -142,7 +197,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   std::vector<torch::Tensor> w = mnist.testOG();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
-  for (int round = 1; round <= GLOBAL_ITERS; round++) {
+  for (int round = 1; round <= rounds; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
     } while (srvr_ready_flag != round);
@@ -165,6 +220,14 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 
     // Run the training on the updated weights
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+
+    // Keep updated values to follow FLtrust logic
+    for (size_t i = 0; i < g.size(); ++i) {
+      g[i] -= w[i];
+    }
+
+    Logger::instance().log("Weight updates:\n");
+    printTensorSlices(g, 0, 5);
 
     // Send the updated weights back to the server
     torch::Tensor all_tensors = flatten_tensor_vector(g);
@@ -194,4 +257,11 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   }
 
   return w;
+}
+
+void writeErrorAndLoss(MnistTrain& mnist, float* loss_and_err) {
+  float loss_val = mnist.getLoss();
+  float error_rate_val = mnist.getErrorRate();
+  std::memcpy(loss_and_err, &loss_val, sizeof(float));
+  std::memcpy(loss_and_err + 1, &error_rate_val, sizeof(float));
 }

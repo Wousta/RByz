@@ -103,7 +103,6 @@ int main(int argc, char* argv[]) {
   }
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
-  //std::vector<torch::Tensor> w = runMnistTrain(w_dummy);
   MnistTrain mnist(0, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_srvr(
     GLOBAL_ITERS,
@@ -222,12 +221,7 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   if (min_sz == -1) {
     min_sz = n_clients;
   }
-
-  std::cout << "Generating random unique vector of size " << n_clients << "\n";
-  
-  // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
-  
   std::vector<int> allValues(n_clients);
   for (int i = 0; i < n_clients; i++) {
       allValues[i] = i;

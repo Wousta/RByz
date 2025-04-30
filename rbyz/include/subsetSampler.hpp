@@ -66,5 +66,9 @@ class SubsetSampler : public torch::data::samplers::Sampler<std::vector<size_t>>
         current_ = static_cast<size_t>(current_tensor.item<int64_t>());
     }
 
+    const std::vector<size_t>& indices() const {
+        return indices_;
+    }
 
+    
 };

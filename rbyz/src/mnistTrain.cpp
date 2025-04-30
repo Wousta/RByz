@@ -89,15 +89,6 @@ torch::Device MnistTrain::init_device() {
   return torch::Device(device_type);
 }
 
-std::vector<torch::Tensor> MnistTrain::runMnistTrainDummy(std::vector<torch::Tensor>& w) {
-  std::cout << "Running dummy MNIST training\n";
-  
-  for(size_t i = 0; i < w.size(); i++) {
-    w[i] = w[i] + 1;  // element-wise addition of 1
-  }
-  
-  return w;
-}
 
 template <typename DataLoader>
 void MnistTrain::train(
@@ -111,20 +102,24 @@ void MnistTrain::train(
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
+  double total_loss = 0.0;
+  
   for (auto& batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     optimizer.zero_grad();
     output = model.forward(data);
+    
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
-    loss = nll_loss.template item<float>();
+    
+    // Accumulate loss across all batches
+    total_loss += nll_loss.template item<float>() * targets.size(0);
 
-    // Calculate accuracy and error rate for this batch
+    // Calculate accuracy for this batch
     auto pred = output.argmax(1);
     int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
     correct += batch_correct;
     total += targets.size(0);
-    error_rate = 1.0 - (static_cast<float>(correct) / total);
 
     // Backpropagation
     nll_loss.backward();
@@ -139,7 +134,12 @@ void MnistTrain::train(
           nll_loss.template item<float>());
     }
   }
+  
+  // Update class variables with final average values
+  loss = total_loss / total;
+  error_rate = 1.0 - (static_cast<float>(correct) / total);
 }
+
 
 template <typename DataLoader>
 void MnistTrain::test(
@@ -216,23 +216,8 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
     // Clone the parameter to ensure we're not just storing references
     model_weights.push_back(param.clone().detach());
   }
-  
-  // Return update
-  std::vector<torch::Tensor> result;
-  result.reserve(model_weights.size());
 
-  if (model_weights.size() != w.size()) {
-      throw std::runtime_error("Tensor vectors must have the same size for subtraction");
-  }
-
-  for (size_t i = 0; i < model_weights.size(); ++i) {
-      result.push_back(model_weights[i] - w[i]);
-  }
-
-  Logger::instance().log("Weight updates:\n");
-  printTensorSlices(result, 0, 5);
-  
-  return result;
+  return model_weights;
 }
 
 std::vector<torch::Tensor> MnistTrain::testOG() {
@@ -269,4 +254,141 @@ std::vector<torch::Tensor> MnistTrain::testOG() {
 
 void MnistTrain::testModel() {
   test(model, device, *test_loader, test_dataset_size);
+}
+
+// Updates the error and loss of this model
+void MnistTrain::runInference() {
+  torch::NoGradGuard no_grad; // Prevent gradient calculation
+  model.eval(); // Set model to evaluation mode
+  
+  int32_t correct = 0;
+  size_t total = 0;
+  double total_loss = 0.0;
+  
+  for (auto& batch : *train_loader) {
+    auto data = batch.data.to(device), targets = batch.target.to(device);
+    output = model.forward(data);
+    
+    auto nll_loss = torch::nll_loss(output, targets);
+    total_loss += nll_loss.template item<float>() * targets.size(0);
+    
+    // Calculate accuracy and error rate for this batch
+    auto pred = output.argmax(1);
+    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
+    correct += batch_correct;
+    total += targets.size(0);
+  }
+  
+  loss = total_loss / total;
+  error_rate = 1.0 - (static_cast<float>(correct) / total);
+}
+
+// Saves the model parameters into a .pt file. Used to avoid having to run FLtrust when testing
+void MnistTrain::saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename) {
+  try {
+    Logger::instance().log("Saving model state to " + filename + "...\n");
+    torch::save(w, filename);
+    Logger::instance().log("Model state saved successfully.\n");
+  } catch (const std::exception& e) {
+    Logger::instance().log("Error saving model state: " + std::string(e.what()) + "\n");
+  }
+}
+
+// Loads the model parameters from a .pt file and returns them. Used to avoid having to run FLtrust when testing
+std::vector<torch::Tensor> MnistTrain::loadModelState(const std::string& filename) {
+  std::vector<torch::Tensor> w;
+  try {
+    Logger::instance().log("Loading model state from " + filename + "...\n");
+    torch::load(w, filename);
+    Logger::instance().log("Model state loaded successfully.\n");
+  } catch (const std::exception& e) {
+    Logger::instance().log("Error loading model state: " + std::string(e.what()) + "\n");
+  }
+  return w;
+}
+
+void MnistTrain::prepareRegisteredDataset() {
+  auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
+
+  SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
+  auto& indices = train_sampler.indices();
+  registered_samples = indices.size();
+
+  // 784 is the size of an image in MNIST dataset
+  size_t image_memory_size = registered_samples * 784 * sizeof(float);
+  size_t label_memory_size = registered_samples * sizeof(int64_t);
+  
+  registered_images = reinterpret_cast<float*>(malloc(image_memory_size));
+  registered_labels = reinterpret_cast<int64_t*>(malloc(label_memory_size));
+
+  Logger::instance().log("Allocated registered memory for dataset: " + 
+    std::to_string(image_memory_size + label_memory_size) + " bytes\n");
+
+  // Copy data from the original dataset to the registered memory
+  for (size_t i = 0; i < registered_samples; i++) {
+    size_t original_idx = indices[i];
+    auto example = plain_mnist.get(original_idx);
+    auto normalized_image = (example.data.to(torch::kFloat32) / 255.0 - 0.1307) / 0.3081;
+    
+    // Flatten the image tensor and copy to registered memory
+    auto flat_image = normalized_image.reshape({784});
+    std::memcpy(registered_images + (i * 784), 
+                flat_image.data_ptr<float>(), 
+                784 * sizeof(float));
+    
+    // Copy the label
+    registered_labels[i] = example.target.item<int64_t>();
+  }
+
+  registered_dataset = std::make_unique<RegisteredMNIST>(
+    registered_images, registered_labels, registered_samples, 784, false);
+
+  auto loader_temp = torch::data::make_data_loader(
+    *registered_dataset,
+    train_sampler,  // Reuse the same sampler
+    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+  registered_loader = std::move(loader_temp);
+
+  Logger::instance().log("Registered memory dataset prepared with " + 
+    std::to_string(registered_samples) + " samples\n");
+}
+
+std::vector<torch::Tensor> MnistTrain::runRegisteredTrain(int round, const std::vector<torch::Tensor>& w) {
+  // Same as runMnistTrain but uses registered_loader instead of train_loader
+  
+  // Update model parameters with input weights if sizes match
+  auto params = model.parameters();
+  if (w.size() == params.size()) {
+      std::cout << "\nUpdating model parameters with input weights." << std::endl;
+      for (size_t i = 0; i < params.size(); ++i) {
+          params[i].data().copy_(w[i]);
+      }
+  } else if (!w.empty()) {
+      std::ostringstream oss;
+      oss << "Warning: Input weight size (" << w.size() << ") does not match model parameter size (" 
+          << params.size() << "). Using default initialization." << std::endl;
+      Logger::instance().log(oss.str());
+  }
+
+  torch::optim::SGD optimizer(
+      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
+
+  std::cout << "Training model for round " << round << " using registered memory dataset\n";
+
+  for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+      train(epoch, model, device, *registered_loader, optimizer, registered_samples);
+
+      if (worker_id == 0 && round % 10 == 0) {
+          Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
+          test(model, device, *test_loader, test_dataset_size);
+      }
+  }
+  
+  // Extract model weights after training
+  std::vector<torch::Tensor> model_weights;
+  for (const auto& param : model.parameters()) {
+      model_weights.push_back(param.clone().detach());
+  }
+
+  return model_weights;
 }

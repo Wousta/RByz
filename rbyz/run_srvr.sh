@@ -2,7 +2,16 @@
 
 srvr_ip=192.168.117.103
 port=2000
-n_clients=1
+n_clients=3
+load_model=true
+model_file="mnist_model_params.pt"
+
+# Lyra handling of boolean flag
+if [ "$load_model" = true ]; then
+  load_model_param="--load"
+else
+  load_model_param=""
+fi
 
 # Array for client PIDs
 CLNT_PIDS=()
@@ -29,17 +38,17 @@ echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
 
-build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
+build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_model_param --file $model_file & 
 SRVR_PID=$!
 
 
 for id in $(seq 1 $n_clients); do
   sleep 1
-  build/clnt --srvr_ip $srvr_ip --port $port --id $id &
+  build/clnt --srvr_ip $srvr_ip --port $port --id $id $load_model_param --file $model_file &
   # gdb -ex "break /home/bustaman/usr-rdma-api-main/rbyz/src/clnt.cpp:92" \
   #     -ex "start" \
-  #     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id 
-  #valgrind --leak-check=full build/clnt --srvr_ip $srvr_ip --port $port --id $id &
+  #     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id $load_model_param --file $model_file 
+  #valgrind --leak-check=full build/clnt --srvr_ip $srvr_ip --port $port --id $id $load_model_param --file $model_file &
   CLNT_PIDS+=($!)
 done
 
