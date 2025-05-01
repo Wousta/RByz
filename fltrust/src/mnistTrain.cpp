@@ -10,6 +10,15 @@
 #include <vector>
 #include <cuda_runtime.h>
 
+const char* kDataRoot = "./data";
+auto train_dataset_default = torch::data::datasets::MNIST(kDataRoot)
+  .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+  .map(torch::data::transforms::Stack<>());
+const size_t train_dataset_size_default = train_dataset_default.size().value();
+auto train_loader_default = 
+  torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
+    std::move(train_dataset_default), 64);
+
 MnistTrain::MnistTrain(int worker_id, int64_t subset_size) 
   : device(init_device()),
     subset_size(subset_size),
@@ -49,9 +58,12 @@ MnistTrain::MnistTrain(int worker_id, int64_t subset_size)
 }
 
 SubsetSampler MnistTrain::get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size) {
-  auto indices_tensor = torch::randperm(dataset_size);
+  // Create sequential indices instead of random permutation
+  std::vector<int64_t> sequential_indices(dataset_size);
+  std::iota(sequential_indices.begin(), sequential_indices.end(), 0); 
+  auto indices_tensor = torch::tensor(sequential_indices);
 
-  int64_t start = (worker_id - 1) * subset_size;
+  int64_t start = worker_id * subset_size;
   if(worker_id == 0) {
     start = 0;
   }
@@ -64,9 +76,18 @@ SubsetSampler MnistTrain::get_subset_sampler(int worker_id, size_t dataset_size,
   auto subset_tensor = indices_tensor.slice(0, start, end);
 
   std::vector<size_t> subset_indices(subset_size);
-  for (int64_t i = 0; i < subset_size; ++i) {
+  for (int64_t i = 0; i < subset_size && i < (end - start); ++i) {
     subset_indices[i] = static_cast<size_t>(subset_tensor[i].item<int64_t>());
   }
+  
+  // If the subset size is larger than available data, resize the vector
+  if (subset_size > (end - start)) {
+    subset_indices.resize(end - start);
+  }
+
+  Logger::instance().log("Worker " + std::to_string(worker_id) + 
+                        " using sequential indices: " + std::to_string(start) + 
+                        " to " + std::to_string(end-1) + "\n");
 
   return SubsetSampler(subset_indices);
 }
@@ -105,24 +126,64 @@ void MnistTrain::train(
     DataLoader& data_loader,
     torch::optim::Optimizer& optimizer,
     size_t dataset_size) {
-  Logger::instance().log("Training in device type: " + std::string(device.is_cuda() ? "GPU" : "CPU") + "\n");
   model.train();
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
   for (auto& batch : data_loader) {
-    auto data = batch.data.to(device), targets = batch.target.to(device);
+    torch::Tensor data_device, targets_device;
+    
+    if (device.is_cuda()) {
+      // Create CUDA tensors with the same shape and type
+      data_device = torch::empty_like(batch.data, torch::TensorOptions().device(device));
+      targets_device = torch::empty_like(batch.target, torch::TensorOptions().device(device));
+      
+      // Asynchronously copy data from CPU to GPU
+      cudaMemcpyAsync(
+        data_device.data_ptr<float>(),
+        batch.data.template data_ptr<float>(),
+        batch.data.numel() * sizeof(float),
+        cudaMemcpyHostToDevice
+      );
+      
+      cudaMemcpyAsync(
+        targets_device.data_ptr<int64_t>(),
+        batch.target.template data_ptr<int64_t>(),
+        batch.target.numel() * sizeof(int64_t),
+        cudaMemcpyHostToDevice
+      );
+      
+      // Ensure copy is complete before proceeding
+      cudaDeviceSynchronize();
+    } else {
+      // For CPU, just use the original tensors
+      data_device = batch.data;
+      targets_device = batch.target;
+    }
+
+    {
+      std::ostringstream oss;
+      oss << "  Targets (first 10 elements): [";
+      int num_to_print = std::min(10, static_cast<int>(targets_device.numel()));
+      for (int i = 0; i < num_to_print; ++i) {
+        oss << targets_device[i].item<int64_t>();
+        if (i < num_to_print - 1) oss << ", ";
+      }
+      oss << "]";
+      Logger::instance().log(oss.str() + "\n");
+    }
+    
     optimizer.zero_grad();
-    output = model.forward(data);
-    auto nll_loss = torch::nll_loss(output, targets);
+    output = model.forward(data_device);
+    auto nll_loss = torch::nll_loss(output, targets_device);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
     loss = nll_loss.template item<float>();
 
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
-    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
+    int32_t batch_correct = pred.eq(targets_device).sum().template item<int32_t>();
     correct += batch_correct;
-    total += targets.size(0);
+    total += targets_device.size(0);
     error_rate = 1.0 - (static_cast<float>(correct) / total);
 
     // Backpropagation
@@ -211,6 +272,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
+    //train(epoch, model, device, *train_loader_default, optimizer, train_dataset_size_default);
     if (worker_id == 0 && round % 10 == 0) {
       Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
       test(model, device, *test_loader, test_dataset_size);
@@ -252,63 +314,18 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   return result;
 }
 
-std::vector<torch::Tensor> MnistTrain::testOG() {
-  int local_subset_size = 2;
-  SubsetSampler train_sampler_local = get_subset_sampler(worker_id, train_dataset_size, local_subset_size);
-
-  auto train_loader_local = torch::data::make_data_loader(
-    train_dataset,
-    train_sampler_local,
-    torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
-
-  torch::optim::SGD optimizer(
-    model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
-
-  for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, model, device, *train_loader_local, optimizer, local_subset_size);
+std::vector<torch::Tensor> MnistTrain::getInitialWeights() {
+  // Get model's parameters
+  std::vector<torch::Tensor> initialWeights;
+  for (const auto& param : model.parameters()) {
+    // Clone and detach parameters to CPU tensors
+    initialWeights.push_back(param.clone().detach().to(torch::kCPU));
   }
-
-  size_t param_count = model.parameters().size();
-  std::vector<torch::Tensor> cpu_tensors;
-  cpu_tensors.reserve(param_count);
-  std::vector<at::Tensor> cuda_tensors;
-  cuda_tensors.reserve(param_count);
-  if (device.is_cuda()) {
-    for (const auto& param : model.parameters()) {
-      auto shape = param.sizes();
-      auto random_tensor = torch::rand(shape, 
-                                      torch::TensorOptions()
-                                      .device(device)
-                                      .dtype(param.dtype()));
-      random_tensor = random_tensor * 0.1;
-      
-      // Push tensor to vector to keep it in scope while it is asynchronously copied
-      cuda_tensors.push_back(random_tensor);
-      auto cpu_tensor = torch::empty_like(random_tensor, torch::kCPU);
-      cudaMemcpyAsync(
-        cpu_tensor.data_ptr<float>(),
-        random_tensor.data_ptr<float>(),
-        random_tensor.numel() * sizeof(float),
-        cudaMemcpyDeviceToHost
-      );
-      cpu_tensors.push_back(cpu_tensor);
-    }
-
-    // Synchronize to ensure all async copies are done
-    cudaDeviceSynchronize();
-  } else {
-    for (const auto& param : model.parameters()) {
-      auto shape = param.sizes();
-      auto random_tensor = torch::rand(shape, 
-                                     torch::TensorOptions()
-                                     .device(device)
-                                     .dtype(param.dtype()));
-      random_tensor = random_tensor * 0.1;
-      cpu_tensors.push_back(random_tensor);
-    }
-  }
-
-  return cpu_tensors;
+  
+  Logger::instance().log("Obtained initial random weights from model\n");
+  printTensorSlices(initialWeights, 0, 5);
+  
+  return initialWeights;
 }
 
 void MnistTrain::testModel() {

@@ -43,8 +43,8 @@ private:
   const int worker_id;
   const int64_t subset_size;
   const int64_t kTrainBatchSize = 64;
-  const int64_t kTestBatchSize = 1;
-  const int64_t kNumberOfEpochs = 10;
+  const int64_t kTestBatchSize = 1000;
+  const int64_t kNumberOfEpochs = 5;
   const int64_t kLogInterval = 10;
   const float learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
@@ -100,7 +100,7 @@ public:
 
   std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w);
-  std::vector<torch::Tensor> testOG();
+  std::vector<torch::Tensor> getInitialWeights();
   void testModel();
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
