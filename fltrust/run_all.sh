@@ -1,19 +1,22 @@
 #!/bin/bash
 
 # Configuration
-srvr_ip=192.168.117.103
+srvr_ip=192.168.128.101
 port=2000
-n_clients=10
+n_clients=4  # Total number of clients
 remote_user="bustaman"
-remote_host="lpdquatro4"
+remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_script_path="/home/bustaman/rbyz/fltrust"
+
+# Calculate clients per machine (even distribution)
+clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
+remainder=$((n_clients % ${#remote_hosts[@]}))
 
 # Server runs locally, clients run remotely
 run_server_remote=false
 run_clients_remote=true
 
 # Array for client PIDs and SSH PIDs
-CLNT_PIDS=()
 SSH_PIDS=()
 
 # Cleanup function: kill local and remote processes
@@ -24,12 +27,17 @@ cleanup() {
   echo "Killing local server process..."
   kill $SRVR_PID 2>/dev/null
   
-  # Kill remote client processes
+  # Kill remote client processes on all machines
   echo "Killing remote client processes..."
-  ssh $remote_user@$remote_host "for pid in \$(cat $remote_script_path/clients.pid); do kill \$pid 2>/dev/null; done"
+  for host in "${remote_hosts[@]}"; do
+    ssh $remote_user@$host "for pid in \$(cat $remote_script_path/clients_${host}.pid 2>/dev/null); do kill \$pid 2>/dev/null; done" &
+  done
+  wait
   
   # Kill SSH connections
-  kill "${SSH_PIDS[@]}" 2>/dev/null
+  for pid in "${SSH_PIDS[@]}"; do
+    kill $pid 2>/dev/null
+  done
   
   exit 0
 }
@@ -37,7 +45,7 @@ cleanup() {
 # Trap SIGINT and SIGTERM to run cleanup
 trap cleanup SIGINT SIGTERM
 
-# Launch redis (disowned so it is not affected)
+# Launch redis
 echo "Starting Redis server on $srvr_ip:$port"
 redis-server --bind "$srvr_ip" --port "$port" >/dev/null &
 disown
@@ -51,16 +59,44 @@ echo "Redis server started on $srvr_ip:$port"
 rm -rf logs/*
 
 # Start the server process locally
-echo "Starting server locally..."
+echo "Starting server on localhost..."
 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
 SRVR_PID=$!
+echo "Starting clients on remote machines..."
+client_id=1
 
-# Start the client processes remotely
-echo "Starting clients on remote machine..."
-ssh $remote_user@$remote_host "cd $remote_script_path && rm -f $remote_script_path/clients.pid && for id in \$(seq 1 $n_clients);\
-                              do sleep 1; build/clnt --srvr_ip $srvr_ip --port $port --id \$id & echo \$! >> $remote_script_path/clients.pid;\
-                              done" &
-SSH_PIDS+=($!)
+for i in "${!remote_hosts[@]}"; do
+  host=${remote_hosts[$i]}
+  # Calculate how many clients to run on this machine
+  local_clients=$clients_per_machine
+  if [ $i -lt $remainder ]; then
+    # Distribute remainder clients one per machine until used up
+    local_clients=$((local_clients + 1))
+  fi
+  
+  # Only start clients if there are any allocated to this machine
+  if [ $local_clients -gt 0 ]; then
+    echo "Starting $local_clients clients on $host..."
+    
+    # Create a range of client IDs for this machine
+    client_ids=()
+    for ((j=0; j<local_clients; j++)); do
+      client_ids+=($client_id)
+      client_id=$((client_id + 1))
+    done
+    
+    # Start clients on this machine using SSH with keys
+    ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
+      for id in ${client_ids[@]}; do \
+        echo \"Starting client \$id on $host\" && \
+        build/clnt --srvr_ip $srvr_ip --port $port --id \$id & \
+        echo \$! >> $remote_script_path/clients_${host}.pid; \
+        sleep 1; \
+      done" &
+    
+    SSH_PIDS+=($!)
+  fi
+done
 
 # Wait for the local server process
 wait $SRVR_PID
