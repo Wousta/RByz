@@ -42,11 +42,10 @@ private:
   const char* kDataRoot = "./data";
   const int worker_id;
   const int64_t subset_size;
-  const int64_t kTrainBatchSize = 64;
+  const int64_t kTrainBatchSize = 32;
   const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 5;
+  const int64_t kNumberOfEpochs = 1;
   const int64_t kLogInterval = 10;
-  const float learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;

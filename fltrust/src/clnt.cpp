@@ -54,7 +54,6 @@ void test_cuda_devices() {
 }
 
 int main(int argc, char* argv[]) {
-  std::this_thread::sleep_for(std::chrono::seconds(12));
   Logger::instance().log("Client starting execution\n");
 
   int id;
@@ -76,6 +75,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  std::this_thread::sleep_for(std::chrono::seconds(id));
   // addr
   Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
@@ -105,8 +105,7 @@ int main(int argc, char* argv[]) {
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
   comm_info conn_data = conn.getConnData();
-  RdmaOps rdma_ops(conn_data);
-  test_cuda_devices();
+  RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
   MnistTrain mnist(id ,CLNT_SUBSET_SIZE);
@@ -143,7 +142,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* srvr_w,
   float* clnt_w) {
 
-  std::vector<torch::Tensor> w = mnist.testOG();
+  std::vector<torch::Tensor> w = mnist.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
@@ -165,10 +164,29 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 
     w = reconstruct_tensor_vector(flat_tensor, w);
 
+    {
+      std::ostringstream oss;
+      float total_norm = 0.0f;
+      oss << "\nWeight norms after iteration " << round << ":\n";
+      
+      for (size_t i = 0; i < w.size(); i++) {
+        float layer_norm = torch::norm(w[i], 2).item<float>();
+        total_norm += layer_norm;
+        oss << "  Layer " << i << " norm: " << layer_norm << "\n";
+      }
+      
+      oss << "  Total norm: " << total_norm << "\n";
+      Logger::instance().log(oss.str());
+    }
+
     Logger::instance().log("Client: Read weights from server numel = " + std::to_string(flat_tensor.numel()) + "\n");
+    printTensorSlices(w, 0, 5);
 
     // Run the training on the updated weights
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+
+    Logger::instance().log("Unflattened client updates:\n");
+    printTensorSlices(g, 0, 5);
 
     // Send the updated weights back to the server
     torch::Tensor all_tensors = flatten_tensor_vector(g);
@@ -182,12 +200,12 @@ std::vector<torch::Tensor> run_fltrust_clnt(
     rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
 
     // Print the first few updated weights sent by client
-    // {
-    //   std::ostringstream oss;
-    //   oss << "Updated weights sent by client:" << "\n";
-    //   oss << all_tensors.slice(0, 0, std::min<size_t>(all_tensors.numel(), 10)) << "\n";
-    //   Logger::instance().log(oss.str());
-    // }
+    {
+      std::ostringstream oss;
+      oss << "Flattened weights sent by client:" << "\n";
+      oss << all_tensors.slice(0, 0, std::min<size_t>(all_tensors.numel(), 5)) << "\n";
+      Logger::instance().log(oss.str());
+    }
 
     // Update the ready flag
     clnt_ready_flag = round;

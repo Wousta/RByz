@@ -4,13 +4,13 @@ include(${CMAKE_BINARY_DIR}/conan_toolchain.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cache.cmake)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-12")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-9")
 
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-  message(STATUS "Enabling AddressSanitizer flags...")
-  add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
-  add_link_options(-fsanitize=address -fno-omit-frame-pointer -g)
-endif()
+# if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#   message(STATUS "Enabling AddressSanitizer flags...")
+#   add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+#   add_link_options(-fsanitize=address -fno-omit-frame-pointer -g)
+# endif()
 
 find_package(lyra REQUIRED)
 
@@ -19,6 +19,7 @@ set_target_properties(libnorm PROPERTIES
   IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   IMPORTED_NO_SONAME TRUE)
 add_library(subsetSampler INTERFACE)
+add_library(registeredMNIST INTERFACE)
 add_library(mnistTrain STATIC src/mnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
 add_library(tensorOps STATIC src/tensorOps.cpp)
@@ -37,6 +38,10 @@ target_include_directories(mnistTrain PUBLIC
 )
 
 target_include_directories(subsetSampler INTERFACE 
+  ${TORCH_INCLUDE_DIRS}
+)
+
+target_include_directories(registeredMNIST INTERFACE 
   ${TORCH_INCLUDE_DIRS}
 )
 
@@ -74,6 +79,7 @@ target_link_libraries(rdmaOps PUBLIC libnorm)
 
 target_link_libraries(mnistTrain PUBLIC 
   ${TORCH_LIBRARIES}
+  registeredMNIST
   subsetSampler
 )
 

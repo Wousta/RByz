@@ -2,7 +2,7 @@
 
 # Cache the Torch directory. Adjust the path if your Torch installation is located elsewhere.
 if(NOT DEFINED Torch_DIR)
-  set(Torch_DIR "/home/bustaman/libtorch/share/cmake/Torch" CACHE PATH "Directory for Torch cmake configuration")
+  set(Torch_DIR "/home/bustaman/libtorch-cxx11-abi-shared-with-deps-2.7.0+cu128/libtorch/share/cmake/Torch" CACHE PATH "Directory for Torch cmake configuration")
 endif()
 
 if(NOT Torch_FOUND)

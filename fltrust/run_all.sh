@@ -3,7 +3,7 @@
 # Configuration
 srvr_ip=192.168.128.101
 port=2000
-n_clients=4  # Total number of clients
+n_clients=3  # Total number of clients
 remote_user="bustaman"
 remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_script_path="/home/bustaman/rbyz/fltrust"
@@ -62,6 +62,8 @@ rm -rf logs/*
 echo "Starting server on localhost..."
 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
 SRVR_PID=$!
+
+sleep 1
 echo "Starting clients on remote machines..."
 client_id=1
 

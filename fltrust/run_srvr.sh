@@ -1,8 +1,9 @@
 #!/bin/bash
 
-srvr_ip=192.168.117.103
+srvr_ip=192.168.128.101 # Delta
+#srvr_ip=192.168.117.103  # quatro
 port=2000
-n_clients=5
+n_clients=3
 
 # Array for client PIDs
 CLNT_PIDS=()
@@ -35,15 +36,20 @@ SRVR_PID=$!
 
 for id in $(seq 1 $n_clients); do
   sleep 1
-  build/clnt --srvr_ip $srvr_ip --port $port --id $id &
-  # gdb -ex "break /home/bustaman/usr-rdma-api-main/fltrust/src/clnt.cpp:92" \
-  #     -ex "start" \
-  #     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id 
-  #valgrind --leak-check=full build/clnt --srvr_ip $srvr_ip --port $port --id $id &
+  if [ $id -eq 5 ]; then
+    gdb -ex "break /home/bustaman/usr-rdma-api-main/fltrust/src/clnt.cpp:109" \
+    -ex "start" \
+    --args build/clnt --srvr_ip $srvr_ip --port $port --id $id 
+    #valgrind --leak-check=full build/clnt --srvr_ip $srvr_ip --port $port --id $id &
+  else
+    build/clnt --srvr_ip $srvr_ip --port $port --id $id &
+  fi
+
   CLNT_PIDS+=($!)
 done
 
-# gdb -ex "break srvr.cpp:107" \
+# gdb -ex "break srvr.cpp:100" \
+#     -ex "break /home/bustaman/rbyz/fltrust/src/srvr.cpp:199" \
 #     -ex "start" \
 #     --args build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients 
 # #valgrind --leak-check=full build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &

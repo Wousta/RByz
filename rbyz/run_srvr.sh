@@ -1,6 +1,6 @@
 #!/bin/bash
 
-srvr_ip=192.168.117.103
+srvr_ip=192.168.117.201
 port=2000
 n_clients=3
 load_model=true
