@@ -105,7 +105,7 @@ int main(int argc, char* argv[]) {
   }
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
-  MnistTrain mnist(0, SRVR_SUBSET_SIZE);
+  MnistTrain mnist(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_srvr(
     GLOBAL_ITERS,
     n_clients,
@@ -159,7 +159,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
-  // for (int i = 0; i < 20; i++) {
+  // for (int i = 0; i < 25; i++) {
   //   //w = mnist.runMnistTrain(i, w);
   //   std::vector<torch::Tensor> g = mnist.runMnistTrain(i, w);
   //   for (size_t i = 0; i < w.size(); i++) {

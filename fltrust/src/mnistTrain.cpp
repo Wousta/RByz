@@ -10,20 +10,15 @@
 #include <string>
 #include <vector>
 #include <cuda_runtime.h>
+#include <unordered_map>
+#include <algorithm>
+#include <random>
 
-const char* kDataRoot = "./data";
-auto train_dataset_default = torch::data::datasets::MNIST(kDataRoot)
-  .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-  .map(torch::data::transforms::Stack<>());
-const size_t train_dataset_size_default = train_dataset_default.size().value();
-auto train_loader_default = 
-  torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
-    std::move(train_dataset_default), 64);
-
-MnistTrain::MnistTrain(int worker_id, int64_t subset_size) 
+MnistTrain::MnistTrain(int worker_id, int num_workers, int64_t subset_size) 
   : device(init_device()),
-    subset_size(subset_size),
     worker_id(worker_id),
+    num_workers(num_workers),
+    subset_size(subset_size),
     train_dataset(torch::data::datasets::MNIST(kDataRoot)
       .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
       .map(torch::data::transforms::Stack<>())),
@@ -58,41 +53,6 @@ MnistTrain::MnistTrain(int worker_id, int64_t subset_size)
   test_loader = std::move(test_loader_temp);
 }
 
-SubsetSampler MnistTrain::get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size) {
-  // Create sequential indices instead of random permutation
-  std::vector<int64_t> sequential_indices(dataset_size);
-  std::iota(sequential_indices.begin(), sequential_indices.end(), 0); 
-  auto indices_tensor = torch::tensor(sequential_indices);
-
-  int64_t start = (worker_id - 1) * subset_size + SRVR_SUBSET_SIZE;
-  if(worker_id == 0) {
-    start = 0;
-  }
-  
-  int64_t end = start + subset_size;
-  if (end > dataset_size) {
-    end = dataset_size;
-  }
-
-  auto subset_tensor = indices_tensor.slice(0, start, end);
-
-  std::vector<size_t> subset_indices(subset_size);
-  for (int64_t i = 0; i < subset_size && i < (end - start); ++i) {
-    subset_indices[i] = static_cast<size_t>(subset_tensor[i].item<int64_t>());
-  }
-  
-  // If the subset size is larger than available data, resize the vector
-  if (subset_size > (end - start)) {
-    subset_indices.resize(end - start);
-  }
-
-  Logger::instance().log("Worker " + std::to_string(worker_id) + 
-                        " using sequential indices: " + std::to_string(start) + 
-                        " to " + std::to_string(end-1) + "\n");
-
-  return SubsetSampler(subset_indices);
-}
-
 torch::Device MnistTrain::init_device() {
   try {
     if (torch::cuda::is_available()) {
@@ -107,6 +67,70 @@ torch::Device MnistTrain::init_device() {
       std::cout << "Falling back to CPU" << std::endl;
       return torch::Device(torch::kCPU);
   }
+}
+
+SubsetSampler MnistTrain::get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size) {
+  auto stratified_indices = get_stratified_indices(train_dataset, worker_id, num_workers, subset_size);
+
+  Logger::instance().log("Worker " + std::to_string(worker_id) + 
+                        " using stratified indices of size: " + std::to_string(stratified_indices.size()) + "\n");
+
+  return SubsetSampler(stratified_indices);
+}
+
+std::vector<size_t> MnistTrain::get_stratified_indices(
+  MnistTrain::DatasetType& dataset,
+  int worker_id,
+  int num_workers,
+  size_t subset_size) {
+  // Group indices by labels
+  std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
+  size_t index = 0;
+
+  // Create a DataLoader to iterate over the dataset
+  auto data_loader = torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
+    dataset, /*batch size*/ 1);
+
+  for (const auto& example : *data_loader) {
+      int64_t label = example.target.item<int64_t>();
+      label_to_indices[label].push_back(index);
+      ++index;
+  }
+
+  // Shuffle indices within each label group
+  std::random_device rd;
+  std::mt19937 rng(rd());
+  for (auto& [label, indices] : label_to_indices) {
+      std::shuffle(indices.begin(), indices.end(), rng);
+  }
+
+  // Allocate indices to workers
+  float srvr_proportion = SRVR_SUBSET_SIZE / CLNT_SUBSET_SIZE;
+  std::vector<size_t> worker_indices;
+  for (const auto& [label, indices] : label_to_indices) {
+      size_t total_samples = indices.size();
+      if (worker_id == 0) {
+          // Server gets a smaller proportion of samples
+          total_samples = static_cast<size_t>(total_samples * srvr_proportion);
+      }
+
+      size_t samples_per_worker = total_samples / num_workers;
+      size_t remainder = total_samples % num_workers;
+
+      size_t start = worker_id * samples_per_worker + std::min(static_cast<size_t>(worker_id), remainder);
+      size_t end = start + samples_per_worker + (worker_id < remainder ? 1 : 0);
+
+      // Add the worker's portion of indices for this label
+      worker_indices.insert(worker_indices.end(), indices.begin() + start, indices.begin() + end);
+  }
+
+  // If the subset size is smaller than the allocated indices, truncate
+  if (worker_indices.size() > subset_size) {
+      worker_indices.resize(subset_size);
+  }
+  std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
+
+  return worker_indices;
 }
 
 std::vector<torch::Tensor> MnistTrain::runMnistTrainDummy(std::vector<torch::Tensor>& w) {
@@ -163,10 +187,10 @@ void MnistTrain::train(
     }
 
 
-    if (batch_idx == 0) {
+    if (batch_idx == 1 && epoch == 1) {
       std::ostringstream oss;
       oss << "  Targets (first 10 elements): [";
-      int num_to_print = std::min(10, static_cast<int>(targets_device.numel()));
+      int num_to_print = std::min(static_cast<int>(targets_device.numel()), static_cast<int>(targets_device.numel()));
       for (int i = 0; i < num_to_print; ++i) {
         oss << targets_device[i].item<int64_t>();
         if (i < num_to_print - 1) oss << ", ";
@@ -278,7 +302,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   torch::optim::SGD optimizer(
       model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
 
-  std::cout << "Training model for round " << round << "\n";
+  std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs <<"\n";
   Logger::instance().log("PRE: Training model for round " + std::to_string(round) + "\n");
   printTensorSlices(model.parameters(), 0, 5);
 
@@ -287,7 +311,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
     //train(epoch, model, device, *train_loader_default, optimizer, train_dataset_size_default);
   }
 
-  if (round % 10 == 0) {
+  if (round % 3 == 0) {
     Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
     test(model, device, *test_loader, test_dataset_size);
   }
