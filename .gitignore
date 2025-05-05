@@ -53,6 +53,7 @@ rbyz/logs
 #rbyz/include/globalConstants.hpp
 rbyz/clients.pid
 fltrust/clients_dcldelta*
+rbyz/clients_dcldelta*
 RcConn/build
 rdma-api/build
 pass.txt

@@ -71,8 +71,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1);
 
 torch::Tensor aggregate_updates(
-  std::vector<ClientData>& clnts_data,
-  const std::vector<int>& polled_clients,
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update
 );
@@ -154,7 +152,7 @@ int main(int argc, char* argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
-  MnistTrain mnist(0, SRVR_SUBSET_SIZE);
+  MnistTrain mnist(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
 
   if (load_model) {
@@ -257,7 +255,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   RegMemSrvr& regMem,
   std::vector<ClientData>& clntsData) {
 
-  std::vector<torch::Tensor> w = mnist.testOG();
+    std::vector<torch::Tensor> w = mnist.getInitialWeights();
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
@@ -328,7 +326,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
-    torch::Tensor aggregated_update = aggregate_updates(clntsData, polled_clients, clnt_updates, flat_srvr_update);
+    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] - GLOBAL_LEARN_RATE * aggregated_update_vec[i];
@@ -368,32 +366,54 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 }
 
 torch::Tensor aggregate_updates(
-  std::vector<ClientData>& clnts_data,
-  const std::vector<int>& polled_clients,
   const std::vector<torch::Tensor>& client_updates,
   const torch::Tensor& server_update) {
-  
+
   // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
-  for(int i = 0; i < client_updates.size(); i++) {
-    torch::Tensor dot_product = torch::dot(client_updates[i], server_update);
-    float client_norm = torch::norm(client_updates[i], 2).item<float>();
-    float server_norm = torch::norm(server_update, 2).item<float>();
-    float cosine_sim = dot_product.item<float>() / (client_norm * server_norm + 1e-10);
-    
-    // Apply ReLU (max with 0)
-    float trust_score = std::max(0.0f, cosine_sim);
-    trust_scores.push_back(trust_score);
+  std::vector<torch::Tensor> normalized_updates;
+  trust_scores.reserve(client_updates.size());
+  normalized_updates.reserve(client_updates.size());
+  //Logger::instance().log("\nComputing aggregation data ================\n");
+  for (const auto& flat_client_update : client_updates) {
 
-    int clnt_idx = polled_clients[i];
-    clnts_data[clnt_idx].trust_score = trust_score;
+      // Compute cosine similarity
+      torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
+      float client_norm = torch::norm(flat_client_update, 2).item<float>();
+      float server_norm = torch::norm(server_update, 2).item<float>();
+      float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
+      
+      // Apply ReLU (max with 0)
+      float trust_score = std::max(0.0f, cosine_sim);
+      trust_scores.push_back(trust_score);
+
+      torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
+      normalized_updates.push_back(normalized_update);
+      // {
+      //   std::ostringstream oss;
+      //   oss << "  ClientUpdate:\n";
+      //   oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 3)) << " ";
+      //   oss << "  \nServerUpdate:\n";
+      //   oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 3)) << " ";
+      //   Logger::instance().log(oss.str());
+      // }
+      // Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) + "\n");
+      // Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
+      // Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
+      // Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
+      // Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
+      // Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
+  //Logger::instance().log("================================\n");
+
 
   {
     std::ostringstream oss;
     oss << "\nTRUST SCORES:\n";
     for(int i = 0; i < trust_scores.size(); i++) {
-      oss << "Client " << i << " score: " << trust_scores[i] << "\n";
+      if (i % 1 == 0) {
+        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
+      }
     }
     Logger::instance().log(oss.str());
   }
@@ -404,27 +424,24 @@ torch::Tensor aggregate_updates(
       sum_trust += score;
   }
   
-  std::vector<float> normalized_scores;
-  if (sum_trust > 0) {
-      for (float score : trust_scores) {
-          normalized_scores.push_back(score / sum_trust);
-      }
-  } else {
-      // If all scores are 0, use uniform weights
-      float uniform_weight = 1.0f / trust_scores.size();
-      for (size_t i = 0; i < trust_scores.size(); i++) {
-          normalized_scores.push_back(uniform_weight);
-      }
-  }
-  
-
-  // Add scaled client updates to the aggregated update
   torch::Tensor aggregated_update = torch::zeros_like(server_update);
-  for (size_t i = 0; i < client_updates.size(); i++) {
-    float weight = normalized_scores[i];
-    aggregated_update += client_updates[i] * weight;
+  if (sum_trust > 0) {
+      for (int i = 0; i < trust_scores.size(); i++) {
+        aggregated_update += trust_scores[i] * normalized_updates[i];
+      }
+
+      aggregated_update /= sum_trust;
   }
-  
+
+  // Print the aggregated update
+  {
+    std::ostringstream oss;
+    oss << "\nAggregated update:\n";
+    oss << "  " << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() << "\n";
+    Logger::instance().log(oss.str());
+  }
+
+  // If all trust scores are 0, just return the zero tensor
   return aggregated_update;
 }
 

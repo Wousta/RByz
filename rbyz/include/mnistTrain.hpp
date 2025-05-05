@@ -42,12 +42,12 @@ class MnistTrain {
 private:
   const char* kDataRoot = "./data";
   const int worker_id;
+  const int num_workers;
   const int64_t subset_size;
-  const int64_t kTrainBatchSize = 64;
-  const int64_t kTestBatchSize = 1;
-  const int64_t kNumberOfEpochs = 10;
+  const int64_t kTrainBatchSize = 32;
+  const int64_t kTestBatchSize = 1000;
+  const int64_t kNumberOfEpochs = 5;
   const int64_t kLogInterval = 10;
-  const float learnRate = GLOBAL_LEARN_RATE;
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
@@ -85,12 +85,14 @@ private:
 
   torch::Device init_device();
   SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
+  std::vector<size_t> get_stratified_indices(
+    DatasetType& dataset,
+    int worker_id,
+    int num_workers,
+    size_t subset_size);
 
 public:
-  MnistTrain(
-    int worker_id, 
-    int64_t subset_size
-  );
+  MnistTrain(int worker_id, int num_workers, int64_t subset_size);
   ~MnistTrain() = default;
 
   template <typename DataLoader>
@@ -110,7 +112,7 @@ public:
       size_t dataset_size);
 
   std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w);
-  std::vector<torch::Tensor> testOG();
+  std::vector<torch::Tensor> getInitialWeights();
   void testModel();
   void runInference();
   Net getModel() { return model; }

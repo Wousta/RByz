@@ -1,8 +1,8 @@
 #!/bin/bash
-
-srvr_ip=192.168.117.201
+srvr_ip=192.168.128.101 # Delta
+#srvr_ip=192.168.117.103  # quatro
 port=2000
-n_clients=3
+n_clients=2
 load_model=true
 model_file="mnist_model_params.pt"
 
@@ -44,7 +44,7 @@ SRVR_PID=$!
 
 for id in $(seq 1 $n_clients); do
   sleep 1
-  build/clnt --srvr_ip $srvr_ip --port $port --id $id $load_model_param --file $model_file &
+  build/clnt --srvr_ip $srvr_ip --port $port --id $id --n_clients $n_clients $load_model_param --file $model_file &
   # gdb -ex "break /home/bustaman/usr-rdma-api-main/rbyz/src/clnt.cpp:92" \
   #     -ex "start" \
   #     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id $load_model_param --file $model_file 
