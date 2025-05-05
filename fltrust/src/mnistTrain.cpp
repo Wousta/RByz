@@ -27,17 +27,11 @@ MnistTrain::MnistTrain(int worker_id, int num_workers, int64_t subset_size)
       .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
       .map(torch::data::transforms::Stack<>()))
 {
-    // Worker with id = 0 is the server, needs different random seed for the sampler randperm
-    // if (worker_id == 0) {
-    //     torch::manual_seed(1);
-    // } else {
-    //     torch::manual_seed(2);
-    // }
-    
-    model.to(device);
-    
-    train_dataset_size = train_dataset.size().value();
-    test_dataset_size = test_dataset.size().value();
+  torch::manual_seed(1);
+  model.to(device);
+  
+  train_dataset_size = train_dataset.size().value();
+  test_dataset_size = test_dataset.size().value();
 
   SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
   auto train_loader_temp = torch::data::make_data_loader(
@@ -105,7 +99,7 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   }
 
   // Allocate indices to workers
-  float srvr_proportion = SRVR_SUBSET_SIZE / CLNT_SUBSET_SIZE;
+  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / CLNT_SUBSET_SIZE;
   std::vector<size_t> worker_indices;
   for (const auto& [label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
@@ -216,7 +210,7 @@ void MnistTrain::train(
     nll_loss.backward();
     optimizer.step();
 
-    if (batch_idx++ % kLogInterval == 0) {
+    if (batch_idx++ % kLogInterval == 0 && worker_id % 2 == 0) {
       std::printf(
           "\rTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f",
           epoch,
@@ -291,33 +285,20 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   }
 
   auto test_loader = torch::data::make_data_loader(test_dataset, kTestBatchSize);
-  
-  float learnRate = GLOBAL_LEARN_RATE;
-  // if (worker_id == 0) {
-  //   learnRate = 0.001f;
-  // } else {
-  //   learnRate = GLOBAL_LEARN_RATE;
-  // }
 
   torch::optim::SGD optimizer(
-      model.parameters(), torch::optim::SGDOptions(learnRate).momentum(0.5));
+      model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE).momentum(0.5));
 
   std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs <<"\n";
-  Logger::instance().log("PRE: Training model for round " + std::to_string(round) + "\n");
-  printTensorSlices(model.parameters(), 0, 5);
-
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
     //train(epoch, model, device, *train_loader_default, optimizer, train_dataset_size_default);
   }
 
-  if (round % 3 == 0) {
+  if (round % 2 == 0) {
     Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
     test(model, device, *test_loader, test_dataset_size);
   }
-
-  Logger::instance().log("POST: New model weights after training round: \n");
-  printTensorSlices(model.parameters(), 0, 5);
   
   std::vector<torch::Tensor> result;
   result.reserve(param_count);
@@ -347,9 +328,6 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
       result.push_back(model_weights[i] - w[i]);
     }
   }
-
-  Logger::instance().log("Weight updates:\n");
-  printTensorSlices(result, 0, 5);
   
   return result;
 }

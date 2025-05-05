@@ -29,8 +29,8 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   int n_clients,
   int rounds, 
   MnistTrain& mnist,
-  //std::atomic<int>& srvr_ready_flag,
-  int& srvr_ready_flag,
+  std::atomic<int>& srvr_ready_flag,
+  //int& srvr_ready_flag,
   float* srvr_w,
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws
@@ -75,8 +75,8 @@ int main(int argc, char* argv[]) {
   std::vector<LocalInfo> loc_info(n_clients);
 
   // Data structures for server and clients
-  int srvr_ready_flag = 0;
-  //std::atomic<int> srvr_ready_flag(0);
+  //int srvr_ready_flag = 0;
+  std::atomic<int> srvr_ready_flag(0);
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   std::vector<int> clnt_ready_flags(n_clients, 0);
   std::vector<float*> clnt_ws(n_clients);
@@ -149,8 +149,8 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   int rounds, 
   int n_clients,
   MnistTrain& mnist,
-  //std::atomic<int>& srvr_ready_flag,
-  int& srvr_ready_flag,
+  std::atomic<int>& srvr_ready_flag,
+  //int& srvr_ready_flag,
   float* srvr_w,
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws) {
@@ -195,8 +195,8 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     std::memcpy(srvr_w, global_w, total_bytes);
 
     // Set the flag to indicate that the weights are ready for the clients to read
-    //srvr_ready_flag.store(round);
-    srvr_ready_flag = round;
+    srvr_ready_flag.store(round);
+    //srvr_ready_flag = round;
 
     Logger::instance().log("Server: going to train with this w:\n");
     printTensorSlices(w, 0, 5);
@@ -238,7 +238,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
       ).clone();
 
       // Print slice of the tensor
-      {
+      if (client % 20 == 0) {
         std::ostringstream oss;
         oss << "\nClient " << client << " update:\n";
         oss << "  " << flat_tensor.slice(0, 0, std::min<size_t>(flat_tensor.numel(), 5)) << " ";
@@ -310,7 +310,7 @@ torch::Tensor aggregate_updates(
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
-  Logger::instance().log("\nComputing aggregation data ================\n");
+  //Logger::instance().log("\nComputing aggregation data ================\n");
   for (const auto& flat_client_update : client_updates) {
 
       // Compute cosine similarity
@@ -340,14 +340,16 @@ torch::Tensor aggregate_updates(
       // Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
       // Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
-  Logger::instance().log("================================\n");
+  //Logger::instance().log("================================\n");
 
 
   {
     std::ostringstream oss;
     oss << "\nTRUST SCORES:\n";
     for(int i = 0; i < trust_scores.size(); i++) {
-      oss << "Client " << i << " score: " << trust_scores[i] << "\n";
+      if (i % 1 == 0) {
+        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
+      }
     }
     Logger::instance().log(oss.str());
   }

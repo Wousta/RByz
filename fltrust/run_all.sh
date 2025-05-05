@@ -3,7 +3,7 @@
 # Configuration
 srvr_ip=192.168.128.101
 port=2000
-n_clients=19 
+n_clients=10 
 remote_user="bustaman"
 remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_script_path="/home/bustaman/rbyz/fltrust"
@@ -91,9 +91,9 @@ for i in "${!remote_hosts[@]}"; do
     ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
       for id in ${client_ids[@]}; do \
         echo \"Starting client \$id on $host\" && \
-        build/clnt --srvr_ip $srvr_ip --port $port --id \$id & \
+        build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients & \
         echo \$! >> $remote_script_path/clients_${host}.pid; \
-        sleep 1; \
+        sleep 0.5; \
       done" &
     
     SSH_PIDS+=($!)

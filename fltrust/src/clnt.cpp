@@ -57,6 +57,7 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("Client starting execution\n");
 
   int id;
+  int n_clients;
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -67,7 +68,8 @@ int main(int argc, char* argv[]) {
   auto cli = lyra::cli() |
     lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
     lyra::opt(port, "port")["-p"]["--port"]("port") |
-    lyra::opt(id, "id")["-p"]["--id"]("id");
+    lyra::opt(id, "id")["-p"]["--id"]("id") |
+    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -75,7 +77,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  std::this_thread::sleep_for(std::chrono::seconds(id));
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 500));
   // addr
   Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
@@ -108,7 +110,7 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
-  MnistTrain mnist(id, 20, CLNT_SUBSET_SIZE);
+  MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_clnt(
     GLOBAL_ITERS,
     rdma_ops,
