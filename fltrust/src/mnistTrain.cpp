@@ -91,13 +91,6 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
       ++index;
   }
 
-  // Shuffle indices within each label group
-  std::random_device rd;
-  std::mt19937 rng(rd());
-  for (auto& [label, indices] : label_to_indices) {
-      std::shuffle(indices.begin(), indices.end(), rng);
-  }
-
   // Allocate indices to workers
   float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / CLNT_SUBSET_SIZE;
   std::vector<size_t> worker_indices;
@@ -118,11 +111,14 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
       worker_indices.insert(worker_indices.end(), indices.begin() + start, indices.begin() + end);
   }
 
+  std::random_device rd;
+  std::mt19937 rng(rd());
+  std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
+
   // If the subset size is smaller than the allocated indices, truncate
   if (worker_indices.size() > subset_size) {
       worker_indices.resize(subset_size);
   }
-  std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
 
   return worker_indices;
 }

@@ -7,7 +7,7 @@ set(CMAKE_CXX_COMPILER "/usr/bin/g++-9")
 
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -DTORCH_USE_CUDA_DSA")
 
 project(RByz LANGUAGES CXX CUDA)
 include(${CMAKE_BINARY_DIR}/conan_toolchain.cmake)

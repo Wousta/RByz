@@ -44,9 +44,9 @@ private:
   const int worker_id;
   const int num_workers;
   const int64_t subset_size;
-  const int64_t kTrainBatchSize = 32;
+  const int64_t kTrainBatchSize = 16;
   const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 5;
+  const int64_t kNumberOfEpochs = 2;
   const int64_t kLogInterval = 10;
   torch::DeviceType device_type;
   torch::Device device;
@@ -111,7 +111,7 @@ public:
       DataLoader& data_loader,
       size_t dataset_size);
 
-  std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w);
+  std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w, bool registered_mode = false);
   std::vector<torch::Tensor> getInitialWeights();
   void testModel();
   void runInference();
@@ -130,5 +130,5 @@ public:
   size_t getRegisteredSamplesCount() { return registered_samples; }
 
   // Use this method in place of runMnistTrain to run training in registered memory
-  std::vector<torch::Tensor> runRegisteredTrain(int round, const std::vector<torch::Tensor>& w);
+  void registeredTrain(size_t epoch, Net& model, torch::Device device, torch::optim::Optimizer& optimizer, size_t dataset_size);    
 };

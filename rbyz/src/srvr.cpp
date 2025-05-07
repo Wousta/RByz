@@ -76,7 +76,7 @@ torch::Tensor aggregate_updates(
 );
 
 int main(int argc, char* argv[]) {
-  Logger::instance().log("Server starting\n");
+  Logger::instance().log("Server starting RBYZ\n");
   int n_clients;
   bool load_model = false;
   std::string model_file = "mnist_model_params.pt";
@@ -166,6 +166,7 @@ int main(int argc, char* argv[]) {
       std::cout << "Loaded model state from file: " << model_file << "\n";
 
       // Do one iteration of fltrust with ALL clients to initialize trust scores
+      std::cout << "SRVR Running FLTrust with loaded model\n";
       w = run_fltrust_srvr(
         1,
         n_clients,
@@ -173,10 +174,14 @@ int main(int argc, char* argv[]) {
         regMem,
         clnt_data_vec
       );
+      std::cout << "\nSRVR FLTrust with loaded model done\n";
+      Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
   }
   
   if (!load_model) {
+    std::cout << "SRVR Running FLTrust, load model set FALSE\n";
+    Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
     w = run_fltrust_srvr(
       GLOBAL_ITERS,
       n_clients,
@@ -189,8 +194,11 @@ int main(int argc, char* argv[]) {
   }
 
   // Global rounds of RByz
-  Logger::instance().log("Starting RBYZ\n");
+  Logger::instance().log("\n\n=============================================\n");
+  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
+  Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
+  mnist.runMnistTrain(0, w, true);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
 
     // Read the error and loss from the clients
@@ -204,10 +212,8 @@ int main(int argc, char* argv[]) {
 
         // Read error and loss from client
         aquireCASLock(j, rdma_ops, regMem.clnt_CAS);
-        Logger::instance().log("CAS LOCK AQUIRED\n");
         rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
         releaseCASLock(j, rdma_ops, regMem.clnt_CAS);
-        Logger::instance().log("CAS LOCK RELEASED\n");
 
         if (i != 1) {
           // Run inference on server model to update its VD loss and error and then update TS

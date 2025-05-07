@@ -45,6 +45,9 @@ MnistTrain::MnistTrain(int worker_id, int num_workers, int64_t subset_size)
       test_dataset,
       torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
   test_loader = std::move(test_loader_temp);
+
+  // Dataset registered in memory for RByz validation dataset remote placement
+  prepareRegisteredDataset();
 }
 
 torch::Device MnistTrain::init_device() {
@@ -91,13 +94,6 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
       ++index;
   }
 
-  // Shuffle indices within each label group
-  std::random_device rd;
-  std::mt19937 rng(rd());
-  for (auto& [label, indices] : label_to_indices) {
-      std::shuffle(indices.begin(), indices.end(), rng);
-  }
-
   // Allocate indices to workers
   float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / CLNT_SUBSET_SIZE;
   std::vector<size_t> worker_indices;
@@ -118,11 +114,14 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
       worker_indices.insert(worker_indices.end(), indices.begin() + start, indices.begin() + end);
   }
 
+  std::random_device rd;
+  std::mt19937 rng(rd());
+  std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
+
   // If the subset size is smaller than the allocated indices, truncate
   if (worker_indices.size() > subset_size) {
       worker_indices.resize(subset_size);
   }
-  std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
 
   return worker_indices;
 }
@@ -170,8 +169,7 @@ void MnistTrain::train(
       targets_device = batch.target;
     }
 
-
-    if (batch_idx == 1 && epoch == 1) {
+    if (batch_idx == 0) {
       std::ostringstream oss;
       oss << "  Targets (first 10 elements): [";
       int num_to_print = std::min(static_cast<int>(targets_device.numel()), static_cast<int>(targets_device.numel()));
@@ -245,7 +243,7 @@ void MnistTrain::test(
   
 }
 
-std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
+std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w, bool registered_mode) {
   // Update model parameters, w is in cpu so if device is cuda copy to device is needed
   std::vector<torch::Tensor> params = model.parameters();
   size_t param_count = model.parameters().size();
@@ -280,10 +278,18 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
       model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE).momentum(0.5));
 
   std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs <<"\n";
-  for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, model, device, *train_loader, optimizer, subset_size);
-    //train(epoch, model, device, *train_loader_default, optimizer, train_dataset_size_default);
+
+  if (registered_mode) {
+    // Use registered dataset
+    for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+      registeredTrain(epoch, model, device, optimizer, registered_samples);
+    }
+  } else {
+    for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+      train(epoch, model, device, *train_loader, optimizer, subset_size);
+    }
   }
+
 
   if (round % 2 == 0) {
     Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
@@ -406,16 +412,18 @@ void MnistTrain::prepareRegisteredDataset() {
   registered_images = reinterpret_cast<float*>(malloc(image_memory_size));
   registered_labels = reinterpret_cast<int64_t*>(malloc(label_memory_size));
 
+  Logger::instance().log("registered_samples: " + std::to_string(registered_samples) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " + 
     std::to_string(image_memory_size + label_memory_size) + " bytes\n");
 
   // Copy data from the original dataset to the registered memory
-  for (size_t i = 0; i < registered_samples; i++) {
-    size_t original_idx = indices[i];
-    auto example = plain_mnist.get(original_idx);
+  size_t i = 0; // Counter for the registered memory
+  std::unordered_map<size_t, size_t> index_map;
+  for (const auto& original_idx : indices) {
+    auto example = plain_mnist.get(original_idx); // Fetch the example from the original dataset
     auto normalized_image = (example.data.to(torch::kFloat32) / 255.0 - 0.1307) / 0.3081;
     
-    // Flatten the image tensor and copy to registered memory
+    // Flatten the image tensor and copy it to the registered memory
     auto flat_image = normalized_image.reshape({784});
     std::memcpy(registered_images + (i * 784), 
                 flat_image.data_ptr<float>(), 
@@ -423,10 +431,19 @@ void MnistTrain::prepareRegisteredDataset() {
     
     // Copy the label
     registered_labels[i] = example.target.item<int64_t>();
+
+    // Validate the label
+    if (registered_labels[i] < 0 || registered_labels[i] >= 10) {
+      throw std::runtime_error("Invalid label: " + std::to_string(registered_labels[i]));
+    }
+
+    index_map[original_idx] = i; // Map original index to registered index
+
+    ++i; // Increment the counter
   }
 
   registered_dataset = std::make_unique<RegisteredMNIST>(
-    registered_images, registered_labels, registered_samples, 784, false);
+    registered_images, registered_labels, registered_samples, index_map, 784, false);
 
   auto loader_temp = torch::data::make_data_loader(
     *registered_dataset,
@@ -436,5 +453,68 @@ void MnistTrain::prepareRegisteredDataset() {
 
   Logger::instance().log("Registered memory dataset prepared with " + 
     std::to_string(registered_samples) + " samples\n");
+}
+
+void MnistTrain::registeredTrain(
+  size_t epoch,
+  Net& model,
+  torch::Device device,
+  torch::optim::Optimizer& optimizer,
+  size_t dataset_size) {
+  model.train();
+  size_t batch_idx = 0;
+  int32_t correct = 0;
+  size_t total = 0;
+
+  for (const auto& batch : *registered_loader) {
+    // Combine all data and targets in the batch into single tensors
+    std::vector<torch::Tensor> data_vec, target_vec;
+    for (const auto& example : batch) {
+      data_vec.push_back(example.data);
+      target_vec.push_back(example.target);
+    }
+
+    // Stack the tensors to create a single batch tensor
+    auto data = torch::stack(data_vec).to(device);
+    auto targets = torch::stack(target_vec).to(device);
+
+    if (batch_idx == 0) {
+      std::ostringstream oss;
+      oss << "  REGTargets (first elements): [";
+      int num_to_print = std::min(15, static_cast<int>(targets.numel()));
+      for (int i = 0; i < num_to_print; ++i) {
+        oss << targets[i].item<int64_t>();
+        if (i < num_to_print - 1) oss << ", ";
+      }
+      oss << "]";
+      Logger::instance().log(oss.str() + "\n");
+    }
+
+    optimizer.zero_grad();
+    auto output = model.forward(data);
+    auto nll_loss = torch::nll_loss(output, targets);
+    AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
+    loss = nll_loss.template item<float>();
+
+    // Calculate accuracy and error rate for this batch
+    auto pred = output.argmax(1);
+    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
+    correct += batch_correct;
+    total += targets.size(0);
+    error_rate = 1.0 - (static_cast<float>(correct) / total);
+
+    // Backpropagation
+    nll_loss.backward();
+    optimizer.step();
+
+    if (batch_idx++ % kLogInterval == 0 && worker_id % 2 == 0) {
+      std::printf(
+          "\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f",
+          epoch,
+          batch_idx * data.size(0),
+          dataset_size,
+          nll_loss.template item<float>());
+    }
+  }
 }
 

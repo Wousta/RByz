@@ -112,6 +112,7 @@ int main(int argc, char* argv[]) {
       printTensorSlices(w, 0, 5);
 
       // Do one iteration of fltrust with one iteration to initialize trust scores
+      std::cout << "CLNT Running FLTrust with loaded model\n";
       w = run_fltrust_clnt(
         1,
         rdma_ops,
@@ -121,6 +122,7 @@ int main(int argc, char* argv[]) {
         srvr_w,
         clnt_w
       );
+      std::cout << "\nCLNT FLTrust with loaded model done\n";
     }
   }
   
@@ -144,9 +146,12 @@ int main(int argc, char* argv[]) {
   clnt_CAS.store(MEM_FREE);
 
   // RBYZ client
-  Logger::instance().log("Starting RBYZ\n");
+  Logger::instance().log("\n\n=============================================\n");
+  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
+  Logger::instance().log("=============================================\n");
+
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
-    w = mnist.runMnistTrain(round, w);
+    w = mnist.runMnistTrain(round, w, true);
 
     // Store the updated weights in clnt_w
     torch::Tensor all_tensors = flatten_tensor_vector(w);

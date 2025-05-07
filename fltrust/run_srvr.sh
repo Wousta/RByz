@@ -3,7 +3,7 @@
 srvr_ip=192.168.128.101 # Delta
 #srvr_ip=192.168.117.103  # quatro
 port=2000
-n_clients=2
+n_clients=0
 
 # Array for client PIDs
 CLNT_PIDS=()
@@ -36,7 +36,7 @@ SRVR_PID=$!
 
 for id in $(seq 1 $n_clients); do
   sleep 1
-  if [ $id -eq 5 ]; then
+  if [ $id -eq 11 ]; then
     gdb -ex "break /home/bustaman/usr-rdma-api-main/fltrust/src/clnt.cpp:109" \
     -ex "start" \
     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id --n_clients $n_clients
