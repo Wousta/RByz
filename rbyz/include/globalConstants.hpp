@@ -2,15 +2,15 @@
 
 inline constexpr int N_BYZ_CLNTS = 2;
 inline constexpr int GLOBAL_ITERS = 100;
-inline constexpr int CLNT_SUBSET_SIZE = 15000;  
-inline constexpr int SRVR_SUBSET_SIZE = 15000;
-inline constexpr float GLOBAL_LEARN_RATE = 0.001;
+inline constexpr int CLNT_SUBSET_SIZE = 29500;  
+inline constexpr int SRVR_SUBSET_SIZE = 1000;
+inline constexpr float GLOBAL_LEARN_RATE = 0.01;
 inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 
 // RBYZ
-inline constexpr int GLOBAL_ITERS_RBYZ = 5;
+inline constexpr int GLOBAL_ITERS_RBYZ = 3;
 inline constexpr uint64_t REG_SZ_CLNT = REG_SZ_DATA + 2 * sizeof(float);
 constexpr int MEM_FREE = 0; 
 constexpr int MEM_OCCUPIED = 1;

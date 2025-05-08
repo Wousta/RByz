@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
-  mnist.runMnistTrain(0, w, true);
+  mnist.runMnistTrain(0, w);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
 
     // Read the error and loss from the clients

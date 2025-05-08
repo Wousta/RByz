@@ -88,6 +88,9 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   auto data_loader = torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
     dataset, /*batch size*/ 1);
 
+  Logger::instance().log("PREEEE Worker " + std::to_string(worker_id) +
+    " using stratified indices of size: " + std::to_string(subset_size) + "\n");
+
   for (const auto& example : *data_loader) {
       int64_t label = example.target.item<int64_t>();
       label_to_indices[label].push_back(index);
@@ -99,12 +102,10 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   std::vector<size_t> worker_indices;
   for (const auto& [label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
-      if (worker_id == 0) {
-          // Server gets a smaller proportion of samples
-          total_samples = static_cast<size_t>(total_samples * srvr_proportion);
-      }
-
-      size_t samples_per_worker = total_samples / num_workers;
+      Logger::instance().log("Worker " + std::to_string(worker_id) +
+        " label " + std::to_string(label) + 
+        " has " + std::to_string(total_samples) + " samples\n");
+      size_t samples_per_worker = total_samples / (num_workers - 1);
       size_t remainder = total_samples % num_workers;
 
       size_t start = worker_id * samples_per_worker + std::min(static_cast<size_t>(worker_id), remainder);
@@ -475,8 +476,38 @@ void MnistTrain::registeredTrain(
     }
 
     // Stack the tensors to create a single batch tensor
-    auto data = torch::stack(data_vec).to(device);
-    auto targets = torch::stack(target_vec).to(device);
+    auto data_cpu = torch::stack(data_vec);
+    auto targets_cpu = torch::stack(target_vec);
+    
+    torch::Tensor data, targets;
+    
+    if (device.is_cuda()) {
+      // Create CUDA tensors with the same shape and type
+      data = torch::empty_like(data_cpu, torch::TensorOptions().device(device));
+      targets = torch::empty_like(targets_cpu, torch::TensorOptions().device(device));
+      
+      // Asynchronously copy data from CPU to GPU
+      cudaMemcpyAsync(
+        data.data_ptr<float>(),
+        data_cpu.data_ptr<float>(),
+        data_cpu.numel() * sizeof(float),
+        cudaMemcpyHostToDevice
+      );
+      
+      cudaMemcpyAsync(
+        targets.data_ptr<int64_t>(),
+        targets_cpu.data_ptr<int64_t>(),
+        targets_cpu.numel() * sizeof(int64_t),
+        cudaMemcpyHostToDevice
+      );
+      
+      // Ensure copy is complete before proceeding
+      cudaDeviceSynchronize();
+    } else {
+      // For CPU, just use the original tensors
+      data = data_cpu;
+      targets = targets_cpu;
+    }
 
     if (batch_idx == 0) {
       std::ostringstream oss;
