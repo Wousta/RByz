@@ -98,18 +98,26 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   }
 
   // Allocate indices to workers
-  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / CLNT_SUBSET_SIZE;
+  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / DATASET_SIZE;
+  float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
   std::vector<size_t> worker_indices;
   for (const auto& [label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
-      Logger::instance().log("Worker " + std::to_string(worker_id) +
-        " label " + std::to_string(label) + 
-        " has " + std::to_string(total_samples) + " samples\n");
-      size_t samples_per_worker = total_samples / (num_workers - 1);
-      size_t remainder = total_samples % num_workers;
+      size_t samples_srvr = static_cast<size_t>(std::ceil(total_samples * srvr_proportion));
+      size_t samples_clnt = static_cast<size_t>(std::ceil(total_samples * clnt_proportion));
 
-      size_t start = worker_id * samples_per_worker + std::min(static_cast<size_t>(worker_id), remainder);
-      size_t end = start + samples_per_worker + (worker_id < remainder ? 1 : 0);
+      size_t start;
+      size_t end;
+      if (worker_id == 0) {
+          start = 0; // Server gets the first portion
+          end = samples_srvr;
+      } else {
+          start = static_cast<size_t>(std::ceil(samples_srvr + (worker_id - 1) * samples_clnt));
+          end = start + samples_clnt;
+          if (end > total_samples) {
+              end = total_samples; // Ensure we don't go out of bounds
+          }
+      }
 
       // Add the worker's portion of indices for this label
       worker_indices.insert(worker_indices.end(), indices.begin() + start, indices.begin() + end);
@@ -478,6 +486,8 @@ void MnistTrain::registeredTrain(
     // Stack the tensors to create a single batch tensor
     auto data_cpu = torch::stack(data_vec);
     auto targets_cpu = torch::stack(target_vec);
+
+    //data_cpu = data_cpu.reshape({data_cpu.size(0), 1, 28, 28});
     
     torch::Tensor data, targets;
     
@@ -509,7 +519,7 @@ void MnistTrain::registeredTrain(
       targets = targets_cpu;
     }
 
-    if (batch_idx == 0) {
+    if (batch_idx % 10 == 0 && epoch == 1) {
       std::ostringstream oss;
       oss << "  REGTargets (first elements): [";
       int num_to_print = std::min(15, static_cast<int>(targets.numel()));

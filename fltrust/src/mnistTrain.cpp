@@ -80,40 +80,49 @@ SubsetSampler MnistTrain::get_subset_sampler(int worker_id, size_t dataset_size,
 }
 
 std::vector<size_t> MnistTrain::get_stratified_indices(
-    MnistTrain::DatasetType &dataset,
-    int worker_id,
-    int num_workers,
-    size_t subset_size)
-{
+  MnistTrain::DatasetType& dataset,
+  int worker_id,
+  int num_workers,
+  size_t subset_size) 
+  {
   // Group indices by labels
   std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
   size_t index = 0;
 
   // Create a DataLoader to iterate over the dataset
   auto data_loader = torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
-      dataset, /*batch size*/ 1);
+    dataset, /*batch size*/ 1);
 
-  for (const auto &example : *data_loader)
-  {
-    int64_t label = example.target.item<int64_t>();
-    label_to_indices[label].push_back(index);
-    ++index;
+  for (const auto& example : *data_loader) {
+      int64_t label = example.target.item<int64_t>();
+      label_to_indices[label].push_back(index);
+      ++index;
   }
 
   // Allocate indices to workers
-  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / CLNT_SUBSET_SIZE;
+  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / DATASET_SIZE;
+  float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
   std::vector<size_t> worker_indices;
-  for (const auto &[label, indices] : label_to_indices)
-  {
-    size_t total_samples = indices.size();
-    size_t samples_per_worker = total_samples / num_workers;
-    size_t remainder = total_samples % num_workers;
+  for (const auto& [label, indices] : label_to_indices) {
+      size_t total_samples = indices.size();
+      size_t samples_srvr = static_cast<size_t>(std::ceil(total_samples * srvr_proportion));
+      size_t samples_clnt = static_cast<size_t>(std::ceil(total_samples * clnt_proportion));
 
-    size_t start = worker_id * samples_per_worker + std::min(static_cast<size_t>(worker_id), remainder);
-    size_t end = start + samples_per_worker + (worker_id < remainder ? 1 : 0);
+      size_t start;
+      size_t end;
+      if (worker_id == 0) {
+          start = 0; // Server gets the first portion
+          end = samples_srvr;
+      } else {
+          start = static_cast<size_t>(std::ceil(samples_srvr + (worker_id - 1) * samples_clnt));
+          end = start + samples_clnt;
+          if (end > total_samples) {
+              end = total_samples; // Ensure we don't go out of bounds
+          }
+      }
 
-    // Add the worker's portion of indices for this label
-    worker_indices.insert(worker_indices.end(), indices.begin() + start, indices.begin() + end);
+      // Add the worker's portion of indices for this label
+      worker_indices.insert(worker_indices.end(), indices.begin() + start, indices.begin() + end);
   }
 
   std::random_device rd;
@@ -121,9 +130,8 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
 
   // If the subset size is smaller than the allocated indices, truncate
-  if (worker_indices.size() > subset_size)
-  {
-    worker_indices.resize(subset_size);
+  if (worker_indices.size() > subset_size) {
+      worker_indices.resize(subset_size);
   }
 
   return worker_indices;
