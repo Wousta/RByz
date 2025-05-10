@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 1000));
   // addr
   Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");

@@ -154,7 +154,7 @@ int main(int argc, char* argv[]) {
 
   MnistTrain mnist(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
-
+  load_model = false;
   if (load_model) {
     w = mnist.loadModelState(model_file);
     if (w.empty()) {
@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) {
       clnt_data_vec
     );
 
-    mnist.saveModelState(w, model_file);
+    //mnist.saveModelState(w, model_file);
   }
 
   // Global rounds of RByz
@@ -335,7 +335,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
     for (size_t i = 0; i < w.size(); i++) {
-      w[i] = w[i] - GLOBAL_LEARN_RATE * aggregated_update_vec[i];
+      w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
 
   }
