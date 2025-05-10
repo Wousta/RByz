@@ -106,7 +106,7 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   for (const auto& [label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
       size_t samples_srvr = static_cast<size_t>(std::ceil(total_samples * srvr_proportion));
-      size_t samples_clnt = static_cast<size_t>(std::ceil(total_samples * clnt_proportion));
+      size_t samples_clnt = static_cast<size_t>(std::floor(total_samples * clnt_proportion));
 
       size_t start;
       size_t end;
@@ -115,9 +115,10 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
           end = samples_srvr;
       } else {
           start = static_cast<size_t>(std::ceil(samples_srvr + (worker_id - 1) * samples_clnt));
-          end = start + samples_clnt;
-          if (end > total_samples) {
-              end = total_samples; // Ensure we don't go out of bounds
+          if (worker_id == num_workers - 1) {
+            end = total_samples; // Last worker gets the remaining samples
+          } else {
+            end = start + samples_clnt;
           }
       }
 
@@ -133,6 +134,10 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   if (worker_indices.size() > subset_size) {
       worker_indices.resize(subset_size);
   }
+
+  // Log the final indices
+  Logger::instance().log("Worker " + std::to_string(worker_id) +
+                         " final indices size: " + std::to_string(worker_indices.size()) + "\n");
 
   return worker_indices;
 }
@@ -310,7 +315,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   auto test_loader = torch::data::make_data_loader(test_dataset, kTestBatchSize);
 
   torch::optim::SGD optimizer(
-      model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE).momentum(0.5));
+      model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
 
   std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch)
@@ -349,12 +354,10 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   {
     std::vector<torch::Tensor> model_weights;
     model_weights.reserve(param_count);
-    for (const auto &param : model.parameters())
-    {
+    for (const auto &param : model.parameters()) {
       model_weights.push_back(param.clone().detach());
     }
-    for (size_t i = 0; i < model_weights.size(); ++i)
-    {
+    for (size_t i = 0; i < model_weights.size(); ++i) {
       result.push_back(model_weights[i] - w[i]);
     }
   }
