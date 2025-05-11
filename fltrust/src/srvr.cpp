@@ -159,31 +159,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
-  // for (int i = 0; i < 25; i++) {
-  //   //w = mnist.runMnistTrain(i, w);
-  //   std::vector<torch::Tensor> g = mnist.runMnistTrain(i, w);
-  //   for (size_t i = 0; i < w.size(); i++) {
-  //     w[i] = w[i] - 0.01f * g[i];
-  //   }
-  //   {
-  //     std::ostringstream oss;
-  //     float total_norm = 0.0f;
-  //     oss << "\nWeight norms after iteration " << round << ":\n";
-      
-  //     for (size_t i = 0; i < w.size(); i++) {
-  //       float layer_norm = torch::norm(w[i], 2).item<float>();
-  //       total_norm += layer_norm;
-  //       oss << "  Layer " << i << " norm: " << layer_norm << "\n";
-  //     }
-      
-  //     oss << "  Total norm: " << total_norm << "\n";
-  //     Logger::instance().log(oss.str());
-  //   }
-  //   mnist.testModel();
-  // }
-
-  // return w;
-
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
@@ -249,14 +224,14 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     }
 
     // Use attacks to simulate Byzantine clients
-    clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    // clnt_updates = trim_attack(
-    //   clnt_updates, 
-    //   mnist.getModel(), 
-    //   GLOBAL_LEARN_RATE, 
-    //   N_BYZ_CLNTS, 
-    //   mnist.getDevice()
-    // );
+    //clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates = krum_attack(
+      clnt_updates, 
+      mnist.getModel(), 
+      GLOBAL_LEARN_RATE, 
+      N_BYZ_CLNTS, 
+      mnist.getDevice()
+    );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
 
