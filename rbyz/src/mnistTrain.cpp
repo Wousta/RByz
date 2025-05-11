@@ -79,7 +79,8 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   MnistTrain::DatasetType& dataset,
   int worker_id,
   int num_workers,
-  size_t subset_size) {
+  size_t subset_size) 
+  {
   // Group indices by labels
   std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
   size_t index = 0;
@@ -87,9 +88,6 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   // Create a DataLoader to iterate over the dataset
   auto data_loader = torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
     dataset, /*batch size*/ 1);
-
-  Logger::instance().log("PREEEE Worker " + std::to_string(worker_id) +
-    " using stratified indices of size: " + std::to_string(subset_size) + "\n");
 
   for (const auto& example : *data_loader) {
       int64_t label = example.target.item<int64_t>();
@@ -100,11 +98,12 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
   // Allocate indices to workers
   float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / DATASET_SIZE;
   float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
+
   std::vector<size_t> worker_indices;
   for (const auto& [label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
       size_t samples_srvr = static_cast<size_t>(std::ceil(total_samples * srvr_proportion));
-      size_t samples_clnt = static_cast<size_t>(std::ceil(total_samples * clnt_proportion));
+      size_t samples_clnt = static_cast<size_t>(std::floor(total_samples * clnt_proportion));
 
       size_t start;
       size_t end;
@@ -113,9 +112,10 @@ std::vector<size_t> MnistTrain::get_stratified_indices(
           end = samples_srvr;
       } else {
           start = static_cast<size_t>(std::ceil(samples_srvr + (worker_id - 1) * samples_clnt));
-          end = start + samples_clnt;
-          if (end > total_samples) {
-              end = total_samples; // Ensure we don't go out of bounds
+          if (worker_id == num_workers - 1) {
+            end = total_samples; // Last worker gets the remaining samples
+          } else {
+            end = start + samples_clnt;
           }
       }
 
@@ -284,7 +284,7 @@ std::vector<torch::Tensor> MnistTrain::runMnistTrain(int round, const std::vecto
   auto test_loader = torch::data::make_data_loader(test_dataset, kTestBatchSize);
 
   torch::optim::SGD optimizer(
-      model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE).momentum(0.5));
+      model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
 
   std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs <<"\n";
 
@@ -414,7 +414,7 @@ void MnistTrain::prepareRegisteredDataset() {
   auto& indices = train_sampler.indices();
   registered_samples = indices.size();
 
-  // 784 is the size of an image in MNIST dataset
+  // 28x28 = 784 is the size of an image in MNIST dataset
   size_t image_memory_size = registered_samples * 784 * sizeof(float);
   size_t label_memory_size = registered_samples * sizeof(int64_t);
   
@@ -429,13 +429,13 @@ void MnistTrain::prepareRegisteredDataset() {
   size_t i = 0; // Counter for the registered memory
   std::unordered_map<size_t, size_t> index_map;
   for (const auto& original_idx : indices) {
-    auto example = plain_mnist.get(original_idx); // Fetch the example from the original dataset
-    auto normalized_image = (example.data.to(torch::kFloat32) / 255.0 - 0.1307) / 0.3081;
+    auto example = plain_mnist.get(original_idx);
+    auto normalized_image = (example.data.to(torch::kFloat32) - 0.1307) / 0.3081;
     
     // Flatten the image tensor and copy it to the registered memory
-    auto flat_image = normalized_image.reshape({784});
+    auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
     std::memcpy(registered_images + (i * 784), 
-                flat_image.data_ptr<float>(), 
+                reshaped_image.data_ptr<float>(), 
                 784 * sizeof(float));
     
     // Copy the label
@@ -446,9 +446,9 @@ void MnistTrain::prepareRegisteredDataset() {
       throw std::runtime_error("Invalid label: " + std::to_string(registered_labels[i]));
     }
 
-    index_map[original_idx] = i; // Map original index to registered index
-
-    ++i; // Increment the counter
+    // Map original index to registered index
+    index_map[original_idx] = i; 
+    ++i;
   }
 
   registered_dataset = std::make_unique<RegisteredMNIST>(
@@ -486,11 +486,8 @@ void MnistTrain::registeredTrain(
     // Stack the tensors to create a single batch tensor
     auto data_cpu = torch::stack(data_vec);
     auto targets_cpu = torch::stack(target_vec);
-
-    //data_cpu = data_cpu.reshape({data_cpu.size(0), 1, 28, 28});
     
     torch::Tensor data, targets;
-    
     if (device.is_cuda()) {
       // Create CUDA tensors with the same shape and type
       data = torch::empty_like(data_cpu, torch::TensorOptions().device(device));
@@ -517,18 +514,6 @@ void MnistTrain::registeredTrain(
       // For CPU, just use the original tensors
       data = data_cpu;
       targets = targets_cpu;
-    }
-
-    if (batch_idx % 10 == 0 && epoch == 1) {
-      std::ostringstream oss;
-      oss << "  REGTargets (first elements): [";
-      int num_to_print = std::min(15, static_cast<int>(targets.numel()));
-      for (int i = 0; i < num_to_print; ++i) {
-        oss << targets[i].item<int64_t>();
-        if (i < num_to_print - 1) oss << ", ";
-      }
-      oss << "]";
-      Logger::instance().log(oss.str() + "\n");
     }
 
     optimizer.zero_grad();

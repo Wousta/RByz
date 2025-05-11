@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("Client: port = " + port + "\n");
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 700));
 
 
   // Data structures for server and this client
@@ -101,7 +101,6 @@ int main(int argc, char* argv[]) {
 
   MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
-
   if (load_model) {
     w = mnist.loadModelState(model_file);
     if (w.empty()) {
@@ -137,7 +136,7 @@ int main(int argc, char* argv[]) {
       clnt_w
     );
 
-    mnist.saveModelState(w, model_file);
+    //mnist.saveModelState(w, model_file);
   }
 
   // Before rbyz, the client has to write error and loss for the first time

@@ -154,7 +154,6 @@ int main(int argc, char* argv[]) {
 
   MnistTrain mnist(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
-  load_model = false;
   if (load_model) {
     w = mnist.loadModelState(model_file);
     if (w.empty()) {
@@ -279,7 +278,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     regMem.srvr_ready_flag = round;
 
     // Run local training
-    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w, true);
   
     // Keep updated values to follow FLtrust logic
     for (size_t i = 0; i < g.size(); ++i) {

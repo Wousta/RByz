@@ -44,9 +44,9 @@ private:
   const int worker_id;
   const int num_workers;
   const int64_t subset_size;
-  const int64_t kTrainBatchSize = 16;
+  const int64_t kTrainBatchSize = 32;
   const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 2;
+  const int64_t kNumberOfEpochs = 5;
   const int64_t kLogInterval = 10;
   torch::DeviceType device_type;
   torch::Device device;
