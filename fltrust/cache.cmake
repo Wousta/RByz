@@ -21,14 +21,15 @@ else()
   message(FATAL_ERROR "TorchConfig.cmake not found at ${Torch_DIR}. Please check your libtorch installation.")
 endif()
 
+# Cache Torch variables
 if(NOT Torch_FOUND)
   message(STATUS "Finding Torch ...")
   find_package(Torch REQUIRED)
+  set(Torch_FOUND TRUE CACHE BOOL "Torch has been found")
 else()
   message(STATUS "Using cached Torch configuration")
 endif()
 
-# Cache key Torch variables to prevent re-configuration.
 if(NOT Torch_INCLUDE_DIRS)
   set(Torch_INCLUDE_DIRS "${TORCH_INCLUDE_DIRS}" CACHE STRING "Torch include directories")
 endif()

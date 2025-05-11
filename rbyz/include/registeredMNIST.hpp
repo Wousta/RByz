@@ -9,17 +9,19 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
     float* images;            // Pointer to image data in registered memory
     int64_t* labels;          // Pointer to label data in registered memory
     size_t num_samples;       // Number of samples in the dataset
+    std::unordered_map<size_t, size_t> index_map; // Map original indices to registered indices
     size_t image_size;        // Size of each flattened image (784 for MNIST)
     torch::TensorOptions options; // Options for creating tensors
     bool owns_memory;         // Whether this class owns the memory (for cleanup)
 
     public:
     // takes pointers to registered memory
-    RegisteredMNIST(float* images, int64_t* labels, size_t num_samples, 
+    RegisteredMNIST(float* images, int64_t* labels, size_t num_samples, std::unordered_map<size_t, size_t> index_map,
                           size_t image_size = 784, bool owns_memory = false)
         : images(images), 
           labels(labels), 
-          num_samples(num_samples), 
+          num_samples(num_samples),
+          index_map(index_map),
           image_size(image_size),
           options(torch::TensorOptions().dtype(torch::kFloat32)),
           owns_memory(owns_memory) {}
@@ -32,11 +34,8 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
         }
     }
 
-    torch::data::Example<> get(size_t index) override {
-        // Check bounds
-        if (index >= num_samples) {
-            throw std::runtime_error("Index out of bounds in RegisteredMemoryMNIST");
-        }
+    torch::data::Example<> get(size_t original_index) override {
+        size_t index = index_map.at(original_index);
 
         // Get pointer to the beginning of this sample's data
         float* img_ptr = images + (index * image_size);
@@ -50,6 +49,9 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
         ).clone(); // Clone to make a copy that's safe to return
 
         int64_t label = labels[index];
+        if (label < 0 || label >= 10) {
+            throw std::runtime_error("Invalid label in RegisteredMNIST::get(): " + std::to_string(label));
+        }
         torch::Tensor target = torch::tensor(label, torch::kInt64);
 
         return {image, target};

@@ -72,7 +72,7 @@ void printTensorSlices(const std::vector<torch::Tensor>& model_weights, int star
         int actual_end = std::min(end_idx, static_cast<int>(tensor.numel()));
         
         oss << "Tensor " << i << " (shape: " << tensor.sizes() << ") slice [" 
-            << actual_start << ":" << actual_end << "]:";
+            << actual_start << ":" << actual_end << "]:\n";
                   
         // For 1D tensors, we can directly slice
         if (tensor.dim() == 1) {

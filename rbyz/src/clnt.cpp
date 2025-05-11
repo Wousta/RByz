@@ -32,10 +32,10 @@ void writeErrorAndLoss(
 );
 
 int main(int argc, char* argv[]) {
-  std::this_thread::sleep_for(std::chrono::seconds(12));
   Logger::instance().log("Client starting execution\n");
 
   int id;
+  int n_clients;
   bool load_model = false;
   std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
@@ -50,6 +50,7 @@ int main(int argc, char* argv[]) {
     lyra::opt(port, "port")["-p"]["--port"]("port") |
     lyra::opt(id, "id")["-p"]["--id"]("id") |
     lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
     lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
   auto result = cli.parse({ argc, argv });
   if (!result) {
@@ -64,6 +65,8 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("Client: port = " + port + "\n");
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 700));
+
 
   // Data structures for server and this client
   int srvr_ready_flag = 0;
@@ -96,9 +99,8 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
-  MnistTrain mnist(0, SRVR_SUBSET_SIZE);
+  MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
-
   if (load_model) {
     w = mnist.loadModelState(model_file);
     if (w.empty()) {
@@ -109,6 +111,7 @@ int main(int argc, char* argv[]) {
       printTensorSlices(w, 0, 5);
 
       // Do one iteration of fltrust with one iteration to initialize trust scores
+      std::cout << "CLNT Running FLTrust with loaded model\n";
       w = run_fltrust_clnt(
         1,
         rdma_ops,
@@ -118,6 +121,7 @@ int main(int argc, char* argv[]) {
         srvr_w,
         clnt_w
       );
+      std::cout << "\nCLNT FLTrust with loaded model done\n";
     }
   }
   
@@ -132,7 +136,7 @@ int main(int argc, char* argv[]) {
       clnt_w
     );
 
-    mnist.saveModelState(w, model_file);
+    //mnist.saveModelState(w, model_file);
   }
 
   // Before rbyz, the client has to write error and loss for the first time
@@ -141,9 +145,12 @@ int main(int argc, char* argv[]) {
   clnt_CAS.store(MEM_FREE);
 
   // RBYZ client
-  Logger::instance().log("Starting RBYZ\n");
+  Logger::instance().log("\n\n=============================================\n");
+  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
+  Logger::instance().log("=============================================\n");
+
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
-    w = mnist.runMnistTrain(round, w);
+    w = mnist.runMnistTrain(round, w, true);
 
     // Store the updated weights in clnt_w
     torch::Tensor all_tensors = flatten_tensor_vector(w);
@@ -194,7 +201,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* srvr_w,
   float* clnt_w) {
 
-  std::vector<torch::Tensor> w = mnist.testOG();
+    std::vector<torch::Tensor> w = mnist.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
