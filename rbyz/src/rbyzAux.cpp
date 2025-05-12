@@ -1,8 +1,8 @@
-#include "../include/rbyzAux.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
-#include "../include/tensorOps.hpp"
+#include "rbyzAux.hpp"
+#include "datasetLogic/mnistTrain.hpp"
+#include "global/globalConstants.hpp"
+#include "global/logger.hpp"
+#include "tensorOps.hpp"
 
 #include <algorithm>
 

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../include/subsetSampler.hpp"
-#include "../include/registeredMNIST.hpp"
-#include "../include/globalConstants.hpp"
+#include "subsetSampler.hpp"
+#include "registeredMNIST.hpp"
+#include "global/globalConstants.hpp"
 
 #include <vector>
 

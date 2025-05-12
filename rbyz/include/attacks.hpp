@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mnistTrain.hpp"
+#include "datasetLogic/mnistTrain.hpp"
 #include <vector>
 
 std::vector<torch::Tensor> no_byz(

@@ -29,6 +29,13 @@ find_package(Torch REQUIRED)
 find_package(Threads REQUIRED)
 find_package(lyra REQUIRED)
 
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 add_library(libnorm SHARED IMPORTED)
 set_target_properties(libnorm PROPERTIES
   IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
@@ -40,13 +47,13 @@ target_link_libraries(torch_interface INTERFACE ${TORCH_LIBRARIES})
 
 add_library(subsetSampler INTERFACE)
 add_library(registeredMNIST INTERFACE)
-add_library(mnistTrain STATIC src/mnistTrain.cpp)
+add_library(mnistTrain STATIC src/datasetLogic/mnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
 add_library(tensorOps STATIC src/tensorOps.cpp)
 add_library(attacks STATIC src/attacks.cpp)
 add_library(rbyzAux STATIC src/rbyzAux.cpp)
-add_executable(srvr src/srvr.cpp)
-add_executable(clnt src/clnt.cpp)
+add_executable(srvr src/entities/srvr.cpp)
+add_executable(clnt src/entities/clnt.cpp)
 
 target_compile_options(srvr PRIVATE -g)
 target_compile_options(clnt PRIVATE -g)
@@ -80,12 +87,12 @@ target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC)
 
-target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
-target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
-target_precompile_headers(attacks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
-target_precompile_headers(rbyzAux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
-target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
-target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
+target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(attacks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(rbyzAux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
 
 target_link_libraries(rdmaOps PUBLIC libnorm)
 

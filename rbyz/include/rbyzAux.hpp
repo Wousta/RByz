@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../include/rdmaOps.hpp"
-#include "../include/logger.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
+#include "rdmaOps.hpp"
+#include "datasetLogic/mnistTrain.hpp"
+#include "global/logger.hpp"
+#include "global/globalConstants.hpp"
 #include <atomic>
 #include <vector>
 #include <thread>

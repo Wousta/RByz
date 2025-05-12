@@ -13,16 +13,16 @@
 #include <thread>
 #include <vector>
 
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
-#include "../include/attacks.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/rbyzAux.hpp"
-#include "../include/rdmaOps.hpp"
-#include "../include/tensorOps.hpp"
+#include "rc_conn.hpp"
+#include "rdma-api.hpp"
+#include "util.hpp"
+#include "attacks.hpp"
+#include "global/globalConstants.hpp"
+#include "global/logger.hpp"
+#include "datasetLogic/mnistTrain.hpp"
+#include "rbyzAux.hpp"
+#include "rdmaOps.hpp"
+#include "tensorOps.hpp"
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 

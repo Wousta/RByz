@@ -1,12 +1,12 @@
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
-#include "../include/rdmaOps.hpp"
-#include "../include/tensorOps.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
-#include "../include/rbyzAux.hpp"
+#include "rc_conn.hpp"
+#include "rdma-api.hpp"
+#include "util.hpp"
+#include "rdmaOps.hpp"
+#include "tensorOps.hpp"
+#include "datasetLogic/mnistTrain.hpp"
+#include "global/globalConstants.hpp"
+#include "global/logger.hpp"
+#include "rbyzAux.hpp"
 
 //#include <logger.hpp>
 #include <lyra/lyra.hpp>

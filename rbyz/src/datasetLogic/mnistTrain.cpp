@@ -1,4 +1,4 @@
-#include "../include/mnistTrain.hpp"
+#include "../include/datasetLogic/mnistTrain.hpp"
 
 #include <cuda_runtime.h>
 
@@ -11,9 +11,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
-#include "../include/tensorOps.hpp"
+#include "global/globalConstants.hpp"
+#include "global/logger.hpp"
+#include "tensorOps.hpp"
 
 MnistTrain::MnistTrain(int worker_id, int num_workers, int64_t subset_size)
     : device(init_device()),

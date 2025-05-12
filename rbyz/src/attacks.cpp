@@ -1,4 +1,4 @@
-#include "../include/attacks.hpp"
+#include "attacks.hpp"
 
 // These functions are translated from https://github.com/encryptogroup/SAFEFL/blob/main/attacks.py
 
