@@ -6,6 +6,7 @@
 #include "../include/mnistTrain.hpp"
 #include "../include/globalConstants.hpp"
 #include "../include/logger.hpp"
+#include "../include/rbyzAux.hpp"
 
 //#include <logger.hpp>
 #include <lyra/lyra.hpp>
@@ -23,11 +24,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   int& srvr_ready_flag,
   int& clnt_ready_flag,
   float* srvr_w,
-  float* clnt_w
-);
-
-void writeErrorAndLoss(
-  MnistTrain& mnist,
   float* clnt_w
 );
 
@@ -139,43 +135,8 @@ int main(int argc, char* argv[]) {
     //mnist.saveModelState(w, model_file);
   }
 
-  // Before rbyz, the client has to write error and loss for the first time
-  writeErrorAndLoss(mnist, clnt_w);
-  Logger::instance().log("Client: Initial loss and error values\n");
-  clnt_CAS.store(MEM_FREE);
-
-  // RBYZ client
-  Logger::instance().log("\n\n=============================================\n");
-  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
-  Logger::instance().log("=============================================\n");
-
-  for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
-    w = mnist.runMnistTrain(round, w, true);
-
-    // Store the updated weights in clnt_w
-    torch::Tensor all_tensors = flatten_tensor_vector(w);
-    size_t total_bytes_g = all_tensors.numel() * sizeof(float);
-    if(total_bytes_g != (size_t)REG_SZ_DATA) {
-      Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
-    }
-
-    float* all_tensors_float = all_tensors.data_ptr<float>();
-
-    // Make server wait until memory is written
-    int expected = MEM_FREE;
-    while(!clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
-      std::this_thread::yield();
-    }
-    Logger::instance().log("CAS LOCK AQUIRED\n");
-
-    // Store the updates, error and loss values in clnt_w
-    std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
-    writeErrorAndLoss(mnist, loss_and_err);
-
-    // Reset the memory ready flag
-    clnt_CAS.store(MEM_FREE);
-    Logger::instance().log("CAS LOCK RELEASED\n");
-  }
+  // Run the RByz client
+  runRByzClient(w, clnt_CAS, mnist, clnt_w, loss_and_err);
 
   Logger::instance().log("Client: Final weights\n");
   printTensorSlices(w, 0, 5);
@@ -264,11 +225,4 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   }
 
   return w;
-}
-
-void writeErrorAndLoss(MnistTrain& mnist, float* loss_and_err) {
-  float loss_val = mnist.getLoss();
-  float error_rate_val = mnist.getErrorRate();
-  std::memcpy(loss_and_err, &loss_val, sizeof(float));
-  std::memcpy(loss_and_err + 1, &error_rate_val, sizeof(float));
 }

@@ -1,50 +1,50 @@
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/rdmaOps.hpp"
-#include "../include/tensorOps.hpp"
-#include "../include/logger.hpp"
-#include "../include/attacks.hpp"
-#include "../include/rbyzAux.hpp"
-
 #include <float.h>
+
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <lyra/lyra.hpp>
+#include <numeric>
+#include <random>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
-#include <random>
-#include <ctime>
-#include <algorithm>
-#include <set>
-#include <numeric>
 
+#include "../../RcConn/include/rc_conn.hpp"
+#include "../../rdma-api/include/rdma-api.hpp"
+#include "../../shared/util.hpp"
+#include "../include/attacks.hpp"
+#include "../include/globalConstants.hpp"
+#include "../include/logger.hpp"
+#include "../include/mnistTrain.hpp"
+#include "../include/rbyzAux.hpp"
+#include "../include/rdmaOps.hpp"
+#include "../include/tensorOps.hpp"
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
 struct RegMemSrvr {
-  private:
+private:
   int n_clients;
-  
-  public:
+
+public:
   int srvr_ready_flag = 0;
-  float* srvr_w = reinterpret_cast<float*>(malloc(REG_SZ_DATA));
+  float *srvr_w = reinterpret_cast<float *>(malloc(REG_SZ_DATA));
   std::vector<int> clnt_ready_flags;
-  std::vector<float*> clnt_ws;
-  std::vector<float*> clnt_loss_and_err;
+  std::vector<float *> clnt_ws;
+  std::vector<float *> clnt_loss_and_err;
   std::vector<std::atomic<int>> clnt_CAS;
-  
-  RegMemSrvr(int n_clients) : 
-    n_clients(n_clients),
-    clnt_ready_flags(n_clients, 0),
-    clnt_ws(n_clients),
-    clnt_loss_and_err(n_clients),
-    clnt_CAS(n_clients) {}
-    
+
+  RegMemSrvr(int n_clients)
+      : n_clients(n_clients),
+        clnt_ready_flags(n_clients, 0),
+        clnt_ws(n_clients),
+        clnt_loss_and_err(n_clients),
+        clnt_CAS(n_clients) {}
+
   ~RegMemSrvr() {
     free(srvr_w);
     for (int i = 0; i < n_clients; i++) {
@@ -54,28 +54,20 @@ struct RegMemSrvr {
   }
 };
 
-void readClntsRByz(
-  int n_clients,
-  RdmaOps& rdma_ops,
-  std::vector<std::atomic<int>>& clnt_CAS
-);
+void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<std::atomic<int>> &clnt_CAS);
 
-std::vector<torch::Tensor> run_fltrust_srvr(
-  int n_clients,
-  int rounds, 
-  MnistTrain& mnist,
-  RegMemSrvr& regMem,
-  std::vector<ClientData>& clntsData
-);
+std::vector<torch::Tensor> run_fltrust_srvr(int n_clients,
+                                            int rounds,
+                                            MnistTrain &mnist,
+                                            RegMemSrvr &regMem,
+                                            std::vector<ClientDataRbyz> &clntsData);
 
 std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1);
 
-torch::Tensor aggregate_updates(
-  const std::vector<torch::Tensor>& client_updates,
-  const torch::Tensor& server_update
-);
+torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
+                                const torch::Tensor &server_update);
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   Logger::instance().log("Server starting RBYZ\n");
   int n_clients;
   bool load_model = false;
@@ -86,17 +78,15 @@ int main(int argc, char* argv[]) {
   AddrInfo addr_info;
   std::shared_ptr<ltncyVec> latency = std::make_shared<ltncyVec>();
   latency->reserve(10);
-  auto cli = lyra::cli() |
-    lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
-    lyra::opt(port, "port")["-p"]["--port"]("port") | 
-    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
-    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
-    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
+  auto cli = lyra::cli() | lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
+             lyra::opt(port, "port")["-p"]["--port"]("port") |
+             lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
+             lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+             lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
 
-  auto result = cli.parse({ argc, argv });
+  auto result = cli.parse({argc, argv});
   if (!result) {
-    std::cerr << "Error in command line: " << result.errorMessage()
-      << std::endl;
+    std::cerr << "Error in command line: " << result.errorMessage() << std::endl;
     return 1;
   }
 
@@ -114,12 +104,12 @@ int main(int argc, char* argv[]) {
 
   // Data structures for server and clients
   RegMemSrvr regMem(n_clients);
-  std::vector<ClientData> clnt_data_vec(n_clients);
+  std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
 
-  //Point clnt_ws buffer parts to the right place
+  // Point clnt_ws buffer parts to the right place
   for (int i = 0; i < n_clients; i++) {
-    regMem.clnt_ws[i] = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
-    regMem.clnt_loss_and_err[i] = reinterpret_cast<float*>(malloc(MIN_SZ));
+    regMem.clnt_ws[i] = reinterpret_cast<float *>(malloc(REG_SZ_DATA));
+    regMem.clnt_loss_and_err[i] = reinterpret_cast<float *>(malloc(MIN_SZ));
 
     clnt_data_vec[i].clnt_index = i;
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
@@ -129,7 +119,7 @@ int main(int argc, char* argv[]) {
 
   // memory registration
   for (int i = 0; i < n_clients; i++) {
-    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));           
+    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));
     reg_info[i].addr_locs.push_back(castI(regMem.srvr_w));
     reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
@@ -142,9 +132,9 @@ int main(int argc, char* argv[]) {
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    
+
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
-      IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+                              IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
     // connect to clients
     conns[i].acceptConn(addr_info, reg_info[i]);
@@ -166,30 +156,18 @@ int main(int argc, char* argv[]) {
 
       // Do one iteration of fltrust with ALL clients to initialize trust scores
       std::cout << "SRVR Running FLTrust with loaded model\n";
-      w = run_fltrust_srvr(
-        1,
-        n_clients,
-        mnist,
-        regMem,
-        clnt_data_vec
-      );
+      w = run_fltrust_srvr(1, n_clients, mnist, regMem, clnt_data_vec);
       std::cout << "\nSRVR FLTrust with loaded model done\n";
       Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
   }
-  
+
   if (!load_model) {
     std::cout << "SRVR Running FLTrust, load model set FALSE\n";
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(
-      GLOBAL_ITERS,
-      n_clients,
-      mnist,
-      regMem,
-      clnt_data_vec
-    );
+    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, mnist, regMem, clnt_data_vec);
 
-    //mnist.saveModelState(w, model_file);
+    // mnist.saveModelState(w, model_file);
   }
 
   // Global rounds of RByz
@@ -199,16 +177,13 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops(conn_data);
   mnist.runMnistTrain(0, w);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
-
     // Read the error and loss from the clients
     readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
-    
+
     // For each client run N rounds of RByz
     int n = 15;
     for (int i = 0; i < n; i++) {
-
       for (int j = 0; j < n_clients; j++) {
-
         // Read error and loss from client
         aquireCASLock(j, rdma_ops, regMem.clnt_CAS);
         rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
@@ -253,14 +228,12 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
-std::vector<torch::Tensor> run_fltrust_srvr(
-  int rounds, 
-  int n_clients,
-  MnistTrain& mnist,
-  RegMemSrvr& regMem,
-  std::vector<ClientData>& clntsData) {
-
-    std::vector<torch::Tensor> w = mnist.getInitialWeights();
+std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
+                                            int n_clients,
+                                            MnistTrain &mnist,
+                                            RegMemSrvr &regMem,
+                                            std::vector<ClientDataRbyz> &clntsData) {
+  std::vector<torch::Tensor> w = mnist.getInitialWeights();
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
@@ -271,7 +244,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
-    float* global_w = all_tensors.data_ptr<float>();
+    float *global_w = all_tensors.data_ptr<float>();
     std::memcpy(regMem.srvr_w, global_w, total_bytes);
 
     // Set the flag to indicate that the weights are ready for the clients to read
@@ -279,22 +252,22 @@ std::vector<torch::Tensor> run_fltrust_srvr(
 
     // Run local training
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w, true);
-  
+
     // Keep updated values to follow FLtrust logic
     for (size_t i = 0; i < g.size(); ++i) {
-        g[i] -= w[i];
+      g[i] -= w[i];
     }
-  
+
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
 
-    //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
-    //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
+    // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND,
+    // BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
     {
       std::ostringstream oss;
       oss << "Clients polled: \n";
-      for(int index : polled_clients) {
+      for (int index : polled_clients) {
         oss << index << " ";
       }
       oss << "\n";
@@ -303,27 +276,27 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
-      while(regMem.clnt_ready_flags[client] != round) { 
+      while (regMem.clnt_ready_flags[client] != round) {
         std::this_thread::yield();
       }
 
       size_t numel_server = REG_SZ_DATA / sizeof(float);
-      torch::Tensor flat_tensor = torch::from_blob(
-          regMem.clnt_ws[client], 
-          {static_cast<long>(numel_server)}, 
-          torch::kFloat32
-      ).clone();
+      torch::Tensor flat_tensor =
+          torch::from_blob(
+              regMem.clnt_ws[client], {static_cast<long>(numel_server)}, torch::kFloat32)
+              .clone();
 
       clnt_updates.push_back(flat_tensor);
     }
 
     // Use attacks to simulate Byzantine clients
-    clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates =
+        no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
     // clnt_updates = trim_attack(
-    //   clnt_updates, 
-    //   mnist.getModel(), 
-    //   GLOBAL_LEARN_RATE, 
-    //   N_BYZ_CLNTS, 
+    //   clnt_updates,
+    //   mnist.getModel(),
+    //   GLOBAL_LEARN_RATE,
+    //   N_BYZ_CLNTS,
     //   mnist.getDevice()
     // );
 
@@ -332,11 +305,11 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
-    std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
+    std::vector<torch::Tensor> aggregated_update_vec =
+        reconstruct_tensor_vector(aggregated_update, w);
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
-
   }
 
   return w;
@@ -348,106 +321,103 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   }
 
   std::cout << "Generating random unique vector of size " << n_clients << "\n";
-  
+
   // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
-  
+
   std::vector<int> allValues(n_clients);
   for (int i = 0; i < n_clients; i++) {
-      allValues[i] = i;
+    allValues[i] = i;
   }
   std::shuffle(allValues.begin(), allValues.end(), rng);
-  
+
   // Generate random size
   std::uniform_int_distribution<int> sizeDist(min_sz, n_clients);
   int size = sizeDist(rng);
 
   std::cout << "Random size: " << size << "\n";
-  
+
   std::vector<int> result(allValues.begin(), allValues.begin() + size);
   std::sort(result.begin(), result.end());
 
   return result;
 }
 
-torch::Tensor aggregate_updates(
-  const std::vector<torch::Tensor>& client_updates,
-  const torch::Tensor& server_update) {
-
+torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
+                                const torch::Tensor &server_update) {
   // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
-  //Logger::instance().log("\nComputing aggregation data ================\n");
-  for (const auto& flat_client_update : client_updates) {
+  // Logger::instance().log("\nComputing aggregation data ================\n");
+  for (const auto &flat_client_update : client_updates) {
+    // Compute cosine similarity
+    torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
+    float client_norm = torch::norm(flat_client_update, 2).item<float>();
+    float server_norm = torch::norm(server_update, 2).item<float>();
+    float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
 
-      // Compute cosine similarity
-      torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
-      float client_norm = torch::norm(flat_client_update, 2).item<float>();
-      float server_norm = torch::norm(server_update, 2).item<float>();
-      float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
-      
-      // Apply ReLU (max with 0)
-      float trust_score = std::max(0.0f, cosine_sim);
-      trust_scores.push_back(trust_score);
+    // Apply ReLU (max with 0)
+    float trust_score = std::max(0.0f, cosine_sim);
+    trust_scores.push_back(trust_score);
 
-      torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
-      normalized_updates.push_back(normalized_update);
-      // {
-      //   std::ostringstream oss;
-      //   oss << "  ClientUpdate:\n";
-      //   oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 3)) << " ";
-      //   oss << "  \nServerUpdate:\n";
-      //   oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 3)) << " ";
-      //   Logger::instance().log(oss.str());
-      // }
-      // Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) + "\n");
-      // Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
-      // Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
-      // Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
-      // Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
-      // Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
+    torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
+    normalized_updates.push_back(normalized_update);
+    // {
+    //   std::ostringstream oss;
+    //   oss << "  ClientUpdate:\n";
+    //   oss << "    " << flat_client_update.slice(0, 0,
+    //   std::min<size_t>(flat_client_update.numel(), 3)) << " "; oss << "  \nServerUpdate:\n"; oss
+    //   << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 3)) << " ";
+    //   Logger::instance().log(oss.str());
+    // }
+    // Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) +
+    // "\n"); Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
+    // Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
+    // Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
+    // Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
+    // Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0,
+    // std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
-  //Logger::instance().log("================================\n");
-
+  // Logger::instance().log("================================\n");
 
   {
     std::ostringstream oss;
     oss << "\nTRUST SCORES:\n";
-    for(int i = 0; i < trust_scores.size(); i++) {
+    for (int i = 0; i < trust_scores.size(); i++) {
       if (i % 1 == 0) {
         oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
       }
     }
     Logger::instance().log(oss.str());
   }
-  
+
   // Normalize trust scores
   float sum_trust = 0.0f;
   for (float score : trust_scores) {
-      sum_trust += score;
+    sum_trust += score;
   }
-  
+
   torch::Tensor aggregated_update = torch::zeros_like(server_update);
   if (sum_trust > 0) {
-      for (int i = 0; i < trust_scores.size(); i++) {
-        aggregated_update += trust_scores[i] * normalized_updates[i];
-      }
+    for (int i = 0; i < trust_scores.size(); i++) {
+      aggregated_update += trust_scores[i] * normalized_updates[i];
+    }
 
-      aggregated_update /= sum_trust;
+    aggregated_update /= sum_trust;
   }
 
   // Print the aggregated update
   {
     std::ostringstream oss;
     oss << "\nAggregated update:\n";
-    oss << "  " << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() << "\n";
+    oss << "  "
+        << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString()
+        << "\n";
     Logger::instance().log(oss.str());
   }
 
   // If all trust scores are 0, just return the zero tensor
   return aggregated_update;
 }
-
-

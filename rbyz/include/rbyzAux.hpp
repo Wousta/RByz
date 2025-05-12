@@ -2,14 +2,15 @@
 
 #include "../include/rdmaOps.hpp"
 #include "../include/logger.hpp"
+#include "../include/mnistTrain.hpp"
 #include "../include/globalConstants.hpp"
 #include <atomic>
 #include <vector>
 #include <thread>
 #include <float.h>
 
-// Forward declaration of ClientData struct (since it's defined in srvr.cpp)
-struct ClientData {
+// Used by the server to reference the registered data of each client
+struct ClientDataRbyz {
     int clnt_index;
     float trust_score;
     float* updates;
@@ -33,7 +34,18 @@ void readClntsRByz(
     std::vector<std::atomic<int>>& clnt_CAS);
 
 void updateTS(
-    std::vector<ClientData>& clnt_data_vec,
-    ClientData& clnt_data, 
+    std::vector<ClientDataRbyz>& clnt_data_vec,
+    ClientDataRbyz& clnt_data, 
     float srvr_loss, 
     float srvr_error_rate);
+
+void writeErrorAndLoss(
+  MnistTrain& mnist,
+  float* clnt_w);
+
+void runRByzClient(
+    std::vector<torch::Tensor>& w,
+    std::atomic<int>& clnt_CAS,
+    MnistTrain& mnist,
+    float* clnt_w,
+    float* loss_and_err);
