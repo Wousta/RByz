@@ -1,13 +1,14 @@
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
 cmake_minimum_required(VERSION 3.16.3)
+
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-9" CACHE STRING "C++ compiler path")
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc" CACHE STRING "CUDA compiler path")
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-9")
 
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -DTORCH_USE_CUDA_DSA")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
 
 project(RByz LANGUAGES CXX CUDA)
 include(${CMAKE_BINARY_DIR}/conan_toolchain.cmake)
@@ -32,6 +33,11 @@ add_library(libnorm SHARED IMPORTED)
 set_target_properties(libnorm PROPERTIES
   IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   IMPORTED_NO_SONAME TRUE)
+
+add_library(torch_interface INTERFACE)
+target_include_directories(torch_interface INTERFACE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(torch_interface INTERFACE ${TORCH_LIBRARIES})
+
 add_library(subsetSampler INTERFACE)
 add_library(registeredMNIST INTERFACE)
 add_library(mnistTrain STATIC src/mnistTrain.cpp)
@@ -48,16 +54,11 @@ target_compile_options(attacks PRIVATE -g)
 
 target_include_directories(mnistTrain PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
-  ${TORCH_INCLUDE_DIRS}
 )
 
-target_include_directories(subsetSampler INTERFACE 
-  ${TORCH_INCLUDE_DIRS}
-)
+target_include_directories(subsetSampler INTERFACE)
 
-target_include_directories(registeredMNIST INTERFACE 
-  ${TORCH_INCLUDE_DIRS}
-)
+target_include_directories(registeredMNIST INTERFACE)
 
 target_include_directories(rdmaOps PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
@@ -65,22 +66,19 @@ target_include_directories(rdmaOps PUBLIC
 
 target_include_directories(tensorOps PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
-  ${TORCH_INCLUDE_DIRS}
 )
 
 target_include_directories(attacks PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
-  ${TORCH_INCLUDE_DIRS}
 )
 
 target_include_directories(rbyzAux PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
-  ${TORCH_INCLUDE_DIRS}
 )
 
 target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
-target_include_directories(srvr PUBLIC ${TORCH_INCLUDE_DIRS})
+target_include_directories(srvr PUBLIC)
 
 target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
 target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.hpp)
@@ -92,27 +90,27 @@ target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/pch.h
 target_link_libraries(rdmaOps PUBLIC libnorm)
 
 target_link_libraries(mnistTrain PUBLIC 
-  ${TORCH_LIBRARIES}
+  torch_interface
   registeredMNIST
   subsetSampler
 )
 
 target_link_libraries(attacks PUBLIC 
-  ${TORCH_LIBRARIES}
+  torch_interface
   mnistTrain
 )
 
 target_link_libraries(rbyzAux PUBLIC 
-  ${TORCH_LIBRARIES}
+  torch_interface
   rdmaOps
 )
 
-target_link_libraries(tensorOps PUBLIC ${TORCH_LIBRARIES})
+target_link_libraries(tensorOps PUBLIC torch_interface)
 
 target_link_libraries(srvr PUBLIC  
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
-  ${TORCH_LIBRARIES}
+  torch_interface
   mnistTrain  
   rdmaOps
   tensorOps
@@ -125,8 +123,9 @@ target_link_libraries(clnt PUBLIC
   rdmaOps
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
-  ${TORCH_LIBRARIES}
+  torch_interface
   mnistTrain
   tensorOps
+  rbyzAux
   Threads::Threads
 )
