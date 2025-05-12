@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Configuration
-srvr_ip=192.168.128.101
+srvr_ip=192.168.128.103
 port=2000
-n_clients=10
+n_clients=5
 remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
