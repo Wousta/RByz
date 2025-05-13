@@ -1,7 +1,8 @@
 #pragma once
 
 #include "rdmaOps.hpp"
-#include "datasetLogic/mnistTrain.hpp"
+#include "datasetLogic/baseMnistTrain.hpp"
+#include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/logger.hpp"
 #include "global/globalConstants.hpp"
 #include <atomic>
@@ -40,12 +41,12 @@ void updateTS(
     float srvr_error_rate);
 
 void writeErrorAndLoss(
-  MnistTrain& mnist,
+  BaseMnistTrain& mnist,
   float* clnt_w);
 
 void runRByzClient(
     std::vector<torch::Tensor>& w,
     std::atomic<int>& clnt_CAS,
-    MnistTrain& mnist,
+    RegisteredMnistTrain& mnist,
     float* clnt_w,
     float* loss_and_err);

@@ -1,11 +1,8 @@
 #pragma once
 
 #include "subsetSampler.hpp"
-#include "registeredMNIST.hpp"
 #include "global/globalConstants.hpp"
-
 #include <vector>
-
 
 struct Net : torch::nn::Module {
   Net()
@@ -38,8 +35,8 @@ struct Net : torch::nn::Module {
   torch::nn::Linear fc2;
 };
 
-class MnistTrain {
-private:
+class BaseMnistTrain {
+protected:
   const char* kDataRoot = "./data";
   const int worker_id;
   const int num_workers;
@@ -56,53 +53,17 @@ private:
   torch::Tensor output;
   float loss;
   float error_rate;
-  
+
   using DatasetType = decltype(
     torch::data::datasets::MNIST(kDataRoot)
     .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
     .map(torch::data::transforms::Stack<>())
   );
 
-  using SubsetSamplerType = SubsetSampler;
-
-  // Define the DataLoader type with sampler (for train_loader)
-  using TrainDataLoaderType = torch::data::StatelessDataLoader<DatasetType, SubsetSamplerType>;
-  
-  // Define the DataLoader type without sampler (for test_loader)
+  // Testing is done the same both registered and regular
   using TestDataLoaderType = torch::data::StatelessDataLoader<DatasetType, torch::data::samplers::RandomSampler>;
-
-  DatasetType train_dataset;
   DatasetType test_dataset;
-  std::unique_ptr<TrainDataLoaderType> train_loader;
   std::unique_ptr<TestDataLoaderType> test_loader;
-
-  // Memory registered dataset
-  float* registered_images; 
-  int64_t* registered_labels;
-  size_t registered_samples; // Number of registered samples
-  std::unique_ptr<RegisteredMNIST> registered_dataset;
-  std::unique_ptr<torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSamplerType>> registered_loader;
-
-  torch::Device init_device();
-  SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
-  std::vector<size_t> get_stratified_indices(
-    DatasetType& dataset,
-    int worker_id,
-    int num_workers,
-    size_t subset_size);
-
-public:
-  MnistTrain(int worker_id, int num_workers, int64_t subset_size);
-  ~MnistTrain() = default;
-
-  template <typename DataLoader>
-  void train(
-      size_t epoch,
-      Net& model,
-      torch::Device device,
-      DataLoader& data_loader,
-      torch::optim::Optimizer& optimizer,
-      size_t dataset_size);
 
   template <typename DataLoader>
   void test(
@@ -111,24 +72,28 @@ public:
       DataLoader& data_loader,
       size_t dataset_size);
 
-  std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w, bool registered_mode = false);
-  std::vector<torch::Tensor> getInitialWeights();
-  void testModel();
-  void runInference();
+  torch::Device init_device();
+  virtual SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
+
+public:
+  BaseMnistTrain(int worker_id, int num_workers, int64_t subset_size);
+  virtual ~BaseMnistTrain() = default;
+
+  // Common interface methods
+  virtual std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w) = 0;
+  virtual void runInference() = 0;
+  
+  virtual std::vector<torch::Tensor> getInitialWeights();
+  void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
+  std::vector<torch::Tensor> loadModelState(const std::string& filename);
+  void copyModelParameters(const Net& source_model);
+
+  void testModel() {
+    test(model, device, *test_loader, test_dataset_size);
+  }
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
   torch::Tensor getOutput() { return output; }
-  void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
-  std::vector<torch::Tensor> loadModelState(const std::string& filename);
   float getLoss() { return loss; }
   float getErrorRate() { return error_rate; }
-
-  // Methods for registered dataset
-  void prepareRegisteredDataset();
-  float* getRegisteredImages() { return registered_images; }
-  int64_t* getRegisteredLabels() { return registered_labels; }
-  size_t getRegisteredSamplesCount() { return registered_samples; }
-
-  // Use this method in place of runMnistTrain to run training in registered memory
-  void registeredTrain(size_t epoch, Net& model, torch::Device device, torch::optim::Optimizer& optimizer, size_t dataset_size);    
 };

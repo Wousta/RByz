@@ -47,7 +47,9 @@ target_link_libraries(torch_interface INTERFACE ${TORCH_LIBRARIES})
 
 add_library(subsetSampler INTERFACE)
 add_library(registeredMNIST INTERFACE)
-add_library(mnistTrain STATIC src/datasetLogic/mnistTrain.cpp)
+add_library(baseMnistTrain STATIC src/datasetLogic/baseMnistTrain.cpp)
+add_library(regularMnistTrain STATIC src/datasetLogic/regularMnistTrain.cpp)
+add_library(registeredMnistTrain STATIC src/datasetLogic/registeredMnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
 add_library(tensorOps STATIC src/tensorOps.cpp)
 add_library(attacks STATIC src/attacks.cpp)
@@ -59,7 +61,15 @@ target_compile_options(srvr PRIVATE -g)
 target_compile_options(clnt PRIVATE -g)
 target_compile_options(attacks PRIVATE -g)
 
-target_include_directories(mnistTrain PUBLIC 
+target_include_directories(baseMnistTrain PUBLIC 
+  ${CMAKE_CURRENT_SOURCE_DIR}/include 
+)
+
+target_include_directories(regularMnistTrain PUBLIC 
+  ${CMAKE_CURRENT_SOURCE_DIR}/include 
+)
+
+target_include_directories(registeredMnistTrain PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
 )
 
@@ -87,7 +97,9 @@ target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC)
 
-target_precompile_headers(mnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(baseMnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(regularMnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
+target_precompile_headers(registeredMnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
 target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
 target_precompile_headers(attacks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
 target_precompile_headers(rbyzAux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
@@ -96,7 +108,19 @@ target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/globa
 
 target_link_libraries(rdmaOps PUBLIC libnorm)
 
-target_link_libraries(mnistTrain PUBLIC 
+target_link_libraries(baseMnistTrain PUBLIC 
+  torch_interface
+  registeredMNIST
+  subsetSampler
+)
+
+target_link_libraries(regularMnistTrain PUBLIC 
+  torch_interface
+  registeredMNIST
+  subsetSampler
+)
+
+target_link_libraries(registeredMnistTrain PUBLIC 
   torch_interface
   registeredMNIST
   subsetSampler
@@ -104,7 +128,7 @@ target_link_libraries(mnistTrain PUBLIC
 
 target_link_libraries(attacks PUBLIC 
   torch_interface
-  mnistTrain
+  baseMnistTrain
 )
 
 target_link_libraries(rbyzAux PUBLIC 
@@ -118,7 +142,9 @@ target_link_libraries(srvr PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   torch_interface
-  mnistTrain  
+  baseMnistTrain
+  regularMnistTrain
+  registeredMnistTrain  
   rdmaOps
   tensorOps
   attacks
@@ -131,7 +157,9 @@ target_link_libraries(clnt PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   torch_interface
-  mnistTrain
+  baseMnistTrain
+  regularMnistTrain
+  registeredMnistTrain
   tensorOps
   rbyzAux
   Threads::Threads

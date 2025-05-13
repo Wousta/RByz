@@ -1,5 +1,5 @@
 #include "rbyzAux.hpp"
-#include "datasetLogic/mnistTrain.hpp"
+#include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "global/logger.hpp"
 #include "tensorOps.hpp"
@@ -72,7 +72,7 @@ void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   clnt_data.trust_score = (loss_Calc + err_Calc) / 2;
 }
 
-void writeErrorAndLoss(MnistTrain& mnist, float* loss_and_err) {
+void writeErrorAndLoss(BaseMnistTrain& mnist, float* loss_and_err) {
   float loss_val = mnist.getLoss();
   float error_rate_val = mnist.getErrorRate();
   std::memcpy(loss_and_err, &loss_val, sizeof(float));
@@ -81,7 +81,7 @@ void writeErrorAndLoss(MnistTrain& mnist, float* loss_and_err) {
 
 void runRByzClient(std::vector<torch::Tensor> &w,
                    std::atomic<int> &clnt_CAS,
-                   MnistTrain &mnist,
+                   RegisteredMnistTrain &mnist,
                    float *clnt_w,
                    float* loss_and_err) {
   // Before rbyz, the client has to write error and loss for the first time
@@ -94,7 +94,7 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   Logger::instance().log("=============================================\n");
 
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
-    w = mnist.runMnistTrain(round, w, true);
+    w = mnist.runMnistTrain(round, w);
 
     // Store the updated weights in clnt_w
     torch::Tensor all_tensors = flatten_tensor_vector(w);

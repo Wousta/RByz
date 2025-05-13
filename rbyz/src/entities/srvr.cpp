@@ -19,7 +19,9 @@
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
 #include "global/logger.hpp"
-#include "datasetLogic/mnistTrain.hpp"
+#include "datasetLogic/registeredMnistTrain.hpp"
+#include "datasetLogic/regularMnistTrain.hpp"
+#include "datasetLogic/baseMnistTrain.hpp"
 #include "rbyzAux.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
@@ -58,7 +60,7 @@ void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<std::atomic<int
 
 std::vector<torch::Tensor> run_fltrust_srvr(int n_clients,
                                             int rounds,
-                                            MnistTrain &mnist,
+                                            BaseMnistTrain &mnist,
                                             RegMemSrvr &regMem,
                                             std::vector<ClientDataRbyz> &clntsData);
 
@@ -142,10 +144,11 @@ int main(int argc, char *argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
-  MnistTrain mnist(0, n_clients + 1, SRVR_SUBSET_SIZE);
+  std::unique_ptr<BaseMnistTrain> regular_mnist = 
+      std::make_unique<RegularMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
   if (load_model) {
-    w = mnist.loadModelState(model_file);
+    w = regular_mnist->loadModelState(model_file);
     if (w.empty()) {
       Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
       std::cout << "Failed to load model state from file: " << model_file << "\n";
@@ -156,7 +159,7 @@ int main(int argc, char *argv[]) {
 
       // Do one iteration of fltrust with ALL clients to initialize trust scores
       std::cout << "SRVR Running FLTrust with loaded model\n";
-      w = run_fltrust_srvr(1, n_clients, mnist, regMem, clnt_data_vec);
+      w = run_fltrust_srvr(1, n_clients, *regular_mnist, regMem, clnt_data_vec);
       std::cout << "\nSRVR FLTrust with loaded model done\n";
       Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
@@ -165,9 +168,9 @@ int main(int argc, char *argv[]) {
   if (!load_model) {
     std::cout << "SRVR Running FLTrust, load model set FALSE\n";
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, mnist, regMem, clnt_data_vec);
+    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *regular_mnist, regMem, clnt_data_vec);
 
-    // mnist.saveModelState(w, model_file);
+    // regular_mnist.saveModelState(w, model_file);
   }
 
   // Global rounds of RByz
@@ -175,7 +178,10 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
-  mnist.runMnistTrain(0, w);
+  std::unique_ptr<BaseMnistTrain> registered_mnist =
+      std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
+  registered_mnist->copyModelParameters(regular_mnist->getModel());
+  registered_mnist->runMnistTrain(0, w);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     // Read the error and loss from the clients
     readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
@@ -191,8 +197,8 @@ int main(int argc, char *argv[]) {
 
         if (i != 1) {
           // Run inference on server model to update its VD loss and error and then update TS
-          mnist.runInference();
-          updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
+          registered_mnist->runInference();
+          updateTS(clnt_data_vec, clnt_data_vec[j], registered_mnist->getLoss(), registered_mnist->getErrorRate());
         }
 
         // Byz detection
@@ -211,7 +217,7 @@ int main(int argc, char *argv[]) {
     Logger::instance().log(oss.str());
   }
 
-  mnist.testModel();
+  registered_mnist->testModel();
 
   for (RcConn conn : conns) {
     conn.disconnect();
@@ -230,7 +236,7 @@ int main(int argc, char *argv[]) {
 
 std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
                                             int n_clients,
-                                            MnistTrain &mnist,
+                                            BaseMnistTrain &mnist,
                                             RegMemSrvr &regMem,
                                             std::vector<ClientDataRbyz> &clntsData) {
   std::vector<torch::Tensor> w = mnist.getInitialWeights();
@@ -251,7 +257,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     regMem.srvr_ready_flag = round;
 
     // Run local training
-    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w, true);
+    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     // Keep updated values to follow FLtrust logic
     for (size_t i = 0; i < g.size(); ++i) {

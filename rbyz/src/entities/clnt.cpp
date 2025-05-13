@@ -3,7 +3,9 @@
 #include "util.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
-#include "datasetLogic/mnistTrain.hpp"
+#include "datasetLogic/baseMnistTrain.hpp"
+#include "datasetLogic/regularMnistTrain.hpp"
+#include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "global/logger.hpp"
 #include "rbyzAux.hpp"
@@ -20,7 +22,7 @@ using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 std::vector<torch::Tensor> run_fltrust_clnt(
   int rounds,
   RdmaOps& rdma_ops,
-  MnistTrain& mnist,
+  BaseMnistTrain& mnist,
   int& srvr_ready_flag,
   int& clnt_ready_flag,
   float* srvr_w,
@@ -95,10 +97,11 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
-  MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
+  std::unique_ptr<BaseMnistTrain> regular_mnist =
+    std::make_unique<RegularMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
   if (load_model) {
-    w = mnist.loadModelState(model_file);
+    w = regular_mnist->loadModelState(model_file);
     if (w.empty()) {
       Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
       load_model = false;
@@ -111,7 +114,7 @@ int main(int argc, char* argv[]) {
       w = run_fltrust_clnt(
         1,
         rdma_ops,
-        mnist,
+        *regular_mnist,
         srvr_ready_flag,
         clnt_ready_flag,
         srvr_w,
@@ -125,18 +128,20 @@ int main(int argc, char* argv[]) {
     w = run_fltrust_clnt(
       GLOBAL_ITERS,
       rdma_ops,
-      mnist,
+      *regular_mnist,
       srvr_ready_flag,
       clnt_ready_flag,
       srvr_w,
       clnt_w
     );
 
-    //mnist.saveModelState(w, model_file);
   }
 
   // Run the RByz client
-  runRByzClient(w, clnt_CAS, mnist, clnt_w, loss_and_err);
+  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
+    std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
+  registered_mnist->copyModelParameters(regular_mnist->getModel());
+  runRByzClient(w, clnt_CAS, *registered_mnist, clnt_w, loss_and_err);
 
   Logger::instance().log("Client: Final weights\n");
   printTensorSlices(w, 0, 5);
@@ -156,7 +161,7 @@ int main(int argc, char* argv[]) {
 std::vector<torch::Tensor> run_fltrust_clnt(
   int rounds,
   RdmaOps& rdma_ops,
-  MnistTrain& mnist,
+  BaseMnistTrain& mnist,
   int& srvr_ready_flag,
   int& clnt_ready_flag,
   float* srvr_w,
