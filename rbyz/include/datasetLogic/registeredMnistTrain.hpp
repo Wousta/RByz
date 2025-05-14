@@ -6,11 +6,15 @@
 
 class RegisteredMnistTrain : public BaseMnistTrain {
 private:  
-  // Registered memory dataset components
+  // Memory layout:
+  // For each image i:
+  // - Pixels: registered_images[i * data_size] to registered_images[i * data_size + 783]
+  // - Original index: reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784])
   float* registered_images; 
   int64_t* registered_labels;
   size_t registered_samples; 
   std::unique_ptr<RegisteredMNIST> registered_dataset;
+  const size_t data_size = 785; // 784 pixels + 1 index
   
   using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> registered_loader;
@@ -33,4 +37,18 @@ public:
   float* getRegisteredImages() { return registered_images; }
   int64_t* getRegisteredLabels() { return registered_labels; }
   size_t getRegisteredSamplesCount() { return registered_samples; }
+  
+  float* getImagePixels(size_t image_idx) {
+    return registered_images + (image_idx * data_size);
+  }
+
+  uint32_t getOriginalIndex(size_t image_idx) {
+      uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[image_idx * data_size + 784]);
+      return *index_ptr;
+  }
+
+  void setOriginalIndex(size_t image_idx, uint32_t original_idx) {
+      uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[image_idx * data_size + 784]);
+      *index_ptr = original_idx;
+  }
 };

@@ -178,7 +178,7 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
-  std::unique_ptr<BaseMnistTrain> registered_mnist =
+  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
       std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
   registered_mnist->copyModelParameters(regular_mnist->getModel());
   registered_mnist->runMnistTrain(0, w);

@@ -25,7 +25,7 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   registered_samples = indices.size();
 
   // 28x28 = 784 is the size of an image in MNIST dataset
-  size_t image_memory_size = registered_samples * 784 * sizeof(float);
+  size_t image_memory_size = registered_samples * data_size * sizeof(float);
   size_t label_memory_size = registered_samples * sizeof(int64_t);
 
   registered_images = reinterpret_cast<float*>(malloc(image_memory_size));
@@ -45,23 +45,25 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
     // Flatten the image tensor and copy it to the registered memory
     auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
     std::memcpy(
-        registered_images + (i * 784), reshaped_image.data_ptr<float>(), 784 * sizeof(float));
+        registered_images + (i * data_size), reshaped_image.data_ptr<float>(), 784 * sizeof(float));
+
+    // Store original_idx in the last position, for rbyz to identify server VD images
+    uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784]);
+    *index_ptr = static_cast<uint32_t>(original_idx);
 
     // Copy the label
     registered_labels[i] = example.target.item<int64_t>();
-
-    // Validate the label
     if (registered_labels[i] < 0 || registered_labels[i] >= 10) {
       throw std::runtime_error("Invalid label: " + std::to_string(registered_labels[i]));
     }
 
-    // Map original index to registered index
+    // Map original index to registered index for retrieval
     index_map[original_idx] = i;
     ++i;
   }
 
   registered_dataset = std::make_unique<RegisteredMNIST>(
-      registered_images, registered_labels, registered_samples, index_map, 784, false);
+      registered_images, registered_labels, registered_samples, index_map, data_size, false);
 
   auto loader_temp =
       torch::data::make_data_loader(*registered_dataset,
@@ -85,17 +87,25 @@ void RegisteredMnistTrain::train(size_t epoch,
                             torch::optim::Optimizer& optimizer, 
                             size_t dataset_size) {
 
-    model.train();
+  Logger::instance().log("Training model for epoch " + std::to_string(epoch) + "\n");
+  model.train();
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
+  uint32_t img_idx = 0;
 
   for (const auto& batch : *registered_loader) {
     // Combine all data and targets in the batch into single tensors
     std::vector<torch::Tensor> data_vec, target_vec;
+    std::vector<uint32_t> original_indices_vec;
+    data_vec.reserve(batch.size());
+    target_vec.reserve(batch.size());
+    original_indices_vec.reserve(batch.size());
     for (const auto& example : batch) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
+      original_indices_vec.push_back(getOriginalIndex(img_idx));
+      ++img_idx;
     }
 
     // Stack the tensors to create a single batch tensor
@@ -233,7 +243,12 @@ void RegisteredMnistTrain::runInference() {
   size_t total = 0;
   double total_loss = 0.0;
 
+  // Log only the first batch for clarity
+  bool first_batch = true;
+  int batch_count = 0;
+
   for (const auto& batch : *registered_loader) {
+    batch_count++;
     // Combine all data and targets in the batch into single tensors
     std::vector<torch::Tensor> data_vec, target_vec;
     for (const auto& example : batch) {
@@ -270,7 +285,67 @@ void RegisteredMnistTrain::runInference() {
       targets = targets_cpu;
     }
 
+    if (first_batch) {
+      // Log input shape information
+      Logger::instance().log("Input batch shape: [" + 
+                          std::to_string(data.size(0)) + ", " + 
+                          std::to_string(data.size(1)) + ", " + 
+                          std::to_string(data.size(2)) + ", " + 
+                          std::to_string(data.size(3)) + "]\n");
+      
+      // Log a sample of the first few input values (copy to CPU if needed)
+      auto data_for_logging = device.is_cuda() ? data.to(torch::kCPU) : data;
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(4);
+      oss << "First image first 10 pixels: ";
+      for (int i = 0; i < std::min(10, static_cast<int>(data_for_logging[0][0][0].numel())); ++i) {
+        oss << data_for_logging[0][0][0][i].item<float>() << " ";
+      }
+      Logger::instance().log(oss.str() + "\n");
+      
+      // Log target values
+      auto targets_for_logging = device.is_cuda() ? targets.to(torch::kCPU) : targets;
+      std::ostringstream target_oss;
+      target_oss << "Target labels (first 5): ";
+      for (int i = 0; i < std::min(5, static_cast<int>(targets_for_logging.size(0))); ++i) {
+        target_oss << targets_for_logging[i].item<int64_t>() << " ";
+      }
+      Logger::instance().log(target_oss.str() + "\n");
+    }
+    
+    // Run forward pass
     output = model.forward(data);
+    
+    if (first_batch) {
+      // Log output shape information
+      Logger::instance().log("Output batch shape: [" + 
+                          std::to_string(output.size(0)) + ", " + 
+                          std::to_string(output.size(1)) + "]\n");
+      
+      // Log a sample of the output logits
+      auto output_for_logging = device.is_cuda() ? output.to(torch::kCPU) : output;
+      std::ostringstream output_oss;
+      output_oss << std::fixed << std::setprecision(4);
+      output_oss << "First sample output logits: ";
+      for (int i = 0; i < output_for_logging.size(1); ++i) {
+        output_oss << output_for_logging[0][i].item<float>() << " ";
+      }
+      Logger::instance().log(output_oss.str() + "\n");
+      
+      // Log predictions vs targets
+      auto pred = output.argmax(1);
+      auto pred_for_logging = device.is_cuda() ? pred.to(torch::kCPU) : pred;
+      auto targets_for_logging = device.is_cuda() ? targets.to(torch::kCPU) : targets;
+      std::ostringstream pred_oss;
+      pred_oss << "First 5 predictions vs targets: ";
+      for (int i = 0; i < std::min(5, static_cast<int>(pred_for_logging.size(0))); ++i) {
+        pred_oss << "pred=" << pred_for_logging[i].item<int64_t>() 
+                << " (target=" << targets_for_logging[i].item<int64_t>() << ") ";
+      }
+      Logger::instance().log(pred_oss.str() + "\n");
+      
+      first_batch = false;
+    }
 
     auto nll_loss = torch::nll_loss(output, targets);
     total_loss += nll_loss.template item<float>() * targets.size(0);
@@ -284,4 +359,10 @@ void RegisteredMnistTrain::runInference() {
 
   loss = total_loss / total;
   error_rate = 1.0 - (static_cast<float>(correct) / total);
+
+  Logger::instance().log("Inference completed on " + std::to_string(batch_count) + 
+                      " batches, " + std::to_string(total) + " samples\n");
+  Logger::instance().log("Final loss: " + std::to_string(loss) + 
+                      ", Error rate: " + std::to_string(error_rate) + 
+                      ", Accuracy: " + std::to_string(1.0 - error_rate) + "\n");
 }

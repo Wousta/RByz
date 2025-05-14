@@ -84,14 +84,14 @@ void runRByzClient(std::vector<torch::Tensor> &w,
                    RegisteredMnistTrain &mnist,
                    float *clnt_w,
                    float* loss_and_err) {
+  Logger::instance().log("\n\n=============================================\n");
+  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
+  Logger::instance().log("=============================================\n");
+
   // Before rbyz, the client has to write error and loss for the first time
   writeErrorAndLoss(mnist, clnt_w);
   Logger::instance().log("Client: Initial loss and error values\n");
   clnt_CAS.store(MEM_FREE);
-
-  Logger::instance().log("\n\n=============================================\n");
-  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
-  Logger::instance().log("=============================================\n");
 
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     w = mnist.runMnistTrain(round, w);
