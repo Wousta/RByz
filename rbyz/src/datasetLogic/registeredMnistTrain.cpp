@@ -88,6 +88,8 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
 RegisteredMnistTrain::~RegisteredMnistTrain() {
   free(registered_images);
   free(registered_labels);
+  free(forward_pass);
+  free(forward_pass_indices);
   Logger::instance().log("Freed registered memory for dataset\n");
 }
 
@@ -103,7 +105,7 @@ void RegisteredMnistTrain::train(size_t epoch,
   int32_t correct = 0;
   size_t total = 0;
   uint32_t img_idx = 0;
-  std::vector<uint32_t> original_indices_vec;
+  size_t start_pos_output = 0;
 
   for (const auto& batch : *registered_loader) {
     // Combine all data and targets in the batch into single tensors
@@ -113,7 +115,10 @@ void RegisteredMnistTrain::train(size_t epoch,
     for (const auto& example : batch) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
-      original_indices_vec.push_back(getOriginalIndex(img_idx));
+      uint32_t original_idx = getOriginalIndex(img_idx);
+
+      // Copy the data to registered memory
+      forward_pass_indices[img_idx] = original_idx;
       ++img_idx;
     }
 
@@ -148,10 +153,13 @@ void RegisteredMnistTrain::train(size_t epoch,
 
     optimizer.zero_grad();
     auto output = model.forward(data);
+    size_t output_elements = output.numel();
 
-    // TODO: Write the ouput and indices for server VD verification
-    // Question, should we write full output or just argmax (actual prediction)?
-    float* output_ptr = output.data_ptr<float>();
+    // Copy the output to registered memory
+    std::memcpy(forward_pass + start_pos_output, 
+                output.data_ptr<float>(),
+                output_elements * sizeof(float));
+    start_pos_output += output_elements;
 
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
