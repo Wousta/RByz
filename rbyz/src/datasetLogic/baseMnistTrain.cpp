@@ -54,8 +54,8 @@ std::vector<torch::Tensor> BaseMnistTrain::getInitialWeights() {
 }
 
 SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id,
-                                                    size_t dataset_size,
-                                                    int64_t subset_size) {
+                                                size_t dataset_size,
+                                                int64_t subset_size) {
   auto dataset = torch::data::datasets::MNIST(kDataRoot).
       map(torch::data::transforms::Normalize<>(0.1307, 0.3081)).
       map(torch::data::transforms::Stack<>());
@@ -181,6 +181,19 @@ void BaseMnistTrain::copyModelParameters(const Net& source_model) {
     } else {
         throw std::runtime_error("Model parameter count mismatch during parameter copy");
     }
+}
+
+std::vector<size_t> BaseMnistTrain::getClientsSamplesCount() {
+  Logger::instance().log("Getting samples count for each client\n");
+  std::vector<size_t> samples_count(num_workers, 0);
+  for (size_t i = 1; i < num_workers; ++i) {
+    SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, CLNT_SUBSET_SIZE);
+    size_t count = train_sampler.indices().size();
+    samples_count[i] = count;
+    Logger::instance().log("  Worker " + std::to_string(i) + " has " +
+                            std::to_string(count) + " samples\n");
+  }
+  return samples_count;
 }
 
 // Explicit template instantiation

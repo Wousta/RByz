@@ -28,6 +28,10 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+/**
+ * @brief Struct to hold the server's registered memory for FLtrust.
+ * The server registers memory for each client and the server itself.
+ */
 struct RegMemSrvr {
 private:
   int n_clients;
@@ -38,14 +42,12 @@ public:
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   std::vector<float *> clnt_loss_and_err;
-  std::vector<std::atomic<int>> clnt_CAS;
 
   RegMemSrvr(int n_clients)
       : n_clients(n_clients),
         clnt_ready_flags(n_clients, 0),
         clnt_ws(n_clients),
-        clnt_loss_and_err(n_clients),
-        clnt_CAS(n_clients) {}
+        clnt_loss_and_err(n_clients) {}
 
   ~RegMemSrvr() {
     free(srvr_w);
@@ -99,24 +101,58 @@ int main(int argc, char *argv[]) {
   std::cout << "Server: srvr_ip = " << srvr_ip << "\n";
   std::cout << "Server: port = " << port << "\n";
 
+  // Objects for training fltrust and rbyz
+  std::unique_ptr<BaseMnistTrain> regular_mnist = 
+    std::make_unique<RegularMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
+  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
+    std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
+
+  // Data structures for connection and data registration
   std::vector<RegInfo> reg_info(n_clients);
   std::vector<RcConn> conns(n_clients);
   std::vector<comm_info> conn_data;
-  std::vector<LocalInfo> loc_info(n_clients);
 
-  // Data structures for server and clients
+  // Data structures for server and clients registered memory
   RegMemSrvr regMem(n_clients);
   std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
 
   // Point clnt_ws buffer parts to the right place
+  size_t data_size = registered_mnist->getDataSize();
+  std::vector<size_t> clnts_samples_count = registered_mnist->getClientsSamplesCount();
   for (int i = 0; i < n_clients; i++) {
     regMem.clnt_ws[i] = reinterpret_cast<float *>(malloc(REG_SZ_DATA));
     regMem.clnt_loss_and_err[i] = reinterpret_cast<float *>(malloc(MIN_SZ));
 
+    ////////////// RBYZ data registration //////////////
     clnt_data_vec[i].clnt_index = i;
+
+    // Shared memory locations with FLtrust
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
     clnt_data_vec[i].loss = regMem.clnt_loss_and_err[i];
     clnt_data_vec[i].error_rate = regMem.clnt_loss_and_err[i] + 1;
+
+    // Dataset and forward pass data used
+    size_t registered_samples = clnts_samples_count[i];
+    const size_t values_per_sample = 10; // 10 output values (logits) per sample in MNIST
+    const size_t bytes_per_value = sizeof(float);
+    size_t images_mem_size = registered_samples * data_size * sizeof(float);
+    size_t labels_mem_size = registered_samples * sizeof(int64_t);
+    size_t forward_pass_mem_size = registered_samples * values_per_sample * bytes_per_value;
+    size_t forward_pass_indices_mem_size = registered_samples * sizeof(int32_t);
+    clnt_data_vec[i].images_mem_size = images_mem_size;
+    clnt_data_vec[i].labels_mem_size = labels_mem_size;
+    clnt_data_vec[i].forward_pass_mem_size = forward_pass_mem_size;
+    clnt_data_vec[i].forward_pass_indices_mem_size = forward_pass_indices_mem_size;
+
+    // Allocate memory for the client
+    clnt_data_vec[i].images = reinterpret_cast<float *>(malloc(images_mem_size));
+    clnt_data_vec[i].labels = reinterpret_cast<int64_t *>(malloc(labels_mem_size));
+    clnt_data_vec[i].forward_pass = reinterpret_cast<float *>(malloc(forward_pass_mem_size));
+    clnt_data_vec[i].forward_pass_indices = reinterpret_cast<int32_t *>(malloc(forward_pass_indices_mem_size));
+    if (!clnt_data_vec[i].images || !clnt_data_vec[i].labels ||
+        !clnt_data_vec[i].forward_pass || !clnt_data_vec[i].forward_pass_indices) {
+      throw std::runtime_error("Failed to allocate memory for client dataset");
+    }
   }
 
   // memory registration
@@ -126,7 +162,11 @@ int main(int argc, char *argv[]) {
     reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
-    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_CAS[i]));
+    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].images));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].labels));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
@@ -134,6 +174,10 @@ int main(int argc, char *argv[]) {
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].images_mem_size);
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].labels_mem_size);
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
                               IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -144,8 +188,6 @@ int main(int argc, char *argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
-  std::unique_ptr<BaseMnistTrain> regular_mnist = 
-      std::make_unique<RegularMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
   if (load_model) {
     w = regular_mnist->loadModelState(model_file);
@@ -160,13 +202,11 @@ int main(int argc, char *argv[]) {
       // Do one iteration of fltrust with ALL clients to initialize trust scores
       std::cout << "SRVR Running FLTrust with loaded model\n";
       w = run_fltrust_srvr(1, n_clients, *regular_mnist, regMem, clnt_data_vec);
-      std::cout << "\nSRVR FLTrust with loaded model done\n";
       Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
   }
 
   if (!load_model) {
-    std::cout << "SRVR Running FLTrust, load model set FALSE\n";
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
     w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *regular_mnist, regMem, clnt_data_vec);
 
@@ -178,22 +218,20 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
-  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
-      std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
   registered_mnist->copyModelParameters(regular_mnist->getModel());
   registered_mnist->runMnistTrain(0, w);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     // Read the error and loss from the clients
-    readClntsRByz(n_clients, rdma_ops, regMem.clnt_CAS);
+    readClntsRByz(n_clients, rdma_ops, clnt_data_vec);
 
     // For each client run N rounds of RByz
     int n = 15;
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < n_clients; j++) {
         // Read error and loss from client
-        aquireCASLock(j, rdma_ops, regMem.clnt_CAS);
+        aquireCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
         rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
-        releaseCASLock(j, rdma_ops, regMem.clnt_CAS);
+        releaseCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
 
         if (i != 1) {
           // Run inference on server model to update its VD loss and error and then update TS

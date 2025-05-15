@@ -13,26 +13,48 @@
 // Used by the server to reference the registered data of each client
 struct ClientDataRbyz {
     int clnt_index;
+    std::atomic<int> clnt_CAS;
     float trust_score;
     float* updates;
     float* loss;
     float* error_rate;
+
+    // Dataset and forward pass data used
+    size_t images_mem_size;
+    size_t labels_mem_size;
+    size_t forward_pass_mem_size;
+    size_t forward_pass_indices_mem_size;
+    float* images;
+    int64_t* labels;
+    float* forward_pass;
+    int32_t* forward_pass_indices;
+
+    ~ClientDataRbyz() {
+        // Only free memory that was allocated with malloc/new
+        if (updates) free(updates);
+        if (loss) free(loss);
+        if (error_rate) free(error_rate);
+        if (images) free(images);
+        if (labels) free(labels);
+        if (forward_pass) free(forward_pass);
+        if (forward_pass_indices) free(forward_pass_indices);
+    }
 };
 
 void aquireCASLock(
     int clnt_idx, 
     RdmaOps& rdma_ops,
-    std::vector<std::atomic<int>>& clnt_CAS);
+    std::atomic<int> &clnt_CAS);
 
 void releaseCASLock(
     int clnt_idx, 
     RdmaOps& rdma_ops,
-    std::vector<std::atomic<int>>& clnt_CAS);
+    std::atomic<int> &clnt_CAS);
 
 void readClntsRByz(
     int n_clients,
     RdmaOps& rdma_ops,
-    std::vector<std::atomic<int>>& clnt_CAS);
+    std::vector<ClientDataRbyz> &clnt_data_vec);
 
 void updateTS(
     std::vector<ClientDataRbyz>& clnt_data_vec,
@@ -46,7 +68,7 @@ void writeErrorAndLoss(
 
 void runRByzClient(
     std::vector<torch::Tensor>& w,
-    std::atomic<int>& clnt_CAS,
+    std::atomic<int> &clnt_CAS,
     RegisteredMnistTrain& mnist,
     float* clnt_w,
     float* loss_and_err);

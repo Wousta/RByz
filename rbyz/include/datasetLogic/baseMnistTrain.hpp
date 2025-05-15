@@ -87,6 +87,7 @@ public:
   void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
   std::vector<torch::Tensor> loadModelState(const std::string& filename);
   void copyModelParameters(const Net& source_model);
+  std::vector<size_t> getClientsSamplesCount();
 
   void testModel() {
     test(model, device, *test_loader, test_dataset_size);

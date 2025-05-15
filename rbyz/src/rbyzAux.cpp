@@ -6,17 +6,18 @@
 
 #include <algorithm>
 
-void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<std::atomic<int>> &clnt_CAS) {
+void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<ClientDataRbyz> &clnt_data_vec) {
   int clnt_idx = 0;
   while (clnt_idx < n_clients) {
     rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
-
-    if (clnt_CAS[clnt_idx].load() == MEM_OCCUPIED) {
+    
+    std::atomic<int> &clnt_CAS = clnt_data_vec[clnt_idx].clnt_CAS;
+    if (clnt_CAS.load() == MEM_OCCUPIED) {
       std::this_thread::yield();
     } else {
       // Read the data from the client and release client lock
       rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, clnt_idx);
-      clnt_CAS[clnt_idx].store(MEM_FREE);
+      clnt_CAS.store(MEM_FREE);
       rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
       clnt_idx++;
     }
@@ -25,11 +26,11 @@ void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<std::atomic<int
   Logger::instance().log("Server: All clients read\n");
 }
 
-void aquireCASLock(int clnt_idx, RdmaOps &rdma_ops, std::vector<std::atomic<int>> &clnt_CAS) {
+void aquireCASLock(int clnt_idx, RdmaOps &rdma_ops, std::atomic<int> &clnt_CAS) {
   int current = MEM_OCCUPIED;
   while (current == MEM_OCCUPIED) {
     rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
-    current = clnt_CAS[clnt_idx].load();
+    current = clnt_CAS.load();
 
     if (current == MEM_OCCUPIED) {
       std::this_thread::yield();
@@ -37,8 +38,8 @@ void aquireCASLock(int clnt_idx, RdmaOps &rdma_ops, std::vector<std::atomic<int>
   }
 }
 
-void releaseCASLock(int clnt_idx, RdmaOps &rdma_ops, std::vector<std::atomic<int>> &clnt_CAS) {
-  clnt_CAS[clnt_idx].store(MEM_FREE);
+void releaseCASLock(int clnt_idx, RdmaOps &rdma_ops, std::atomic<int> &clnt_CAS) {
+  clnt_CAS.store(MEM_FREE);
   rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
 }
 
@@ -53,7 +54,7 @@ void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   // Find minimum loss and error among all clients
   float min_w_loss = FLT_MAX;
   float min_w_err = FLT_MAX;
-  for (ClientDataRbyz clnt_data : clnt_data_vec) {
+  for (ClientDataRbyz& clnt_data : clnt_data_vec) {
     if (*clnt_data.loss < min_w_loss) {
       min_w_loss = *clnt_data.loss;
     }
@@ -79,6 +80,9 @@ void writeErrorAndLoss(BaseMnistTrain& mnist, float* loss_and_err) {
   std::memcpy(loss_and_err + 1, &error_rate_val, sizeof(float));
 }
 
+/**
+ * @brief Run the RByz client, only the clients call this function.
+ */
 void runRByzClient(std::vector<torch::Tensor> &w,
                    std::atomic<int> &clnt_CAS,
                    RegisteredMnistTrain &mnist,
