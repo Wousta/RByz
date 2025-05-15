@@ -57,7 +57,6 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // addr
   Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
   Logger::instance().log("Client: port = " + port + "\n");
@@ -65,6 +64,11 @@ int main(int argc, char* argv[]) {
   addr_info.port = strdup(port.c_str());
   std::this_thread::sleep_for(std::chrono::milliseconds(id * 700));
 
+  // Objects for training fltrust and rbyz
+  std::unique_ptr<BaseMnistTrain> regular_mnist =
+      std::make_unique<RegularMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
+  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
+    std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
 
   // Data structures for server and this client
   int srvr_ready_flag = 0;
@@ -74,19 +78,30 @@ int main(int argc, char* argv[]) {
   float* loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
   std::atomic<int> clnt_CAS(MEM_OCCUPIED);
 
-  // memory registration
+  // memory registration locations
   reg_info.addr_locs.push_back(castI(&srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(srvr_w));
   reg_info.addr_locs.push_back(castI(&clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(clnt_w));
   reg_info.addr_locs.push_back(castI(loss_and_err));
   reg_info.addr_locs.push_back(castI(&clnt_CAS));
+  reg_info.addr_locs.push_back(castI(registered_mnist->getRegisteredImages()));
+  reg_info.addr_locs.push_back(castI(registered_mnist->getRegisteredLabels()));
+  reg_info.addr_locs.push_back(castI(registered_mnist->getForwardPass()));
+  reg_info.addr_locs.push_back(castI(registered_mnist->getForwardPassIndices()));
+
+  // memory registration sizes
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(registered_mnist->getRegisteredImagesMemSize());
+  reg_info.data_sizes.push_back(registered_mnist->getRegisteredLabelsMemSize());
+  reg_info.data_sizes.push_back(registered_mnist->getForwardPassMemSize());
+  reg_info.data_sizes.push_back(registered_mnist->getForwardPassIndicesMemSize());
+
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 
@@ -97,8 +112,6 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
-  std::unique_ptr<BaseMnistTrain> regular_mnist =
-    std::make_unique<RegularMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w;
   if (load_model) {
     w = regular_mnist->loadModelState(model_file);
@@ -138,8 +151,6 @@ int main(int argc, char* argv[]) {
   }
 
   // Run the RByz client
-  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
-    std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
   registered_mnist->copyModelParameters(regular_mnist->getModel());
   runRByzClient(w, clnt_CAS, *registered_mnist, clnt_w, loss_and_err);
 

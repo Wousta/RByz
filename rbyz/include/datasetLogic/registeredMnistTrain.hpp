@@ -12,6 +12,12 @@ private:
   // - Original index: reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784])
   float* registered_images; 
   int64_t* registered_labels;
+  float* forward_pass;
+  int32_t* forward_pass_indices;
+  size_t images_mem_size;
+  size_t labels_mem_size;
+  size_t forward_pass_mem_size;
+  size_t forward_pass_indices_mem_size;
   size_t registered_samples; 
   std::unique_ptr<RegisteredMNIST> registered_dataset;
   const size_t data_size = 785; // 784 pixels + 1 index
@@ -36,7 +42,14 @@ public:
   // Getters for registered memory
   float* getRegisteredImages() { return registered_images; }
   int64_t* getRegisteredLabels() { return registered_labels; }
+  float* getForwardPass() { return forward_pass; }
+  int32_t* getForwardPassIndices() { return forward_pass_indices; }
+  size_t getRegisteredImagesMemSize() { return images_mem_size; }
+  size_t getRegisteredLabelsMemSize() { return labels_mem_size; }
+  size_t getForwardPassMemSize() { return forward_pass_mem_size; }
+  size_t getForwardPassIndicesMemSize() { return forward_pass_indices_mem_size; }
   size_t getRegisteredSamplesCount() { return registered_samples; }
+  size_t getDataSize() { return data_size; }
   
   float* getImagePixels(size_t image_idx) {
     return registered_images + (image_idx * data_size);

@@ -24,3 +24,4 @@ inline constexpr int CLNT_READY_IDX = 2;
 inline constexpr int CLNT_W_IDX = 3;
 inline constexpr int CLNT_LOSS_AND_ERR_IDX = 4;
 inline constexpr int CLNT_CAS_IDX = 5;
+inline constexpr int CLNT_CAS_IDX = 5;
