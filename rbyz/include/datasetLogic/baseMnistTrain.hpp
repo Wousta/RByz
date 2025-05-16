@@ -3,6 +3,7 @@
 #include "subsetSampler.hpp"
 #include "global/globalConstants.hpp"
 #include <vector>
+#include <cuda_runtime.h>
 
 struct Net : torch::nn::Module {
   Net()
@@ -53,6 +54,8 @@ protected:
   torch::Tensor output;
   float loss;
   float error_rate;
+  cudaStream_t memcpy_stream_A; // Stream for async memcpy
+  cudaStream_t memcpy_stream_B; // Stream for async memcpy
 
   using DatasetType = decltype(
     torch::data::datasets::MNIST(kDataRoot)
@@ -77,7 +80,7 @@ protected:
 
 public:
   BaseMnistTrain(int worker_id, int num_workers, int64_t subset_size);
-  virtual ~BaseMnistTrain() = default;
+  virtual ~BaseMnistTrain();
 
   // Common interface methods
   virtual std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w) = 0;

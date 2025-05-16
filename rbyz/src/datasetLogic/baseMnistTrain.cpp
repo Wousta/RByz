@@ -2,7 +2,6 @@
 #include "global/logger.hpp"
 #include "tensorOps.hpp"
 
-#include <cuda_runtime.h>
 #include <random>
 
 BaseMnistTrain::BaseMnistTrain(int worker_id, int num_workers, int64_t subset_size)
@@ -21,6 +20,25 @@ BaseMnistTrain::BaseMnistTrain(int worker_id, int num_workers, int64_t subset_si
   auto test_loader_temp = torch::data::make_data_loader(
       test_dataset, torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
   test_loader = std::move(test_loader_temp);
+
+  if (device.is_cuda()) {
+    cudaStreamCreate(&memcpy_stream_A);
+    cudaStreamCreate(&memcpy_stream_B);
+  }
+}
+
+BaseMnistTrain::~BaseMnistTrain() {
+  if (device.is_cuda()) {
+    cudaError_t err_A, err_B;
+    err_A = cudaStreamDestroy(memcpy_stream_A);
+    err_B = cudaStreamDestroy(memcpy_stream_B);
+    if (err_A != cudaSuccess) {
+      std::cerr << "Error destroying stream A: " << cudaGetErrorString(err_A) << std::endl;
+    }
+    if (err_B != cudaSuccess) {
+      std::cerr << "Error destroying stream B: " << cudaGetErrorString(err_B) << std::endl;
+    }
+  }
 }
 
 torch::Device BaseMnistTrain::init_device() {
@@ -53,9 +71,9 @@ std::vector<torch::Tensor> BaseMnistTrain::getInitialWeights() {
   return initialWeights;
 }
 
-SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id,
-                                                size_t dataset_size,
-                                                int64_t subset_size) {
+SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id_arg,
+                                                size_t dataset_size_arg,
+                                                int64_t subset_size_arg) {
   auto dataset = torch::data::datasets::MNIST(kDataRoot).
       map(torch::data::transforms::Normalize<>(0.1307, 0.3081)).
       map(torch::data::transforms::Stack<>());
@@ -75,7 +93,7 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id,
   }
 
   // Allocate indices to workers
-  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / DATASET_SIZE;
+  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / dataset_size_arg;
   float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
 
   std::vector<size_t> worker_indices;
@@ -86,12 +104,12 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id,
 
     size_t start;
     size_t end;
-    if (worker_id == 0) {
+    if (worker_id_arg == 0) {
       start = 0;  // Server gets the first portion
       end = samples_srvr;
     } else {
-      start = static_cast<size_t>(std::ceil(samples_srvr + (worker_id - 1) * samples_clnt));
-      if (worker_id == num_workers - 1) {
+      start = static_cast<size_t>(std::ceil(samples_srvr + (worker_id_arg - 1) * samples_clnt));
+      if (worker_id_arg == num_workers - 1) {
         end = total_samples;  // Last worker gets the remaining samples
       } else {
         end = start + samples_clnt;
@@ -107,8 +125,8 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id,
   std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
 
   // If the subset size is smaller than the allocated indices, truncate
-  if (worker_indices.size() > subset_size) {
-    worker_indices.resize(subset_size);
+  if (worker_indices.size() > subset_size_arg) {
+    worker_indices.resize(subset_size_arg);
   }
 
   Logger::instance().log(
@@ -186,8 +204,8 @@ void BaseMnistTrain::copyModelParameters(const Net& source_model) {
 std::vector<size_t> BaseMnistTrain::getClientsSamplesCount() {
   Logger::instance().log("Getting samples count for each client\n");
   std::vector<size_t> samples_count(num_workers, 0);
-  for (size_t i = 1; i < num_workers; ++i) {
-    SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, CLNT_SUBSET_SIZE);
+  for (size_t i = 1; i < num_workers; i++) {
+    SubsetSampler train_sampler = get_subset_sampler(i, DATASET_SIZE, CLNT_SUBSET_SIZE);
     size_t count = train_sampler.indices().size();
     samples_count[i] = count;
     Logger::instance().log("  Worker " + std::to_string(i) + " has " +
