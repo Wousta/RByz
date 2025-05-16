@@ -20,9 +20,6 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   // Plain mnist to read the images from
   auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
 
-  Logger::instance().log("train_dataset_size: " +
-                         std::to_string(train_dataset_size) + "\n");
-
   SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE, subset_size);
   auto& indices = train_sampler.indices();
   registered_samples = indices.size();

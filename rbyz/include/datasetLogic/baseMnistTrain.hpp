@@ -49,11 +49,11 @@ protected:
   torch::DeviceType device_type;
   torch::Device device;
   Net model;
-  size_t train_dataset_size;
   size_t test_dataset_size;
   torch::Tensor output;
   float loss;
   float error_rate;
+  std::unordered_map<int64_t, std::vector<size_t>> label_to_indices; // 
   cudaStream_t memcpy_stream_A; // Stream for async memcpy
   cudaStream_t memcpy_stream_B; // Stream for async memcpy
 
@@ -91,6 +91,7 @@ public:
   std::vector<torch::Tensor> loadModelState(const std::string& filename);
   void copyModelParameters(const Net& source_model);
   std::vector<size_t> getClientsSamplesCount();
+  void buildLabelToIndicesMap();
 
   void testModel() {
     test(model, device, *test_loader, test_dataset_size);

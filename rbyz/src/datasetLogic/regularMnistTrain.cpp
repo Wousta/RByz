@@ -21,7 +21,7 @@ RegularMnistTrain::RegularMnistTrain(int worker_id, int num_workers, int64_t sub
                         .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                         .map(torch::data::transforms::Stack<>())) {
               
-  train_dataset_size = train_dataset.size().value();
+  size_t train_dataset_size = train_dataset.size().value();
 
   SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
   auto train_loader_temp = torch::data::make_data_loader(
