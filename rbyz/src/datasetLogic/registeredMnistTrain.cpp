@@ -20,7 +20,10 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   // Plain mnist to read the images from
   auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
 
-  SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
+  Logger::instance().log("train_dataset_size: " +
+                         std::to_string(train_dataset_size) + "\n");
+
+  SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE, subset_size);
   auto& indices = train_sampler.indices();
   registered_samples = indices.size();
 
@@ -136,12 +139,14 @@ void RegisteredMnistTrain::train(size_t epoch,
       cudaMemcpyAsync(data.data_ptr<float>(),
                       data_cpu.data_ptr<float>(),
                       data_cpu.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice);
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_A);
 
       cudaMemcpyAsync(targets.data_ptr<int64_t>(),
                       targets_cpu.data_ptr<int64_t>(),
                       targets_cpu.numel() * sizeof(int64_t),
-                      cudaMemcpyHostToDevice);
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_B);
 
       // Ensure copy is complete before proceeding
       cudaDeviceSynchronize();
@@ -155,10 +160,18 @@ void RegisteredMnistTrain::train(size_t epoch,
     auto output = model.forward(data);
     size_t output_elements = output.numel();
 
-    // Copy the output to registered memory
-    std::memcpy(forward_pass + start_pos_output, 
-                output.data_ptr<float>(),
-                output_elements * sizeof(float));
+    // Copy the output forward pass to registered memory
+    if (device.is_cuda()) {
+      cudaMemcpyAsync(forward_pass + start_pos_output,
+                      output.data_ptr<float>(),
+                      output_elements * sizeof(float),
+                      cudaMemcpyDeviceToHost,
+                      memcpy_stream_A);
+    } else {
+      std::memcpy(forward_pass + start_pos_output, 
+                 output.data_ptr<float>(),
+                 output_elements * sizeof(float));
+    }
     start_pos_output += output_elements;
 
     auto nll_loss = torch::nll_loss(output, targets);
@@ -184,6 +197,12 @@ void RegisteredMnistTrain::train(size_t epoch,
                   nll_loss.template item<float>());
     }
   }
+
+  // Wait for the forward pass async copy to complete
+  if (device.is_cuda()) {
+    cudaDeviceSynchronize();
+  }
+
 }
 
 std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
@@ -198,7 +217,8 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
       cudaMemcpyAsync(cuda_tensor.data_ptr<float>(),
                       param.data_ptr<float>(),
                       param.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice);
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_A);
       w_cuda.push_back(cuda_tensor);
     }
 
@@ -239,7 +259,8 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
       cudaMemcpyAsync(cpu_update.data_ptr<float>(),
                       update.data_ptr<float>(),
                       update.numel() * sizeof(float),
-                      cudaMemcpyDeviceToHost);
+                      cudaMemcpyDeviceToHost,
+                      memcpy_stream_A);
       result.push_back(cpu_update);
     }
     cudaDeviceSynchronize();
@@ -289,12 +310,14 @@ void RegisteredMnistTrain::runInference() {
       cudaMemcpyAsync(data.data_ptr<float>(),
                       data_cpu.data_ptr<float>(),
                       data_cpu.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice);
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_A);
 
       cudaMemcpyAsync(targets.data_ptr<int64_t>(),
                       targets_cpu.data_ptr<int64_t>(),
                       targets_cpu.numel() * sizeof(int64_t),
-                      cudaMemcpyHostToDevice);
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_B);
 
       // Ensure copy is complete before proceeding
       cudaDeviceSynchronize();
@@ -305,7 +328,7 @@ void RegisteredMnistTrain::runInference() {
     }
     
     // Run forward pass
-    output = model.forward(data);
+    auto output = model.forward(data);
     auto nll_loss = torch::nll_loss(output, targets);
     total_loss += nll_loss.template item<float>() * targets.size(0);
 
