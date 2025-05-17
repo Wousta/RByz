@@ -219,7 +219,6 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
   registered_mnist->copyModelParameters(regular_mnist->getModel());
-  registered_mnist->runMnistTrain(0, w);
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     // Read the error and loss from the clients
     readClntsRByz(n_clients, rdma_ops, clnt_data_vec);

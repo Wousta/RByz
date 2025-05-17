@@ -109,7 +109,8 @@ void RegisteredMnistTrain::train(size_t epoch,
 
   // Forward pass, first the losses and then the errors in the buffer
   size_t loss_idx = 0;
-  size_t error_idx = forward_pass_mem_size / 2;
+  const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
+  size_t error_idx = forward_pass_size / 2;
 
   for (const auto& batch : *registered_loader) {
     optimizer.zero_grad();
@@ -162,26 +163,30 @@ void RegisteredMnistTrain::train(size_t epoch,
 
     auto output = model.forward(data);
 
-    // for (size_t i = 0; i < batch.size(); ++i) {
-    //   // Extract single example and prediction
-    //   auto single_output = output[i].unsqueeze(0); // Add batch dimension back
-    //   auto single_target = targets[i].unsqueeze(0);
+    for (size_t i = 0; i < batch.size(); ++i) {
+      // Extract single example and prediction
+      auto single_output = output[i].unsqueeze(0); // Add batch dimension back
+      auto single_target = targets[i].unsqueeze(0);
       
-    //   // Calculate individual loss
-    //   auto individual_loss = torch::nll_loss(single_output, single_target);
-    //   float loss_value = individual_loss.template item<float>();
+      // Calculate individual loss
+      auto individual_loss = torch::nll_loss(single_output, single_target);
+      float loss_value = individual_loss.template item<float>();
       
-    //   // Calculate individual prediction and error
-    //   auto pred = single_output.argmax(1);
-    //   bool is_correct = pred.eq(single_target).item<bool>();
-    //   float error = is_correct ? 0.0f : 1.0f;
+      // Calculate individual prediction and error
+      auto pred = single_output.argmax(1);
+      bool is_correct = pred.eq(single_target).item<bool>();
+      float error = is_correct ? 0.0f : 1.0f;
       
-    //   // Store the loss and error in the forward_pass buffer
-    //   forward_pass[loss_idx] = loss_value;
-    //   forward_pass[error_idx] = error;
-    //   loss_idx++;
-    //   error_idx++;
-    // }
+      // Store the loss and error in the forward_pass buffer
+      if (loss_idx < forward_pass_size / 2 && error_idx < forward_pass_size) {
+        forward_pass[loss_idx] = loss_value;
+        forward_pass[error_idx] = error;
+        loss_idx++;
+        error_idx++;
+      } else {
+        throw std::runtime_error("Forward pass buffer overflow");
+      }
+    }
 
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));

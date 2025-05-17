@@ -184,6 +184,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   for (int round = 1; round <= rounds; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
+      std::this_thread::yield();
     } while (srvr_ready_flag != round);
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
