@@ -12,7 +12,7 @@ private:
   // - Original index: reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784])
   float* registered_images; 
   int64_t* registered_labels;
-  float* forward_pass;
+  float* forward_pass; // CHANGE TO ERROR AND LOSS
   int32_t* forward_pass_indices;
   size_t images_mem_size;
   size_t labels_mem_size;

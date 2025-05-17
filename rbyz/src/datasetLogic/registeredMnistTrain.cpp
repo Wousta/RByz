@@ -24,8 +24,8 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   auto& indices = train_sampler.indices();
   registered_samples = indices.size();
 
-  // For MNIST forward pass: 10 output values (logits) per sample
-  const size_t values_per_sample = 10;
+  // For MNIST forward pass: error and loss (2 values)
+  const size_t values_per_sample = 2;
   const size_t bytes_per_value = sizeof(float);
 
   // 28x28 = 784 is the size of an image in MNIST dataset
@@ -107,11 +107,18 @@ void RegisteredMnistTrain::train(size_t epoch,
   uint32_t img_idx = 0;
   size_t start_pos_output = 0;
 
+  // Forward pass, first the losses and then the errors in the buffer
+  size_t loss_idx = 0;
+  size_t error_idx = forward_pass_mem_size / 2;
+
   for (const auto& batch : *registered_loader) {
+    optimizer.zero_grad();
+
     // Combine all data and targets in the batch into single tensors
     std::vector<torch::Tensor> data_vec, target_vec;
     data_vec.reserve(batch.size());
     target_vec.reserve(batch.size());
+
     for (const auto& example : batch) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
@@ -153,23 +160,28 @@ void RegisteredMnistTrain::train(size_t epoch,
       targets = targets_cpu;
     }
 
-    optimizer.zero_grad();
     auto output = model.forward(data);
-    size_t output_elements = output.numel();
 
-    // Copy the output forward pass to registered memory
-    if (device.is_cuda()) {
-      cudaMemcpyAsync(forward_pass + start_pos_output,
-                      output.data_ptr<float>(),
-                      output_elements * sizeof(float),
-                      cudaMemcpyDeviceToHost,
-                      memcpy_stream_A);
-    } else {
-      std::memcpy(forward_pass + start_pos_output, 
-                 output.data_ptr<float>(),
-                 output_elements * sizeof(float));
-    }
-    start_pos_output += output_elements;
+    // for (size_t i = 0; i < batch.size(); ++i) {
+    //   // Extract single example and prediction
+    //   auto single_output = output[i].unsqueeze(0); // Add batch dimension back
+    //   auto single_target = targets[i].unsqueeze(0);
+      
+    //   // Calculate individual loss
+    //   auto individual_loss = torch::nll_loss(single_output, single_target);
+    //   float loss_value = individual_loss.template item<float>();
+      
+    //   // Calculate individual prediction and error
+    //   auto pred = single_output.argmax(1);
+    //   bool is_correct = pred.eq(single_target).item<bool>();
+    //   float error = is_correct ? 0.0f : 1.0f;
+      
+    //   // Store the loss and error in the forward_pass buffer
+    //   forward_pass[loss_idx] = loss_value;
+    //   forward_pass[error_idx] = error;
+    //   loss_idx++;
+    //   error_idx++;
+    // }
 
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
