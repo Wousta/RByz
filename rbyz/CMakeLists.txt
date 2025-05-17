@@ -14,11 +14,19 @@ project(RByz LANGUAGES CXX CUDA)
 include(${CMAKE_BINARY_DIR}/conan_toolchain.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cache.cmake)
 
+include(ProcessorCount)
+ProcessorCount(N)
+if(NOT N EQUAL 0)
+  set(CMAKE_BUILD_PARALLEL_LEVEL ${N})
+endif()
+
 find_package(CUDA REQUIRED)
 include_directories(${CUDA_INCLUDE_DIRS})
 
 set(Torch_DIR "/home/bustaman/libtorch-cxx11-abi-shared-with-deps-2.7.0+cu128/libtorch/share/cmake/Torch")
 find_package(Torch REQUIRED)
+find_package(Python3 COMPONENTS Development REQUIRED)
+include_directories(${Python3_INCLUDE_DIRS})
 
 # if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 #   message(STATUS "Enabling AddressSanitizer flags...")
@@ -42,54 +50,48 @@ set_target_properties(libnorm PROPERTIES
   IMPORTED_NO_SONAME TRUE)
 
 add_library(torch_interface INTERFACE)
-target_include_directories(torch_interface INTERFACE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(torch_interface INTERFACE ${TORCH_LIBRARIES})
+target_include_directories(torch_interface INTERFACE 
+  ${TORCH_INCLUDE_DIRS}
+  ${Python3_INCLUDE_DIRS}
+)
+target_link_libraries(torch_interface INTERFACE 
+  ${TORCH_LIBRARIES}
+  ${Python3_LIBRARIES}
+)
+target_compile_definitions(torch_interface INTERFACE 
+  TORCH_API_INCLUDE_EXTENSION_H
+  USE_PYTHON=0
+)
+target_precompile_headers(torch_interface INTERFACE 
+  <torch/torch.h>
+)
 
-add_library(subsetSampler INTERFACE)
-add_library(registeredMNIST INTERFACE)
-add_library(baseMnistTrain STATIC src/datasetLogic/baseMnistTrain.cpp)
-add_library(regularMnistTrain STATIC src/datasetLogic/regularMnistTrain.cpp)
-add_library(registeredMnistTrain STATIC src/datasetLogic/registeredMnistTrain.cpp)
+# Create a unified source file (Unity build)
+set(UNITY_SRC ${CMAKE_BINARY_DIR}/unity_torch_build.cpp)
+file(WRITE ${UNITY_SRC} "// Auto-generated unity build file\n")
+# avoid headers that require Python
+file(APPEND ${UNITY_SRC} "#define USE_PYTHON 0\n")
+file(APPEND ${UNITY_SRC} "#include <torch/csrc/api/include/torch/all.h>\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/tensorOps.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/attacks.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../include/datasetLogic/subsetSampler.hpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../include/datasetLogic/registeredMNIST.hpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseMnistTrain.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regularMnistTrain.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/registeredMnistTrain.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/rbyzAux.cpp\"\n")
+
+add_library(torch_implementations STATIC ${UNITY_SRC})
+target_link_libraries(torch_implementations PUBLIC torch_interface)
+
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
-add_library(tensorOps STATIC src/tensorOps.cpp)
-add_library(attacks STATIC src/attacks.cpp)
-add_library(rbyzAux STATIC src/rbyzAux.cpp)
 add_executable(srvr src/entities/srvr.cpp)
 add_executable(clnt src/entities/clnt.cpp)
 
 target_compile_options(srvr PRIVATE -g)
 target_compile_options(clnt PRIVATE -g)
-target_compile_options(attacks PRIVATE -g)
-
-target_include_directories(baseMnistTrain PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
-
-target_include_directories(regularMnistTrain PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
-
-target_include_directories(registeredMnistTrain PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
-
-target_include_directories(subsetSampler INTERFACE)
-
-target_include_directories(registeredMNIST INTERFACE)
 
 target_include_directories(rdmaOps PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
-
-target_include_directories(tensorOps PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
-
-target_include_directories(attacks PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
-
-target_include_directories(rbyzAux PUBLIC 
   ${CMAKE_CURRENT_SOURCE_DIR}/include 
 )
 
@@ -97,58 +99,13 @@ target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC)
 
-target_precompile_headers(baseMnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(regularMnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(registeredMnistTrain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(tensorOps PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(attacks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(rbyzAux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(srvr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-target_precompile_headers(clnt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/global/pch.hpp)
-
 target_link_libraries(rdmaOps PUBLIC libnorm)
-
-target_link_libraries(baseMnistTrain PUBLIC 
-  torch_interface
-  registeredMNIST
-  subsetSampler
-)
-
-target_link_libraries(regularMnistTrain PUBLIC 
-  torch_interface
-  registeredMNIST
-  subsetSampler
-)
-
-target_link_libraries(registeredMnistTrain PUBLIC 
-  torch_interface
-  registeredMNIST
-  subsetSampler
-)
-
-target_link_libraries(attacks PUBLIC 
-  torch_interface
-  baseMnistTrain
-)
-
-target_link_libraries(rbyzAux PUBLIC 
-  torch_interface
-  rdmaOps
-)
-
-target_link_libraries(tensorOps PUBLIC torch_interface)
 
 target_link_libraries(srvr PUBLIC  
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
-  torch_interface
-  baseMnistTrain
-  regularMnistTrain
-  registeredMnistTrain  
+  torch_implementations
   rdmaOps
-  tensorOps
-  attacks
-  rbyzAux
   Threads::Threads
 )
 
@@ -156,11 +113,6 @@ target_link_libraries(clnt PUBLIC
   rdmaOps
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
-  torch_interface
-  baseMnistTrain
-  regularMnistTrain
-  registeredMnistTrain
-  tensorOps
-  rbyzAux
+  torch_implementations
   Threads::Threads
 )
