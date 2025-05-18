@@ -53,9 +53,9 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
     std::memcpy(
         registered_images + (i * data_size), reshaped_image.data_ptr<float>(), 784 * sizeof(float));
 
-    // Store original_idx in the last position, for rbyz to identify server VD images
+    // Store idx in the last position, for rbyz to identify server VD images
     uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784]);
-    *index_ptr = static_cast<uint32_t>(original_idx);
+    *index_ptr = static_cast<uint32_t>(i);
 
     // Copy the label
     registered_labels[i] = example.target.item<int64_t>();
