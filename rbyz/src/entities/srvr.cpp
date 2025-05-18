@@ -133,26 +133,18 @@ int main(int argc, char *argv[]) {
 
     // Dataset and forward pass data used
     size_t registered_samples = clnts_samples_count[i];
-    const size_t values_per_sample = 10; // 10 output values (logits) per sample in MNIST
-    const size_t bytes_per_value = sizeof(float);
-    size_t images_mem_size = registered_samples * data_size * sizeof(float);
-    size_t labels_mem_size = registered_samples * sizeof(int64_t);
+    const size_t values_per_sample = registered_mnist->getValuesPerSample();
+    const size_t bytes_per_value = registered_mnist->getBytesPerValue();
     size_t forward_pass_mem_size = registered_samples * values_per_sample * bytes_per_value;
-    size_t forward_pass_indices_mem_size = registered_samples * sizeof(int32_t);
-    clnt_data_vec[i].images_mem_size = images_mem_size;
-    clnt_data_vec[i].labels_mem_size = labels_mem_size;
+    size_t forward_pass_indices_mem_size = registered_samples * sizeof(uint32_t);
+    clnt_data_vec[i].images_mem_size = registered_samples * data_size * sizeof(float);
+    clnt_data_vec[i].labels_mem_size = registered_samples * sizeof(int64_t);;
     clnt_data_vec[i].forward_pass_mem_size = forward_pass_mem_size;
     clnt_data_vec[i].forward_pass_indices_mem_size = forward_pass_indices_mem_size;
 
     // Allocate memory for the client
-    clnt_data_vec[i].images = reinterpret_cast<float *>(malloc(images_mem_size));
-    clnt_data_vec[i].labels = reinterpret_cast<int64_t *>(malloc(labels_mem_size));
     clnt_data_vec[i].forward_pass = reinterpret_cast<float *>(malloc(forward_pass_mem_size));
-    clnt_data_vec[i].forward_pass_indices = reinterpret_cast<int32_t *>(malloc(forward_pass_indices_mem_size));
-    if (!clnt_data_vec[i].images || !clnt_data_vec[i].labels ||
-        !clnt_data_vec[i].forward_pass || !clnt_data_vec[i].forward_pass_indices) {
-      throw std::runtime_error("Failed to allocate memory for client dataset");
-    }
+    clnt_data_vec[i].forward_pass_indices = reinterpret_cast<uint32_t *>(malloc(forward_pass_indices_mem_size));
   }
 
   // memory registration
@@ -163,8 +155,8 @@ int main(int argc, char *argv[]) {
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
-    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].images));
-    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].labels));
+    reg_info[i].addr_locs.push_back(castI(registered_mnist->getRegisteredImages()));
+    reg_info[i].addr_locs.push_back(castI(registered_mnist->getRegisteredLabels()));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
@@ -174,8 +166,8 @@ int main(int argc, char *argv[]) {
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(clnt_data_vec[i].images_mem_size);
-    reg_info[i].data_sizes.push_back(clnt_data_vec[i].labels_mem_size);
+    reg_info[i].data_sizes.push_back(registered_mnist->getRegisteredImagesMemSize());
+    reg_info[i].data_sizes.push_back(registered_mnist->getRegisteredLabelsMemSize());
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 

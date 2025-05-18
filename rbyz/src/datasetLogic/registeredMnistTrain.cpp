@@ -24,19 +24,15 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   auto& indices = train_sampler.indices();
   registered_samples = indices.size();
 
-  // For MNIST forward pass: error and loss (2 values)
-  const size_t values_per_sample = 2;
-  const size_t bytes_per_value = sizeof(float);
-
   // 28x28 = 784 is the size of an image in MNIST dataset
   images_mem_size = registered_samples * data_size * sizeof(float);
   labels_mem_size = registered_samples * sizeof(int64_t);
   forward_pass_mem_size = registered_samples * values_per_sample * bytes_per_value;
-  forward_pass_indices_mem_size = registered_samples * sizeof(int32_t);
+  forward_pass_indices_mem_size = registered_samples * sizeof(uint32_t);
   registered_images = reinterpret_cast<float*>(malloc(images_mem_size));
   registered_labels = reinterpret_cast<int64_t*>(malloc(labels_mem_size));
   forward_pass = reinterpret_cast<float*>(malloc(forward_pass_mem_size));
-  forward_pass_indices = reinterpret_cast<int32_t*>(malloc(forward_pass_indices_mem_size));
+  forward_pass_indices = reinterpret_cast<uint32_t*>(malloc(forward_pass_indices_mem_size));
   if (!registered_images || !registered_labels || !forward_pass || !forward_pass_indices) {
     throw std::runtime_error("Failed to allocate memory for registered dataset");
   }

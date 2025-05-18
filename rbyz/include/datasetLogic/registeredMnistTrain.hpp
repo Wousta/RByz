@@ -13,7 +13,7 @@ private:
   float* registered_images; 
   int64_t* registered_labels;
   float* forward_pass; // CHANGE TO ERROR AND LOSS
-  int32_t* forward_pass_indices;
+  uint32_t* forward_pass_indices;
   size_t images_mem_size;
   size_t labels_mem_size;
   size_t forward_pass_mem_size;
@@ -21,6 +21,8 @@ private:
   size_t registered_samples; 
   std::unique_ptr<RegisteredMNIST> registered_dataset;
   const size_t data_size = 785; // 784 pixels + 1 index
+  const size_t values_per_sample = 2; // 2 values (error and loss) in the forward pass
+  const size_t bytes_per_value = sizeof(float); // For the forward pass
   
   using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> registered_loader;
@@ -43,16 +45,30 @@ public:
   float* getRegisteredImages() { return registered_images; }
   int64_t* getRegisteredLabels() { return registered_labels; }
   float* getForwardPass() { return forward_pass; }
-  int32_t* getForwardPassIndices() { return forward_pass_indices; }
+  uint32_t* getForwardPassIndices() { return forward_pass_indices; }
   size_t getRegisteredImagesMemSize() { return images_mem_size; }
   size_t getRegisteredLabelsMemSize() { return labels_mem_size; }
   size_t getForwardPassMemSize() { return forward_pass_mem_size; }
   size_t getForwardPassIndicesMemSize() { return forward_pass_indices_mem_size; }
   size_t getRegisteredSamplesCount() { return registered_samples; }
   size_t getDataSize() { return data_size; }
+  size_t getValuesPerSample() { return values_per_sample; }
+  size_t getBytesPerValue() { return bytes_per_value; }
   
   float* getImagePixels(size_t image_idx) {
+    if (image_idx >= registered_samples) {
+      throw std::out_of_range("Image index out of range");
+    }
+
     return registered_images + (image_idx * data_size);
+  }
+
+  int64_t getImageLabel(size_t image_idx) {
+    if (image_idx >= registered_samples) {
+      throw std::out_of_range("Image index out of range");
+    }
+
+    return registered_labels[image_idx];
   }
 
   uint32_t getOriginalIndex(size_t image_idx) {

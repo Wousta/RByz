@@ -1,5 +1,5 @@
 #!/bin/bash
-srvr_ip=192.168.128.101 # Delta
+srvr_ip=192.168.128.103 # Delta
 #srvr_ip=192.168.117.103  # quatro
 port=2000
 n_clients=0
