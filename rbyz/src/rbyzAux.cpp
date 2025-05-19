@@ -88,9 +88,7 @@ void runRByzClient(std::vector<torch::Tensor> &w,
                    RegisteredMnistTrain &mnist,
                    float *clnt_w,
                    float* loss_and_err) {
-  Logger::instance().log("\n\n=============================================\n");
-  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
-  Logger::instance().log("=============================================\n");
+  Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
 
   // Before rbyz, the client has to write error and loss for the first time
   writeErrorAndLoss(mnist, clnt_w);
@@ -98,6 +96,12 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   clnt_CAS.store(MEM_FREE);
 
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
+
+    // TODO: properly do local step logic
+    // for (int step = 0; step < LOCAL_STEPS_RBYZ; step++) {
+    //   w = mnist.runMnistTrain(round, w);
+    // }
+
     w = mnist.runMnistTrain(round, w);
 
     // Store the updated weights in clnt_w
@@ -124,4 +128,44 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     clnt_CAS.store(MEM_FREE);
     Logger::instance().log("CAS LOCK RELEASED\n");
   }
+}
+
+void runRByzServer(int n_clients,
+                    std::vector<torch::Tensor>& w,
+                    RegisteredMnistTrain& mnist,
+                    RdmaOps& rdma_ops,
+                    std::vector<ClientDataRbyz>& clnt_data_vec) {
+  
+  Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
+  
+  for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
+    // Read the error and loss from the clients
+    readClntsRByz(n_clients, rdma_ops, clnt_data_vec);
+
+    // For each client run N rounds of RByz
+    for (int i = 0; i < LOCAL_STEPS_RBYZ; i++) {
+      for (int j = 0; j < n_clients; j++) {
+        // Read error and loss from client
+        aquireCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
+        rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
+        releaseCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
+
+        if (i != 1) {
+          // Run inference on server model to update its VD loss and error and then update TS
+          mnist.runInference();
+          updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
+        }
+
+        // Byz detection
+
+        if (i == LOCAL_STEPS_RBYZ) {
+          // Aggregate
+        }
+      }
+    }
+  }
+  
+  // Test the model after training
+  mnist.testModel();
+
 }

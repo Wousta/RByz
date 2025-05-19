@@ -70,3 +70,10 @@ void runRByzClient(
     RegisteredMnistTrain& mnist,
     float* clnt_w,
     float* loss_and_err);
+
+void runRByzServer(
+    int n_clients,
+    std::vector<torch::Tensor>& w,
+    RegisteredMnistTrain& mnist,
+    RdmaOps& rdma_ops,
+    std::vector<ClientDataRbyz>& clnt_data_vec);

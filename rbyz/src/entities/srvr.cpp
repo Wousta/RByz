@@ -206,38 +206,9 @@ int main(int argc, char *argv[]) {
   }
 
   // Global rounds of RByz
-  Logger::instance().log("\n\n=============================================\n");
-  Logger::instance().log("==============  STARTING RBYZ  ==============\n");
-  Logger::instance().log("=============================================\n");
   RdmaOps rdma_ops(conn_data);
   registered_mnist->copyModelParameters(regular_mnist->getModel());
-  for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
-    // Read the error and loss from the clients
-    readClntsRByz(n_clients, rdma_ops, clnt_data_vec);
-
-    // For each client run N rounds of RByz
-    int n = 15;
-    for (int i = 0; i < n; i++) {
-      for (int j = 0; j < n_clients; j++) {
-        // Read error and loss from client
-        aquireCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
-        rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
-        releaseCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
-
-        if (i != 1) {
-          // Run inference on server model to update its VD loss and error and then update TS
-          registered_mnist->runInference();
-          updateTS(clnt_data_vec, clnt_data_vec[j], registered_mnist->getLoss(), registered_mnist->getErrorRate());
-        }
-
-        // Byz detection
-
-        if (i == n) {
-          // Aggregate
-        }
-      }
-    }
-  }
+  runRByzServer(n_clients, w, *registered_mnist, rdma_ops, clnt_data_vec);
 
   {
     std::ostringstream oss;
@@ -245,8 +216,6 @@ int main(int argc, char *argv[]) {
     oss << "  " << w[0].slice(0, 0, std::min<size_t>(w[0].numel(), 10)) << " ";
     Logger::instance().log(oss.str());
   }
-
-  registered_mnist->testModel();
 
   for (RcConn conn : conns) {
     conn.disconnect();
@@ -385,7 +354,7 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
-  // Logger::instance().log("\nComputing aggregation data ================\n");
+  
   for (const auto &flat_client_update : client_updates) {
     // Compute cosine similarity
     torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
@@ -399,23 +368,7 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
 
     torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
     normalized_updates.push_back(normalized_update);
-    // {
-    //   std::ostringstream oss;
-    //   oss << "  ClientUpdate:\n";
-    //   oss << "    " << flat_client_update.slice(0, 0,
-    //   std::min<size_t>(flat_client_update.numel(), 3)) << " "; oss << "  \nServerUpdate:\n"; oss
-    //   << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 3)) << " ";
-    //   Logger::instance().log(oss.str());
-    // }
-    // Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) +
-    // "\n"); Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
-    // Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
-    // Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
-    // Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
-    // Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0,
-    // std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
-  // Logger::instance().log("================================\n");
 
   {
     std::ostringstream oss;
