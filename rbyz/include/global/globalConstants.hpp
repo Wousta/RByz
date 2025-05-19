@@ -16,6 +16,7 @@ inline constexpr int LOCAL_STEPS_RBYZ = 5;
 inline constexpr uint64_t REG_SZ_CLNT = REG_SZ_DATA + 2 * sizeof(float);
 constexpr int MEM_FREE = 0; 
 constexpr int MEM_OCCUPIED = 1;
+constexpr int SRVR_READY_RBYZ = -1;
 
 
 // addr_locs of buffers

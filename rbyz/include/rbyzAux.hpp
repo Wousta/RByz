@@ -39,11 +39,13 @@ void writeErrorAndLoss(
 void runRByzClient(
     std::vector<torch::Tensor>& w,
     RegisteredMnistTrain& mnist,
-    RegMemClnt& regMem);
+    RegMemClnt& regMem,
+    RdmaOps& rdma_ops);
 
 void runRByzServer(
     int n_clients,
     std::vector<torch::Tensor>& w,
     RegisteredMnistTrain& mnist,
     RdmaOps& rdma_ops,
+    RegMemSrvr& regMem,
     std::vector<ClientDataRbyz>& clnt_data_vec);

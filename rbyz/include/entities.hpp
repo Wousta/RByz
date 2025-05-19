@@ -44,7 +44,7 @@ struct RegMemClnt {
   std::atomic<int> clnt_CAS;
   std::atomic<int> local_step;
 
-  RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_OCCUPIED), local_step(0) {
+  RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
     loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));

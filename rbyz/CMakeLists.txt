@@ -80,37 +80,34 @@ file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseMnistTrain.cpp\"\n"
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regularMnistTrain.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/registeredMnistTrain.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rbyzAux.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/rdmaOps.cpp\"\n")
 
 add_library(torch_implementations STATIC ${UNITY_SRC})
-target_link_libraries(torch_implementations PUBLIC torch_interface)
+target_link_libraries(torch_implementations PUBLIC 
+  torch_interface
+  ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
+  ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
+)
 
-add_library(rdmaOps STATIC src/rdmaOps.cpp)
 add_executable(srvr src/entities/srvr.cpp)
 add_executable(clnt src/entities/clnt.cpp)
 
 target_compile_options(srvr PRIVATE -g)
 target_compile_options(clnt PRIVATE -g)
 
-target_include_directories(rdmaOps PUBLIC 
-  ${CMAKE_CURRENT_SOURCE_DIR}/include 
-)
 
 target_include_directories(srvr PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(clnt PUBLIC ${lyra_INCLUDE_DIRS})
 target_include_directories(srvr PUBLIC)
 
-target_link_libraries(rdmaOps PUBLIC libnorm)
-
 target_link_libraries(srvr PUBLIC  
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   torch_implementations
-  rdmaOps
   Threads::Threads
 )
 
 target_link_libraries(clnt PUBLIC 
-  rdmaOps
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/build/libnorm.so
   ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/build/librc_conn.so
   torch_implementations

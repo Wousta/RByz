@@ -65,27 +65,14 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
 
-    // Read the weights from the server
-    rdma_ops.exec_rdma_read(REG_SZ_DATA, SRVR_W_IDX);
-
-    size_t numel_server = REG_SZ_DATA / sizeof(float);
-    torch::Tensor flat_tensor = torch::from_blob(
-        regMem.srvr_w, 
-        {static_cast<long>(numel_server)}, 
-        torch::kFloat32
-    ).clone();
-
-    w = reconstruct_tensor_vector(flat_tensor, w);
-
-    Logger::instance().log("Client: Read weights from server numel = " + std::to_string(flat_tensor.numel()) + "\n");
-
-    // Run the training on the updated weights
+    // Read the weights from the server and run training
+    rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     // Keep updated values to follow FLtrust logic
-    for (size_t i = 0; i < g.size(); ++i) {
-      g[i] -= w[i];
-    }
+    // for (size_t i = 0; i < g.size(); ++i) {
+    //   g[i] -= w[i];
+    // }
 
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
@@ -187,7 +174,7 @@ int main(int argc, char* argv[]) {
 
   // Run the RByz client
   registered_mnist->copyModelParameters(regular_mnist->getModel());
-  runRByzClient(w, *registered_mnist, regMem);
+  runRByzClient(w, *registered_mnist, regMem, rdma_ops);
 
   free(addr_info.ipv4_addr);
   free(addr_info.port);

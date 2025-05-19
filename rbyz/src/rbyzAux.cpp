@@ -6,6 +6,8 @@
 
 #include <algorithm>
 
+//////////////////////////////////////////////////////////////
+////////////////////// SERVER FUNCTIONS //////////////////////
 void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<ClientDataRbyz> &clnt_data_vec) {
   int clnt_idx = 0;
   while (clnt_idx < n_clients) {
@@ -26,19 +28,20 @@ void readClntsRByz(int n_clients, RdmaOps &rdma_ops, std::vector<ClientDataRbyz>
   Logger::instance().log("Server: All clients read\n");
 }
 
-void aquireCASLock(int clnt_idx, RdmaOps &rdma_ops, std::atomic<int> &clnt_CAS) {
+void aquireClntCASLock(int clnt_idx, RdmaOps &rdma_ops, std::atomic<int> &clnt_CAS) {
   int current = MEM_OCCUPIED;
   while (current == MEM_OCCUPIED) {
     rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_FREE, MEM_OCCUPIED, clnt_idx);
     current = clnt_CAS.load();
 
     if (current == MEM_OCCUPIED) {
+      Logger::instance().log("--------> WARNING: CAS LOCK NOT AQUIRED\n");
       std::this_thread::yield();
     }
   }
 }
 
-void releaseCASLock(int clnt_idx, RdmaOps &rdma_ops, std::atomic<int> &clnt_CAS) {
+void releaseClntCASLock(int clnt_idx, RdmaOps &rdma_ops, std::atomic<int> &clnt_CAS) {
   clnt_CAS.store(MEM_FREE);
   rdma_ops.exec_rdma_CAS(sizeof(int), CLNT_CAS_IDX, MEM_OCCUPIED, MEM_FREE, clnt_idx);
 }
@@ -73,6 +76,8 @@ void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   clnt_data.trust_score = (loss_Calc + err_Calc) / 2;
 }
 
+//////////////////////////////////////////////////////////////
+////////////////////// CLIENT FUNCTIONS //////////////////////
 void writeErrorAndLoss(BaseMnistTrain& mnist, float* loss_and_err) {
   float loss_val = mnist.getLoss();
   float error_rate_val = mnist.getErrorRate();
@@ -80,13 +85,39 @@ void writeErrorAndLoss(BaseMnistTrain& mnist, float* loss_and_err) {
   std::memcpy(loss_and_err + 1, &error_rate_val, sizeof(float));
 }
 
+void aquireCASLock(RegMemClnt& regMem) {
+  int expected = MEM_FREE;
+  while (!regMem.clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
+    Logger::instance().log("--------> WARNING: CAS LOCK NOT AQUIRED\n");
+    std::this_thread::yield();
+  }
+  Logger::instance().log("CAS LOCK AQUIRED\n");
+}
+
+void releaseCASLock(RegMemClnt& regMem) {
+  regMem.clnt_CAS.store(MEM_FREE);
+  Logger::instance().log("CAS LOCK RELEASED\n");
+}
+
+//////////////////////////////////////////////////////////////
+/////////////////////// RBYZ ALGORITHM ///////////////////////
 /**
  * @brief Run the RByz client, only the clients call this function.
  */
 void runRByzClient(std::vector<torch::Tensor> &w,
                    RegisteredMnistTrain &mnist,
-                   RegMemClnt &regMem) {
+                   RegMemClnt &regMem,
+                   RdmaOps& rdma_ops) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
+
+  // Wait for the server to be ready
+  while (regMem.srvr_ready_flag != SRVR_READY_RBYZ) {
+    std::this_thread::yield();
+  }
+  Logger::instance().log("Client: Server is ready\n");
+
+  // Read the weights from the server
+  rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
 
   // Before rbyz, the client has to write error and loss for the first time
   writeErrorAndLoss(mnist, regMem.loss_and_err);
@@ -95,12 +126,11 @@ void runRByzClient(std::vector<torch::Tensor> &w,
 
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
 
-    // TODO: properly do local step logic
-    // for (int step = 0; step < LOCAL_STEPS_RBYZ; step++) {
-    //   w = mnist.runMnistTrain(round, w);
-    // }
-
-    w = mnist.runMnistTrain(round, w);
+    // TODO: properly do local step logic, sampling all data before training is too slow?
+    for (int step = 0; step < LOCAL_STEPS_RBYZ; step++) {
+      regMem.local_step.store(round);
+      w = mnist.runMnistTrain(round, w);
+    }
 
     // Store the updated weights in clnt_w
     torch::Tensor all_tensors = flatten_tensor_vector(w);
@@ -112,22 +142,18 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     float* all_tensors_float = all_tensors.data_ptr<float>();
 
     // Make server wait until memory is written
-    int expected = MEM_FREE;
-    while(!regMem.clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
-      std::this_thread::yield();
-    }
-    Logger::instance().log("CAS LOCK AQUIRED\n");
+    aquireCASLock(regMem);
 
     // Store the updates, error and loss values in clnt_w
     std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
+    unsigned int total_bytes_w_int = static_cast<unsigned int>(REG_SZ_DATA);
+    rdma_ops.exec_rdma_write(total_bytes_w_int, CLNT_W_IDX);
     writeErrorAndLoss(mnist, regMem.loss_and_err);
+    rdma_ops.exec_rdma_write(MIN_SZ, CLNT_LOSS_AND_ERR_IDX);
 
     // Reset the memory ready flag
-    regMem.clnt_CAS.store(MEM_FREE);
-    Logger::instance().log("CAS LOCK RELEASED\n");
+    releaseCASLock(regMem);
     
-    // Update the local step counter
-    regMem.local_step.store(round);
   }
 }
 
@@ -135,23 +161,36 @@ void runRByzServer(int n_clients,
                     std::vector<torch::Tensor>& w,
                     RegisteredMnistTrain& mnist,
                     RdmaOps& rdma_ops,
+                    RegMemSrvr& regMem,
                     std::vector<ClientDataRbyz>& clnt_data_vec) {
   
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
+  // First write updates to server memory
+  auto all_tensors = flatten_tensor_vector(w);
+  size_t total_bytes = all_tensors.numel() * sizeof(float);
+  float *global_w = all_tensors.data_ptr<float>();
+  std::memcpy(regMem.srvr_w, global_w, total_bytes);
+  
+  // Signal to clients that the server is ready
+  regMem.srvr_ready_flag = SRVR_READY_RBYZ;
+  for (int i = 0; i < n_clients; i++) {
+    rdma_ops.exec_rdma_write(MIN_SZ, SRVR_READY_IDX, i);
+  }
   
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     // Read the error and loss from the clients
     readClntsRByz(n_clients, rdma_ops, clnt_data_vec);
 
     // For each client run N rounds of RByz
-    for (int i = 0; i < LOCAL_STEPS_RBYZ; i++) {
-      for (int j = 0; j < n_clients; j++) {
+    for (int step = 0; step < LOCAL_STEPS_RBYZ; step++) {
+      int j = 0;
+      while (j < n_clients) {
         // Read error and loss from client
-        aquireCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
+        aquireClntCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
         rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
-        releaseCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
+        releaseClntCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
 
-        if (i != 1) {
+        if (step != 1) {
           // Run inference on server model to update its VD loss and error and then update TS
           mnist.runInference();
           updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
@@ -159,9 +198,12 @@ void runRByzServer(int n_clients,
 
         // Byz detection
 
-        if (i == LOCAL_STEPS_RBYZ) {
+        if (step == LOCAL_STEPS_RBYZ) {
           // Aggregate
         }
+
+        // TODO: to avoid the server running all rounds, it has to check if the client has advanced
+        j++;
       }
     }
   }
