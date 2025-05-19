@@ -84,16 +84,14 @@ void writeErrorAndLoss(BaseMnistTrain& mnist, float* loss_and_err) {
  * @brief Run the RByz client, only the clients call this function.
  */
 void runRByzClient(std::vector<torch::Tensor> &w,
-                   std::atomic<int> &clnt_CAS,
                    RegisteredMnistTrain &mnist,
-                   float *clnt_w,
-                   float* loss_and_err) {
+                   RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
 
   // Before rbyz, the client has to write error and loss for the first time
-  writeErrorAndLoss(mnist, clnt_w);
+  writeErrorAndLoss(mnist, regMem.loss_and_err);
   Logger::instance().log("Client: Initial loss and error values\n");
-  clnt_CAS.store(MEM_FREE);
+  regMem.clnt_CAS.store(MEM_FREE);
 
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
 
@@ -115,18 +113,21 @@ void runRByzClient(std::vector<torch::Tensor> &w,
 
     // Make server wait until memory is written
     int expected = MEM_FREE;
-    while(!clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
+    while(!regMem.clnt_CAS.compare_exchange_strong(expected, MEM_OCCUPIED)) {
       std::this_thread::yield();
     }
     Logger::instance().log("CAS LOCK AQUIRED\n");
 
     // Store the updates, error and loss values in clnt_w
-    std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
-    writeErrorAndLoss(mnist, loss_and_err);
+    std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
+    writeErrorAndLoss(mnist, regMem.loss_and_err);
 
     // Reset the memory ready flag
-    clnt_CAS.store(MEM_FREE);
+    regMem.clnt_CAS.store(MEM_FREE);
     Logger::instance().log("CAS LOCK RELEASED\n");
+    
+    // Update the local step counter
+    regMem.local_step.store(round);
   }
 }
 

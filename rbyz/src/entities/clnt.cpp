@@ -8,6 +8,7 @@
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "global/logger.hpp"
+#include "entities/clnt.hpp"
 #include "rbyzAux.hpp"
 
 //#include <logger.hpp>
@@ -23,11 +24,37 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   int rounds,
   RdmaOps& rdma_ops,
   BaseMnistTrain& mnist,
-  int& srvr_ready_flag,
-  int& clnt_ready_flag,
-  float* srvr_w,
-  float* clnt_w
+  RegMemClnt& regMem
 );
+
+void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTrain& mnist) {
+  reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
+  reg_info.addr_locs.push_back(castI(regMem.srvr_w));
+  reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
+  reg_info.addr_locs.push_back(castI(regMem.clnt_w));
+  reg_info.addr_locs.push_back(castI(regMem.loss_and_err));
+  reg_info.addr_locs.push_back(castI(&regMem.clnt_CAS));
+  reg_info.addr_locs.push_back(castI(&regMem.local_step));
+  reg_info.addr_locs.push_back(castI(mnist.getRegisteredImages()));
+  reg_info.addr_locs.push_back(castI(mnist.getRegisteredLabels()));
+  reg_info.addr_locs.push_back(castI(mnist.getForwardPass()));
+  reg_info.addr_locs.push_back(castI(mnist.getForwardPassIndices()));
+
+  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(REG_SZ_DATA);
+  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(REG_SZ_CLNT);
+  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(mnist.getRegisteredImagesMemSize());
+  reg_info.data_sizes.push_back(mnist.getRegisteredLabelsMemSize());
+  reg_info.data_sizes.push_back(mnist.getForwardPassMemSize());
+  reg_info.data_sizes.push_back(mnist.getForwardPassIndicesMemSize());
+
+  reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
+    IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+}
 
 int main(int argc, char* argv[]) {
   Logger::instance().log("Client starting execution\n");
@@ -70,47 +97,15 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<RegisteredMnistTrain> registered_mnist =
     std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
 
-  // Data structures for server and this client
-  int srvr_ready_flag = 0;
-  float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
-  int clnt_ready_flag = 0;
-  float* clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
-  float* loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
-  std::atomic<int> clnt_CAS(MEM_OCCUPIED);
-
-  // memory registration locations
-  reg_info.addr_locs.push_back(castI(&srvr_ready_flag));
-  reg_info.addr_locs.push_back(castI(srvr_w));
-  reg_info.addr_locs.push_back(castI(&clnt_ready_flag));
-  reg_info.addr_locs.push_back(castI(clnt_w));
-  reg_info.addr_locs.push_back(castI(loss_and_err));
-  reg_info.addr_locs.push_back(castI(&clnt_CAS));
-  reg_info.addr_locs.push_back(castI(registered_mnist->getRegisteredImages()));
-  reg_info.addr_locs.push_back(castI(registered_mnist->getRegisteredLabels()));
-  reg_info.addr_locs.push_back(castI(registered_mnist->getForwardPass()));
-  reg_info.addr_locs.push_back(castI(registered_mnist->getForwardPassIndices()));
-
-  // memory registration sizes
-  reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_DATA);
-  reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_DATA);
-  reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(registered_mnist->getRegisteredImagesMemSize());
-  reg_info.data_sizes.push_back(registered_mnist->getRegisteredLabelsMemSize());
-  reg_info.data_sizes.push_back(registered_mnist->getForwardPassMemSize());
-  reg_info.data_sizes.push_back(registered_mnist->getForwardPassIndicesMemSize());
-
-  reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
-    IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+  // Struct to hold the registered data
+  RegMemClnt regMem;
+  registerClntMemory(reg_info, regMem, *registered_mnist);
 
   // connect to server
   RcConn conn;
-  int ret = conn.connect(addr_info, reg_info);
-  comm_info conn_data = conn.getConnData();
-  RdmaOps rdma_ops({conn_data});
-  std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
+  conn.connect(addr_info, reg_info);
+  RdmaOps rdma_ops({conn.getConnData()});
+  std:: cout << "\nClient id: " << id << " connected to server\n";
 
   std::vector<torch::Tensor> w;
   if (load_model) {
@@ -128,10 +123,7 @@ int main(int argc, char* argv[]) {
         1,
         rdma_ops,
         *regular_mnist,
-        srvr_ready_flag,
-        clnt_ready_flag,
-        srvr_w,
-        clnt_w
+        regMem
       );
       std::cout << "\nCLNT FLTrust with loaded model done\n";
     }
@@ -142,24 +134,15 @@ int main(int argc, char* argv[]) {
       GLOBAL_ITERS,
       rdma_ops,
       *regular_mnist,
-      srvr_ready_flag,
-      clnt_ready_flag,
-      srvr_w,
-      clnt_w
+      regMem
     );
 
   }
 
   // Run the RByz client
   registered_mnist->copyModelParameters(regular_mnist->getModel());
-  runRByzClient(w, clnt_CAS, *registered_mnist, clnt_w, loss_and_err);
+  runRByzClient(w, *registered_mnist, regMem);
 
-  Logger::instance().log("Client: Final weights\n");
-  printTensorSlices(w, 0, 5);
-
-  free(srvr_w);
-  free(clnt_w);
-  free(loss_and_err);
   free(addr_info.ipv4_addr);
   free(addr_info.port);
   conn.disconnect();
@@ -173,19 +156,16 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   int rounds,
   RdmaOps& rdma_ops,
   BaseMnistTrain& mnist,
-  int& srvr_ready_flag,
-  int& clnt_ready_flag,
-  float* srvr_w,
-  float* clnt_w) {
+  RegMemClnt& regMem) {
 
-    std::vector<torch::Tensor> w = mnist.getInitialWeights();
+  std::vector<torch::Tensor> w = mnist.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::yield();
-    } while (srvr_ready_flag != round);
+    } while (regMem.srvr_ready_flag != round);
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
 
@@ -194,7 +174,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
 
     size_t numel_server = REG_SZ_DATA / sizeof(float);
     torch::Tensor flat_tensor = torch::from_blob(
-        srvr_w, 
+        regMem.srvr_w, 
         {static_cast<long>(numel_server)}, 
         torch::kFloat32
     ).clone();
@@ -221,24 +201,15 @@ std::vector<torch::Tensor> run_fltrust_clnt(
       Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
     }
     float* all_tensors_float = all_tensors.data_ptr<float>();
-    std::memcpy(clnt_w, all_tensors_float, total_bytes_g);
+    std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
     unsigned int total_bytes_g_int = static_cast<unsigned int>(REG_SZ_DATA);
     rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
 
-    // Print the first few updated weights sent by client
-    // {
-    //   std::ostringstream oss;
-    //   oss << "Updated weights sent by client:" << "\n";
-    //   oss << all_tensors.slice(0, 0, std::min<size_t>(all_tensors.numel(), 10)) << "\n";
-    //   Logger::instance().log(oss.str());
-    // }
-
     // Update the ready flag
-    clnt_ready_flag = round;
+    regMem.clnt_ready_flag = round;
     rdma_ops.exec_rdma_write(sizeof(int), CLNT_READY_IDX);
 
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
-
   }
 
   return w;

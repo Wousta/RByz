@@ -5,6 +5,7 @@
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/logger.hpp"
 #include "global/globalConstants.hpp"
+#include "entities/clnt.hpp"
 #include <atomic>
 #include <vector>
 #include <thread>
@@ -18,6 +19,7 @@ struct ClientDataRbyz {
     float* updates;
     float* loss;        // Single value
     float* error_rate;  // Single value
+    int local_step = 0;
 
     // Dataset data used
     size_t images_mem_size;
@@ -66,10 +68,8 @@ void writeErrorAndLoss(
 
 void runRByzClient(
     std::vector<torch::Tensor>& w,
-    std::atomic<int> &clnt_CAS,
     RegisteredMnistTrain& mnist,
-    float* clnt_w,
-    float* loss_and_err);
+    RegMemClnt& regMem);
 
 void runRByzServer(
     int n_clients,

@@ -155,6 +155,7 @@ int main(int argc, char *argv[]) {
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
+    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(registered_mnist->getRegisteredImages()));
     reg_info[i].addr_locs.push_back(castI(registered_mnist->getRegisteredLabels()));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
@@ -164,6 +165,7 @@ int main(int argc, char *argv[]) {
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(REG_SZ_DATA);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(registered_mnist->getRegisteredImagesMemSize());
@@ -354,7 +356,7 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
-  
+
   for (const auto &flat_client_update : client_updates) {
     // Compute cosine similarity
     torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
