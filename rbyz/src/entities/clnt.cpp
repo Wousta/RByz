@@ -8,8 +8,8 @@
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "global/logger.hpp"
-#include "entities/clnt.hpp"
 #include "rbyzAux.hpp"
+#include "entities.hpp"
 
 //#include <logger.hpp>
 #include <lyra/lyra.hpp>
@@ -19,13 +19,6 @@
 #include <vector>
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
-
-std::vector<torch::Tensor> run_fltrust_clnt(
-  int rounds,
-  RdmaOps& rdma_ops,
-  BaseMnistTrain& mnist,
-  RegMemClnt& regMem
-);
 
 void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTrain& mnist) {
   reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
@@ -56,107 +49,10 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 }
 
-int main(int argc, char* argv[]) {
-  Logger::instance().log("Client starting execution\n");
-
-  int id;
-  int n_clients;
-  bool load_model = false;
-  std::string model_file = "mnist_model_params.pt";
-  std::string srvr_ip;
-  std::string port;
-  unsigned int posted_wqes;
-  AddrInfo addr_info;
-  RegInfo reg_info;
-  std::shared_ptr<ltncyVec> latency = std::make_shared<ltncyVec>();
-  latency->reserve(10);
-  auto cli = lyra::cli() |
-    lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
-    lyra::opt(port, "port")["-p"]["--port"]("port") |
-    lyra::opt(id, "id")["-p"]["--id"]("id") |
-    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
-    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
-    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
-  auto result = cli.parse({ argc, argv });
-  if (!result) {
-    std::cerr << "Error in command line: " << result.errorMessage()
-      << std::endl;
-    return 1;
-  }
-
-  Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
-  Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
-  Logger::instance().log("Client: port = " + port + "\n");
-  addr_info.ipv4_addr = strdup(srvr_ip.c_str());
-  addr_info.port = strdup(port.c_str());
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 700));
-
-  // Objects for training fltrust and rbyz
-  std::unique_ptr<BaseMnistTrain> regular_mnist =
-      std::make_unique<RegularMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
-  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
-    std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
-
-  // Struct to hold the registered data
-  RegMemClnt regMem;
-  registerClntMemory(reg_info, regMem, *registered_mnist);
-
-  // connect to server
-  RcConn conn;
-  conn.connect(addr_info, reg_info);
-  RdmaOps rdma_ops({conn.getConnData()});
-  std:: cout << "\nClient id: " << id << " connected to server\n";
-
-  std::vector<torch::Tensor> w;
-  if (load_model) {
-    w = regular_mnist->loadModelState(model_file);
-    if (w.empty()) {
-      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
-      load_model = false;
-    } else {
-      Logger::instance().log("Successfully loaded model from file.\n");
-      printTensorSlices(w, 0, 5);
-
-      // Do one iteration of fltrust with one iteration to initialize trust scores
-      std::cout << "CLNT Running FLTrust with loaded model\n";
-      w = run_fltrust_clnt(
-        1,
-        rdma_ops,
-        *regular_mnist,
-        regMem
-      );
-      std::cout << "\nCLNT FLTrust with loaded model done\n";
-    }
-  }
-  
-  if (!load_model) {
-    w = run_fltrust_clnt(
-      GLOBAL_ITERS,
-      rdma_ops,
-      *regular_mnist,
-      regMem
-    );
-
-  }
-
-  // Run the RByz client
-  registered_mnist->copyModelParameters(regular_mnist->getModel());
-  runRByzClient(w, *registered_mnist, regMem);
-
-  free(addr_info.ipv4_addr);
-  free(addr_info.port);
-  conn.disconnect();
-
-  std::cout << "\nClient done\n";
-
-  return 0;
-}
-
-std::vector<torch::Tensor> run_fltrust_clnt(
-  int rounds,
-  RdmaOps& rdma_ops,
-  BaseMnistTrain& mnist,
-  RegMemClnt& regMem) {
+std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
+                                            RdmaOps& rdma_ops,
+                                            BaseMnistTrain& mnist,
+                                            RegMemClnt& regMem) {
 
   std::vector<torch::Tensor> w = mnist.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
@@ -213,4 +109,91 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   }
 
   return w;
+}
+
+int main(int argc, char* argv[]) {
+  Logger::instance().log("Client starting execution\n");
+
+  int id;
+  int n_clients;
+  bool load_model = false;
+  std::string model_file = "mnist_model_params.pt";
+  std::string srvr_ip;
+  std::string port;
+  unsigned int posted_wqes;
+  AddrInfo addr_info;
+  RegInfo reg_info;
+  std::shared_ptr<ltncyVec> latency = std::make_shared<ltncyVec>();
+  latency->reserve(10);
+  auto cli = lyra::cli() |
+    lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
+    lyra::opt(port, "port")["-p"]["--port"]("port") |
+    lyra::opt(id, "id")["-p"]["--id"]("id") |
+    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+    lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
+    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
+  auto result = cli.parse({ argc, argv });
+  if (!result) {
+    std::cerr << "Error in command line: " << result.errorMessage()
+      << std::endl;
+    return 1;
+  }
+
+  Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
+  Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
+  Logger::instance().log("Client: port = " + port + "\n");
+  addr_info.ipv4_addr = strdup(srvr_ip.c_str());
+  addr_info.port = strdup(port.c_str());
+
+  // Sleep to not overload the server when all clients connect
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 700));
+
+  // Objects for training fltrust and rbyz
+  std::unique_ptr<BaseMnistTrain> regular_mnist =
+      std::make_unique<RegularMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
+  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
+    std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
+
+  // Struct to hold the registered data
+  RegMemClnt regMem;
+  registerClntMemory(reg_info, regMem, *registered_mnist);
+
+  // connect to server
+  RcConn conn;
+  conn.connect(addr_info, reg_info);
+  RdmaOps rdma_ops({conn.getConnData()});
+  std:: cout << "\nClient id: " << id << " connected to server\n";
+
+  std::vector<torch::Tensor> w;
+  if (load_model) {
+    w = regular_mnist->loadModelState(model_file);
+    if (w.empty()) {
+      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
+      load_model = false;
+    } else {
+      Logger::instance().log("Successfully loaded model from file.\n");
+      printTensorSlices(w, 0, 5);
+
+      // Do one iteration of fltrust with one iteration to initialize trust scores
+      std::cout << "CLNT Running FLTrust with loaded model\n";
+      w = run_fltrust_clnt(1, rdma_ops, *regular_mnist, regMem);
+      std::cout << "\nCLNT FLTrust with loaded model done\n";
+    }
+  }
+  
+  if (!load_model) {
+    w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *regular_mnist, regMem);
+  }
+
+  // Run the RByz client
+  registered_mnist->copyModelParameters(regular_mnist->getModel());
+  runRByzClient(w, *registered_mnist, regMem);
+
+  free(addr_info.ipv4_addr);
+  free(addr_info.port);
+  conn.disconnect();
+
+  std::cout << "\nClient done\n";
+
+  return 0;
 }

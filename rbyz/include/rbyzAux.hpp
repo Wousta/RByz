@@ -5,41 +5,11 @@
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/logger.hpp"
 #include "global/globalConstants.hpp"
-#include "entities/clnt.hpp"
+#include "entities.hpp"
 #include <atomic>
 #include <vector>
 #include <thread>
 #include <float.h>
-
-// Used by the server to reference the registered data of each client
-struct ClientDataRbyz {
-    int clnt_index;
-    std::atomic<int> clnt_CAS;
-    float trust_score;
-    float* updates;
-    float* loss;        // Single value
-    float* error_rate;  // Single value
-    int local_step = 0;
-
-    // Dataset data used
-    size_t images_mem_size;
-    size_t labels_mem_size;
-    std::vector<size_t> inserted_indices;  // Indices the server put a test into that might be in the forward pass table
-
-    // Forward pass data used
-    size_t forward_pass_mem_size;
-    size_t forward_pass_indices_mem_size;
-    float* forward_pass;
-    uint32_t* forward_pass_indices;
-
-    ~ClientDataRbyz() {
-        // Only free memory that was allocated with malloc/new
-        if (updates) free(updates);
-        if (loss) free(loss);
-        if (error_rate) free(error_rate);
-        if (forward_pass_indices) free(forward_pass_indices);
-    }
-};
 
 void aquireCASLock(
     int clnt_idx, 
