@@ -29,13 +29,11 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   labels_mem_size = registered_samples * sizeof(int64_t);
   forward_pass_mem_size = registered_samples * values_per_sample * bytes_per_value;
   forward_pass_indices_mem_size = registered_samples * sizeof(uint32_t);
-  registered_images = reinterpret_cast<float*>(malloc(images_mem_size));
-  registered_labels = reinterpret_cast<int64_t*>(malloc(labels_mem_size));
-  forward_pass = reinterpret_cast<float*>(malloc(forward_pass_mem_size));
-  forward_pass_indices = reinterpret_cast<uint32_t*>(malloc(forward_pass_indices_mem_size));
-  if (!registered_images || !registered_labels || !forward_pass || !forward_pass_indices) {
-    throw std::runtime_error("Failed to allocate memory for registered dataset");
-  }
+
+  cudaHostAlloc((void**)&registered_images, images_mem_size, cudaHostAllocDefault);
+  cudaHostAlloc((void**)&registered_labels, labels_mem_size, cudaHostAllocDefault);
+  cudaHostAlloc((void**)&forward_pass, forward_pass_mem_size, cudaHostAllocDefault);
+  cudaHostAlloc((void**)&forward_pass_indices, forward_pass_indices_mem_size, cudaHostAllocDefault);
 
   Logger::instance().log("registered_samples: " + std::to_string(registered_samples) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " +
@@ -82,11 +80,80 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
 }
 
 RegisteredMnistTrain::~RegisteredMnistTrain() {
-  free(registered_images);
-  free(registered_labels);
-  free(forward_pass);
-  free(forward_pass_indices);
-  Logger::instance().log("Freed registered memory for dataset\n");
+  cudaFreeHost(registered_images);
+  cudaFreeHost(registered_labels);
+  cudaFreeHost(forward_pass);
+  cudaFreeHost(forward_pass_indices);
+  Logger::instance().log("Freed Cuda registered memory for dataset\n");
+}
+
+/**
+ * Processes batch output and stores per-sample loss and error values efficiently.
+ * 
+ * @param output Model output tensor (logits)
+ * @param targets Ground truth labels
+ * @param device Device where tensors reside (CPU/CUDA)
+ * @param forward_pass Buffer to store loss and error values
+ * @param forward_pass_size Size of forward_pass buffer in number of float elements
+ * @param loss_idx Reference to current loss index counter
+ * @param error_idx Reference to current error index counter
+ */
+void RegisteredMnistTrain::processBatchResults(
+    const torch::Tensor& output, 
+    const torch::Tensor& targets, 
+    torch::Device device,
+    float* forward_pass,
+    size_t forward_pass_size,
+    size_t& loss_idx,
+    size_t& error_idx) {
+    
+  // Calculate loss for each example in the batch at once
+  auto individual_losses = torch::nll_loss(output, targets, {}, torch::Reduction::None);
+  auto predictions = output.argmax(1);
+  auto correct_predictions = predictions.eq(targets);
+
+  // Copy results to CPU if on GPU
+  torch::Tensor cpu_losses, cpu_correct;
+  if (device.is_cuda()) {
+    cpu_losses = torch::empty_like(individual_losses, torch::kCPU);
+    cpu_correct = torch::empty_like(correct_predictions, torch::kCPU);
+    
+    cudaMemcpyAsync(
+        cpu_losses.data_ptr<float>(),
+        individual_losses.data_ptr<float>(),
+        individual_losses.numel() * sizeof(float),
+        cudaMemcpyDeviceToHost,
+        memcpy_stream_A
+    );
+    
+    cudaMemcpyAsync(
+        cpu_correct.data_ptr<bool>(),
+        correct_predictions.data_ptr<bool>(),
+        correct_predictions.numel() * sizeof(bool),
+        cudaMemcpyDeviceToHost,
+        memcpy_stream_B
+    );
+    
+    cudaDeviceSynchronize();
+  } else {
+    cpu_losses = individual_losses;
+    cpu_correct = correct_predictions;
+  }
+
+  // Copy values to forward_pass buffer
+  auto losses_accessor = cpu_losses.accessor<float, 1>();
+  auto correct_accessor = cpu_correct.accessor<bool, 1>();
+  
+  for (size_t i = 0; i < cpu_losses.size(0); ++i) {
+    if (loss_idx < forward_pass_size / 2 && error_idx < forward_pass_size) {
+      forward_pass[loss_idx] = losses_accessor[i];
+      forward_pass[error_idx] = correct_accessor[i] ? 0.0f : 1.0f;
+      loss_idx++;
+      error_idx++;
+    } else {
+      throw std::runtime_error("Forward pass buffer overflow");
+    }
+  }
 }
 
 void RegisteredMnistTrain::train(size_t epoch, 
@@ -159,30 +226,7 @@ void RegisteredMnistTrain::train(size_t epoch,
 
     auto output = model.forward(data);
 
-    for (size_t i = 0; i < batch.size(); ++i) {
-      // Extract single example and prediction
-      auto single_output = output[i].unsqueeze(0); // Add batch dimension back
-      auto single_target = targets[i].unsqueeze(0);
-      
-      // Calculate individual loss
-      auto individual_loss = torch::nll_loss(single_output, single_target);
-      float loss_value = individual_loss.template item<float>();
-      
-      // Calculate individual prediction and error
-      auto pred = single_output.argmax(1);
-      bool is_correct = pred.eq(single_target).item<bool>();
-      float error = is_correct ? 0.0f : 1.0f;
-      
-      // Store the loss and error in the forward_pass buffer
-      if (loss_idx < forward_pass_size / 2 && error_idx < forward_pass_size) {
-        forward_pass[loss_idx] = loss_value;
-        forward_pass[error_idx] = error;
-        loss_idx++;
-        error_idx++;
-      } else {
-        throw std::runtime_error("Forward pass buffer overflow");
-      }
-    }
+    processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
 
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
@@ -246,7 +290,9 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
 
   torch::optim::SGD optimizer(model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
 
-  std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
+  if (round % 4 == 0) {
+    std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
+  }
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, optimizer, subset_size);

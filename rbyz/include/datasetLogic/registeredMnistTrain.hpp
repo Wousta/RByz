@@ -26,6 +26,15 @@ private:
   
   using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> registered_loader;
+
+  void processBatchResults(
+    const torch::Tensor& output, 
+    const torch::Tensor& targets, 
+    torch::Device device,
+    float* forward_pass,
+    size_t forward_pass_size,
+    size_t& loss_idx,
+    size_t& error_idx);
       
   void train(
       size_t epoch, 
