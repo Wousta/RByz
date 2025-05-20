@@ -43,13 +43,13 @@ struct RegMemClnt {
   float* loss_and_err;
   std::atomic<int> clnt_CAS;
   std::atomic<int> local_step;
+  std::atomic<int> round;
 
-  RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0) {
+  RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0), round(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
     loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
   }
-
 
   ~RegMemClnt() {
     free(srvr_w);
@@ -70,6 +70,7 @@ struct ClientDataRbyz {
     float* loss;        // Single value
     float* error_rate;  // Single value
     int local_step = 0;
+    int round = 0;
 
     // Dataset data used
     size_t images_mem_size;

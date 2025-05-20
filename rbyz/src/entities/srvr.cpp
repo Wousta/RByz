@@ -28,6 +28,52 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
+/**
+ * @brief Prepares RDMA registration configuration
+ */
+void prepareRdmaRegistration(
+    int n_clients,
+    std::vector<RegInfo>& reg_info,
+    RegMemSrvr &regMem,
+    std::vector<ClientDataRbyz>& clnt_data_vec,
+    RegisteredMnistTrain &registered_mnist) {
+
+  // Configure memory registration for each client
+  for (int i = 0; i < n_clients; i++) {
+    // Register memory addresses
+    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));
+    reg_info[i].addr_locs.push_back(castI(regMem.srvr_w));
+    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
+    reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
+    reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
+    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
+    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
+    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
+    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredImages()));
+    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredLabels()));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
+
+    // Set memory sizes
+    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(REG_SZ_DATA);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(REG_SZ_DATA);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredImagesMemSize());
+    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredLabelsMemSize());
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
+
+    // Set permissions for remote access
+    reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
+                            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+  }
+}
+
 std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1) {
   if (min_sz == -1) {
     min_sz = n_clients;
@@ -250,50 +296,6 @@ void allocateServerMemory(
   }
 }
 
-/**
- * @brief Prepares RDMA registration configuration
- */
-void prepareRdmaRegistration(
-    int n_clients,
-    std::vector<RegInfo>& reg_info,
-    RegMemSrvr &regMem,
-    std::vector<ClientDataRbyz>& clnt_data_vec,
-    RegisteredMnistTrain &registered_mnist) {
-
-  // Configure memory registration for each client
-  for (int i = 0; i < n_clients; i++) {
-    // Register memory addresses
-    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));
-    reg_info[i].addr_locs.push_back(castI(regMem.srvr_w));
-    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
-    reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
-    reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
-    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
-    reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
-    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredImages()));
-    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredLabels()));
-    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
-    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
-
-    // Set memory sizes
-    reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(REG_SZ_DATA);
-    reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(REG_SZ_DATA);
-    reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredImagesMemSize());
-    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredLabelsMemSize());
-    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
-    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
-
-    // Set permissions for remote access
-    reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
-                            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
-  }
-}
-
 int main(int argc, char *argv[]) {
   Logger::instance().log("Server starting RBYZ\n");
   int n_clients;
@@ -345,7 +347,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < n_clients; i++) {
     conns[i].acceptConn(addr_info, reg_info[i]);
     conn_data.push_back(conns[i].getConnData());
-    std::cout << "\nConnected to client " << i << "\n";
+    std::cout << "Connected to client " << i << "\n";
   }
 
   std::vector<torch::Tensor> w;

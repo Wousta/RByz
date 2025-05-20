@@ -11,12 +11,12 @@
 #include <thread>
 #include <float.h>
 
-void aquireCASLock(
+void aquireClntCASLock(
     int clnt_idx, 
     RdmaOps& rdma_ops,
     std::atomic<int> &clnt_CAS);
 
-void releaseCASLock(
+void releaseClntCASLock(
     int clnt_idx, 
     RdmaOps& rdma_ops,
     std::atomic<int> &clnt_CAS);

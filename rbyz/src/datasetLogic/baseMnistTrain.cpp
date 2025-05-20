@@ -46,10 +46,10 @@ BaseMnistTrain::~BaseMnistTrain() {
 torch::Device BaseMnistTrain::init_device() {
   try {
     if (torch::cuda::is_available()) {
-      std::cout << "CUDA is available, using GPU" << std::endl;
+      Logger::instance().log("CUDA is available, using GPU\n");
       return torch::Device(torch::kCUDA);
     } else {
-      std::cout << "CUDA is not available, using CPU" << std::endl;
+      Logger::instance().log("CUDA is not available, using CPU\n");
       return torch::Device(torch::kCPU);
     }
   } catch (const c10::Error& e) {

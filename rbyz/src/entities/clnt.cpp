@@ -28,6 +28,7 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.addr_locs.push_back(castI(regMem.loss_and_err));
   reg_info.addr_locs.push_back(castI(&regMem.clnt_CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
+  reg_info.addr_locs.push_back(castI(&regMem.round));
   reg_info.addr_locs.push_back(castI(mnist.getRegisteredImages()));
   reg_info.addr_locs.push_back(castI(mnist.getRegisteredLabels()));
   reg_info.addr_locs.push_back(castI(mnist.getForwardPass()));
@@ -37,6 +38,7 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.data_sizes.push_back(REG_SZ_DATA);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_CLNT);
+  reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
@@ -147,9 +149,13 @@ int main(int argc, char* argv[]) {
 
   // connect to server
   RcConn conn;
-  conn.connect(addr_info, reg_info);
+  int ret = conn.connect(addr_info, reg_info);
+  if (ret != 0) {
+    throw std::runtime_error("Failed to connect to server");
+  }
   RdmaOps rdma_ops({conn.getConnData()});
   std:: cout << "\nClient id: " << id << " connected to server\n";
+  Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
   std::vector<torch::Tensor> w;
   if (load_model) {

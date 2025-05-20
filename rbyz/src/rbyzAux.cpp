@@ -124,12 +124,12 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   Logger::instance().log("Client: Initial loss and error values\n");
   regMem.clnt_CAS.store(MEM_FREE);
 
-  for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
+  while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
 
     // TODO: properly do local step logic, sampling all data before training is too slow?
     for (int step = 0; step < LOCAL_STEPS_RBYZ; step++) {
-      regMem.local_step.store(round);
-      w = mnist.runMnistTrain(round, w);
+      regMem.local_step.store(step);
+      w = mnist.runMnistTrain(step, w);
     }
 
     // Store the updated weights in clnt_w
@@ -153,8 +153,14 @@ void runRByzClient(std::vector<torch::Tensor> &w,
 
     // Reset the memory ready flag
     releaseCASLock(regMem);
-    
+
+    regMem.round.store(regMem.round.load() + 1);
   }
+
+  // Notify the server that the client is done
+  regMem.round.store(GLOBAL_ITERS_RBYZ);
+  rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
+  Logger::instance().log("Client: Finished RByz\n");
 }
 
 void runRByzServer(int n_clients,
@@ -176,6 +182,7 @@ void runRByzServer(int n_clients,
   for (int i = 0; i < n_clients; i++) {
     rdma_ops.exec_rdma_write(MIN_SZ, SRVR_READY_IDX, i);
   }
+  Logger::instance().log("Server: All clients notified\n");
   
   for (int round = 1; round < GLOBAL_ITERS_RBYZ; round++) {
     // Read the error and loss from the clients
@@ -204,6 +211,21 @@ void runRByzServer(int n_clients,
 
         // TODO: to avoid the server running all rounds, it has to check if the client has advanced
         j++;
+      }
+    }
+  }
+
+  // TODO: Wait for all clients to finish by reading their round
+  Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");
+  for (int i = 0; i < n_clients; i++) {
+    bool client_done = false;
+    while (!client_done) {
+      // Check if client has reached final round
+      if (clnt_data_vec[i].round == GLOBAL_ITERS_RBYZ) {
+        client_done = true;
+        Logger::instance().log("Server: Client " + std::to_string(i) + " has completed all iterations\n");
+      } else {
+        std::this_thread::yield();
       }
     }
   }
