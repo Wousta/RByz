@@ -5,7 +5,7 @@
 #include <mutex>
 #include <string>
 #include <ctime>
-#include <unistd.h> // for getpid()
+#include <unistd.h>
 
 class Logger {
 public:
@@ -29,7 +29,6 @@ public:
 private:
     Logger() {
         // Create the logs/ directory if it does not exist.
-        // (This is a quick hack; in production code consider using a cross-platform API.)
         system("mkdir -p logs");
 
         // Use the process ID to create a unique log file name.

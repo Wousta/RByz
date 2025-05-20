@@ -57,3 +57,5 @@ rbyz/clients_dcldelta*
 RcConn/build
 rdma-api/build
 pass.txt
+.clang-format
+rbyz/.vscode

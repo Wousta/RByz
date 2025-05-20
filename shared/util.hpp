@@ -12,7 +12,8 @@
 
 struct NetFlags {
   unsigned int send_flags = IBV_SEND_SIGNALED;
-  bool is_sync = true;
+  //unsigned int send_flags; // Do not specify if is_sync is false
+  bool is_sync = true; // Set this to false 
   unsigned int get() const { return send_flags; }
 };
 struct AddrInfo {

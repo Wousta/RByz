@@ -1,39 +1,51 @@
 #pragma once
 
-#include "../include/rdmaOps.hpp"
-#include "../include/logger.hpp"
-#include "../include/globalConstants.hpp"
+#include "rdmaOps.hpp"
+#include "datasetLogic/baseMnistTrain.hpp"
+#include "datasetLogic/registeredMnistTrain.hpp"
+#include "global/logger.hpp"
+#include "global/globalConstants.hpp"
+#include "entities.hpp"
 #include <atomic>
 #include <vector>
 #include <thread>
 #include <float.h>
 
-// Forward declaration of ClientData struct (since it's defined in srvr.cpp)
-struct ClientData {
-    int clnt_index;
-    float trust_score;
-    float* updates;
-    float* loss;
-    float* error_rate;
-};
-
-void aquireCASLock(
+void aquireClntCASLock(
     int clnt_idx, 
     RdmaOps& rdma_ops,
-    std::vector<std::atomic<int>>& clnt_CAS);
+    std::atomic<int> &clnt_CAS);
 
-void releaseCASLock(
+void releaseClntCASLock(
     int clnt_idx, 
     RdmaOps& rdma_ops,
-    std::vector<std::atomic<int>>& clnt_CAS);
+    std::atomic<int> &clnt_CAS);
 
 void readClntsRByz(
     int n_clients,
     RdmaOps& rdma_ops,
-    std::vector<std::atomic<int>>& clnt_CAS);
+    std::vector<ClientDataRbyz> &clnt_data_vec);
 
 void updateTS(
-    std::vector<ClientData>& clnt_data_vec,
-    ClientData& clnt_data, 
+    std::vector<ClientDataRbyz>& clnt_data_vec,
+    ClientDataRbyz& clnt_data, 
     float srvr_loss, 
     float srvr_error_rate);
+
+void writeErrorAndLoss(
+  BaseMnistTrain& mnist,
+  float* clnt_w);
+
+void runRByzClient(
+    std::vector<torch::Tensor>& w,
+    RegisteredMnistTrain& mnist,
+    RegMemClnt& regMem,
+    RdmaOps& rdma_ops);
+
+void runRByzServer(
+    int n_clients,
+    std::vector<torch::Tensor>& w,
+    RegisteredMnistTrain& mnist,
+    RdmaOps& rdma_ops,
+    RegMemSrvr& regMem,
+    std::vector<ClientDataRbyz>& clnt_data_vec);
