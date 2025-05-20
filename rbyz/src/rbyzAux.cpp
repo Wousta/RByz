@@ -171,11 +171,16 @@ void runRByzServer(int n_clients,
                     std::vector<ClientDataRbyz>& clnt_data_vec) {
   
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
+  
   // First write updates to server memory
   auto all_tensors = flatten_tensor_vector(w);
   size_t total_bytes = all_tensors.numel() * sizeof(float);
   float *global_w = all_tensors.data_ptr<float>();
   std::memcpy(regMem.srvr_w, global_w, total_bytes);
+
+  // Create VD splits and do first write of VD
+  RegMnistSplitter reg_mnist_splitter(n_clients, mnist, clnt_data_vec);
+  std::vector<int> offset_indices = reg_mnist_splitter.generateDerangement();
   
   // Signal to clients that the server is ready
   regMem.srvr_ready_flag = SRVR_READY_RBYZ;

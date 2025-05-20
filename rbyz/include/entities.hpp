@@ -47,7 +47,7 @@ struct RegMemClnt {
 
   RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0), round(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
-    clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
+    clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
   }
 

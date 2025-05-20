@@ -61,6 +61,7 @@ public:
   size_t getForwardPassIndicesMemSize() { return forward_pass_indices_mem_size; }
   size_t getRegisteredSamplesCount() { return registered_samples; }
   size_t getDataSize() { return data_size; }
+  size_t getLabelSize() { return sizeof(int64_t); }
   size_t getValuesPerSample() { return values_per_sample; }
   size_t getBytesPerValue() { return bytes_per_value; }
   

@@ -13,7 +13,7 @@ inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 // RBYZ
 inline constexpr int GLOBAL_ITERS_RBYZ = 3;
 inline constexpr int LOCAL_STEPS_RBYZ = 5;
-inline constexpr uint64_t REG_SZ_CLNT = REG_SZ_DATA + 2 * sizeof(float);
+inline constexpr int VD_SPLIT = 5;  // will divide the VD per client, to determine how many samples to use per VD for each client.
 constexpr int MEM_FREE = 0; 
 constexpr int MEM_OCCUPIED = 1;
 constexpr int SRVR_READY_RBYZ = -1;

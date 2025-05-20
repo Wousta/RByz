@@ -3,6 +3,7 @@
 #include "rdmaOps.hpp"
 #include "datasetLogic/baseMnistTrain.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
+#include "datasetLogic/regMnistSplitter.hpp"
 #include "global/logger.hpp"
 #include "global/globalConstants.hpp"
 #include "entities.hpp"
