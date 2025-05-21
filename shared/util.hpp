@@ -11,9 +11,9 @@
 // This file includes all struct that the user need to use the api
 
 struct NetFlags {
-  unsigned int send_flags = IBV_SEND_SIGNALED;
-  //unsigned int send_flags; // Do not specify if is_sync is false
-  bool is_sync = true; // Set this to false 
+  //unsigned int send_flags = IBV_SEND_SIGNALED;
+  unsigned int send_flags; // Do not specify if is_sync is false
+  bool is_sync = false; // Set this to false 
   unsigned int get() const { return send_flags; }
 };
 struct AddrInfo {

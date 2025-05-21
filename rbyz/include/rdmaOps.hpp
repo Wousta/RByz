@@ -5,6 +5,7 @@
 #include "rdma-api.hpp"
 #include "util.hpp"
 #include "tensorOps.hpp"
+#include "datasetLogic/registeredMnistTrain.hpp"
 
 #include <vector>
 
@@ -14,6 +15,8 @@ class RdmaOps {
   private:
   std::vector<comm_info> conn_data;
   std::shared_ptr<ltncyVec> latency;
+  NetFlags netflags_sync;
+  NetFlags netflags_no_sync;
   unsigned int posted_wqes;
 
   public:
