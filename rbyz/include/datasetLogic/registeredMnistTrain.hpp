@@ -2,28 +2,33 @@
 
 #include "baseMnistTrain.hpp"
 #include "registeredMNIST.hpp"
+#include "structs.h"
 #include <memory>
 
+/**
+ * @brief RegisteredMnistTrain class for handling registered MNIST dataset training.
+ * 
+ * Memory layout per sample:
+ * [1 uint32_t (original index)][1 int64_t (label)][784 floats (pixels)]
+ */
 class RegisteredMnistTrain : public BaseMnistTrain {
 private:  
-  // Memory layout:
-  // For each image i:
-  // - Pixels: registered_images[i * data_size] to registered_images[i * data_size + 783]
-  // - Original index: reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784])
-  float* registered_images; 
-  int64_t* registered_labels;
-  float* forward_pass; // CHANGE TO ERROR AND LOSS
-  uint32_t* forward_pass_indices;
-  size_t images_mem_size;
-  size_t labels_mem_size;
-  size_t forward_pass_mem_size;
-  size_t forward_pass_indices_mem_size;
-  size_t registered_samples; 
   std::unique_ptr<RegisteredMNIST> registered_dataset;
-  const size_t data_size = 785; // 784 pixels + 1 index
-  const size_t values_per_sample = 2; // 2 values (error and loss) in the forward pass
-  const size_t bytes_per_value = sizeof(float); // For the forward pass
-  
+  RegMnistTrainData data_info;
+  ForwardPassData forward_pass_info;
+
+  // Frequently accessed references extracted for convenience
+  void* & reg_data = data_info.reg_data;
+  size_t & num_samples = data_info.num_samples;
+  size_t & reg_data_size = data_info.reg_data_size;
+  const size_t & sample_size = data_info.sample_size;
+  const size_t & index_size = data_info.index_size;
+  const size_t & label_size = data_info.label_size;
+  float* & forward_pass = forward_pass_info.forward_pass;
+  uint32_t* & forward_pass_indices = forward_pass_info.forward_pass_indices;
+  size_t & forward_pass_mem_size = forward_pass_info.forward_pass_mem_size;
+  size_t & forward_pass_indices_mem_size = forward_pass_info.forward_pass_indices_mem_size;
+
   using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> registered_loader;
 
@@ -43,6 +48,11 @@ private:
       torch::optim::Optimizer& optimizer, 
       size_t dataset_size);
 
+  // Helper method to get properly cast base pointer for a given image index
+  char* getBasePointerForIndex(size_t image_idx) const {
+    return static_cast<char*>(reg_data) + (image_idx * sample_size);
+  }
+
 public:
   RegisteredMnistTrain(int worker_id, int num_workers, int64_t subset_size);
   ~RegisteredMnistTrain();
@@ -51,43 +61,36 @@ public:
   void runInference() override;
   
   // Getters for registered memory
-  float* getRegisteredImages() { return registered_images; }
-  int64_t* getRegisteredLabels() { return registered_labels; }
+  void* getRegisteredData() { return reg_data; }
+  size_t getRegisteredDataSize() { return reg_data_size; }
+  size_t getNumSamples() { return num_samples; }
+  size_t getSampleSize() { return sample_size; }
+  size_t getLabelSize() { return label_size; }
   float* getForwardPass() { return forward_pass; }
   uint32_t* getForwardPassIndices() { return forward_pass_indices; }
-  size_t getRegisteredImagesMemSize() { return images_mem_size; }
-  size_t getRegisteredLabelsMemSize() { return labels_mem_size; }
   size_t getForwardPassMemSize() { return forward_pass_mem_size; }
   size_t getForwardPassIndicesMemSize() { return forward_pass_indices_mem_size; }
-  size_t getRegisteredSamplesCount() { return registered_samples; }
-  size_t getDataSize() { return data_size; }
-  size_t getLabelSize() { return sizeof(int64_t); }
-  size_t getValuesPerSample() { return values_per_sample; }
-  size_t getBytesPerValue() { return bytes_per_value; }
-  
-  float* getImagePixels(size_t image_idx) {
-    if (image_idx >= registered_samples) {
-      throw std::out_of_range("Image index out of range");
+  size_t getValuesPerSample() { return forward_pass_info.values_per_sample; }
+  size_t getBytesPerValue() { return forward_pass_info.bytes_per_value; }
+
+  void* getSample(size_t image_idx) {
+    if (image_idx >= num_samples) {
+      throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSample()");
     }
 
-    return registered_images + (image_idx * data_size);
+    return getBasePointerForIndex(image_idx);
   }
 
-  int64_t getImageLabel(size_t image_idx) {
-    if (image_idx >= registered_samples) {
-      throw std::out_of_range("Image index out of range");
-    }
-
-    return registered_labels[image_idx];
+  uint32_t* getOriginalIndex(size_t image_idx) {
+    return reinterpret_cast<uint32_t*>(getBasePointerForIndex(image_idx));
   }
 
-  uint32_t getOriginalIndex(size_t image_idx) {
-      uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[image_idx * data_size + 784]);
-      return *index_ptr;
+  int64_t* getLabel(size_t image_idx) {
+    return reinterpret_cast<int64_t*>(getBasePointerForIndex(image_idx) + index_size);
   }
 
-  void setOriginalIndex(size_t image_idx, uint32_t original_idx) {
-      uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[image_idx * data_size + 784]);
-      *index_ptr = original_idx;
+  float* getImage(size_t image_idx) {
+    return reinterpret_cast<float*>(getBasePointerForIndex(image_idx) + index_size + label_size);
   }
+
 };

@@ -67,14 +67,13 @@ struct ClientDataRbyz {
     std::atomic<int> clnt_CAS;
     float trust_score;
     float* updates;
-    float* loss;        // Single value
-    float* error_rate;  // Single value
+    float* loss;       
+    float* error_rate;  
     int local_step = 0;
     int round = 0;
 
     // Dataset data used
-    size_t images_mem_size;
-    size_t labels_mem_size;
+    size_t dataset_size;  // Size of the registered dataset
     std::vector<size_t> inserted_indices;  // Indices the server put a test into that might be in the forward pass table
 
     // Forward pass data used

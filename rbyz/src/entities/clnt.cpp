@@ -29,8 +29,7 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.addr_locs.push_back(castI(&regMem.clnt_CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
-  reg_info.addr_locs.push_back(castI(mnist.getRegisteredImages()));
-  reg_info.addr_locs.push_back(castI(mnist.getRegisteredLabels()));
+  reg_info.addr_locs.push_back(castI(mnist.getRegisteredData()));
   reg_info.addr_locs.push_back(castI(mnist.getForwardPass()));
   reg_info.addr_locs.push_back(castI(mnist.getForwardPassIndices()));
 
@@ -42,8 +41,7 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(mnist.getRegisteredImagesMemSize());
-  reg_info.data_sizes.push_back(mnist.getRegisteredLabelsMemSize());
+  reg_info.data_sizes.push_back(mnist.getRegisteredDataSize());
   reg_info.data_sizes.push_back(mnist.getForwardPassMemSize());
   reg_info.data_sizes.push_back(mnist.getForwardPassIndicesMemSize());
 

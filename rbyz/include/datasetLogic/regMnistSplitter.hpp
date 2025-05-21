@@ -12,7 +12,7 @@
 /**
  * @brief Class to split the registered MNIST dataset into n_clients.
  * During RByz, the server will insert data from its registered dataset into the clients' datasets.
- * The server will split the registered dataset into n_clients Validation Datasets, 
+ * The server will split the registered dataset into n_clients Validation Datasets (VD), 
  * and each client will receive data from a different Validation Dataset in each round.
  */
 class RegMnistSplitter {
@@ -21,8 +21,7 @@ class RegMnistSplitter {
     int vd_split_size;
     RegisteredMnistTrain& mnist;
     std::vector<ClientDataRbyz>& clnt_data_vec;
-    std::vector<size_t> img_offsets;
-    std::vector<size_t> lbl_offsets;
+    std::vector<size_t> vd_indexes;              // Vector of indices for the start of each VD
 
     // Vector of integers corresponding to the indices in img_offsets and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
@@ -32,43 +31,31 @@ class RegMnistSplitter {
     public:
     RegMnistSplitter(int n_clients, RegisteredMnistTrain& mnist, std::vector<ClientDataRbyz>& clnt_data_vec)
         : n_clients(n_clients), mnist(mnist), clnt_data_vec(clnt_data_vec), 
-          img_offsets(n_clients), lbl_offsets(n_clients), prev_offsets_arrangement(n_clients),
+          vd_indexes(n_clients), prev_offsets_arrangement(n_clients),
           rng((static_cast<unsigned int>(std::time(nullptr)))) {
 
         for (int i = 0; i < n_clients; i++) {
             prev_offsets_arrangement[i] = i;
         }
 
-        // Split the server registered data into n_clients with offsets (indices)
-        size_t srvr_samples_count = mnist.getRegisteredSamplesCount();
+        // Split the server registered data into n_clients VDs
+        size_t vd_size = mnist.getNumSamples() / n_clients;
 
-        size_t vd_size = srvr_samples_count / n_clients;
-        size_t data_size = mnist.getDataSize();
-        size_t labels_size = mnist.getLabelSize();
-        
         for (int i = 0; i < n_clients; i++) {
-            img_offsets[i] = i * vd_size * data_size;
-            lbl_offsets[i] = i * vd_size * labels_size;
-            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(img_offsets[i]) + "\n");
+            vd_indexes[i] = i * vd_size;
+            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i]) + "\n");
         }
 
+        // For each VD, only a part of the data will be used
         vd_split_size = vd_size / VD_SPLIT;
     }
 
-    std::vector<size_t> getImageOffsets(std::vector<int> derangement) {
-        std::vector<size_t> offsets;
+    std::vector<size_t> getVDIndexes(std::vector<int> derangement) {
+        std::vector<size_t> indexes;
         for (int i : derangement) {
-            offsets.push_back(img_offsets[i]);
+            indexes.push_back(vd_indexes[i]);
         }
-        return offsets;
-    }
-
-    std::vector<size_t> getLabelOffsets(std::vector<int> derangement) {
-        std::vector<size_t> offsets;
-        for (int i : derangement) {
-            offsets.push_back(lbl_offsets[i]);
-        }
-        return offsets;
+        return indexes;
     }
 
     /**
@@ -111,19 +98,20 @@ class RegMnistSplitter {
         return new_arrangement;
     }
 
-    std::vector<size_t> getImageOffsetsSrvr(ClientDataRbyz clnt_data, std::vector<int> derangement) {
-        int clnt_idx = clnt_data.clnt_index;
-        size_t start_offset = img_offsets[derangement[clnt_idx]];
-        size_t end_offset;
-        if (clnt_idx == n_clients - 1) {
-            end_offset = mnist.getRegisteredImagesMemSize() - mnist.getDataSize();
-        } else {
-            end_offset = img_offsets[derangement[clnt_idx + 1]] - mnist.getDataSize();
-        }
+    // TODO: redo this with new data layout
+    // std::vector<size_t> getImageOffsetsSrvr(ClientDataRbyz clnt_data, std::vector<int> derangement) {
+    //     int clnt_idx = clnt_data.clnt_index;
+    //     size_t start_offset = img_offsets[derangement[clnt_idx]];
+    //     size_t end_offset;
+    //     if (clnt_idx == n_clients - 1) {
+    //         end_offset = mnist.getRegisteredImagesMemSize() - mnist.getSampleSize();
+    //     } else {
+    //         end_offset = img_offsets[derangement[clnt_idx + 1]] - mnist.getSampleSize();
+    //     }
 
-        std::vector<size_t> offsets(vd_split_size);
-        // TODO return offsets
-        return offsets;
-    }
+    //     std::vector<size_t> offsets(vd_split_size);
+    //     // TODO return offsets
+    //     return offsets;
+    // }
 
 };
