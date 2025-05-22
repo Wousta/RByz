@@ -73,6 +73,13 @@ public:
   size_t getValuesPerSample() { return forward_pass_info.values_per_sample; }
   size_t getBytesPerValue() { return forward_pass_info.bytes_per_value; }
 
+  uint64_t getSampleOffset(size_t image_idx) {
+    if (image_idx >= num_samples) {
+      throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSampleOffset()");
+    }
+    return image_idx * sample_size;
+  }
+
   void* getSample(size_t image_idx) {
     if (image_idx >= num_samples) {
       throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSample()");

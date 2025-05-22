@@ -3,8 +3,8 @@
 inline constexpr int N_BYZ_CLNTS = 2;
 inline constexpr int GLOBAL_ITERS = 100;
 inline constexpr int DATASET_SIZE = 60000;
-inline constexpr int CLNT_SUBSET_SIZE = 11500;
-inline constexpr int SRVR_SUBSET_SIZE = 2500;
+inline constexpr int CLNT_SUBSET_SIZE = 27500;   //11500;
+inline constexpr int SRVR_SUBSET_SIZE = 5000;  //2500;
 inline constexpr float GLOBAL_LEARN_RATE = 0.01f;
 inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;
@@ -29,5 +29,6 @@ inline constexpr int CLNT_CAS_IDX = 5;
 inline constexpr int CLNT_LOCAL_STEP_IDX = 6;
 inline constexpr int CLNT_ROUND_IDX = 7;
 inline constexpr int CLNT_DATASET_IDX = 8;
+inline constexpr int SRVR_VD_SAMPLE_IDX = 8;
 inline constexpr int CLNT_FORWARD_PASS_IDX = 9;
 inline constexpr int CLNT_FORWARD_PASS_INDICES_IDX = 10;
