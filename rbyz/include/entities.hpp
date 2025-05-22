@@ -12,13 +12,16 @@ private:
 
 public:
   int srvr_ready_flag = 0;
-  float *srvr_w = reinterpret_cast<float *>(malloc(REG_SZ_DATA));
+  float *srvr_w;
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   std::vector<float *> clnt_loss_and_err;
+  void* vd_sample;
 
-  RegMemSrvr(int n_clients)
-      : n_clients(n_clients),
+  RegMemSrvr(int n_clients, size_t sample_size)
+      : vd_sample(reinterpret_cast<void *>(malloc(sample_size))),
+        srvr_w(reinterpret_cast<float *>(malloc(REG_SZ_DATA))),
+        n_clients(n_clients),
         clnt_ready_flags(n_clients, 0),
         clnt_ws(n_clients),
         clnt_loss_and_err(n_clients) {}
@@ -28,6 +31,7 @@ public:
     for (int i = 0; i < n_clients; i++) {
       free(clnt_ws[i]);
       free(clnt_loss_and_err[i]);
+      free(vd_sample);
     }
   }
 };
@@ -47,7 +51,7 @@ struct RegMemClnt {
 
   RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0), round(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
-    clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_CLNT));
+    clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
   }
 
@@ -67,14 +71,13 @@ struct ClientDataRbyz {
     std::atomic<int> clnt_CAS;
     float trust_score;
     float* updates;
-    float* loss;        // Single value
-    float* error_rate;  // Single value
+    float* loss;       
+    float* error_rate;  
     int local_step = 0;
     int round = 0;
 
     // Dataset data used
-    size_t images_mem_size;
-    size_t labels_mem_size;
+    size_t dataset_size;  // Size of the registered dataset
     std::vector<size_t> inserted_indices;  // Indices the server put a test into that might be in the forward pass table
 
     // Forward pass data used

@@ -22,52 +22,44 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
 
   SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE, subset_size);
   auto& indices = train_sampler.indices();
-  registered_samples = indices.size();
+  num_samples = indices.size();
 
-  // 28x28 = 784 is the size of an image in MNIST dataset
-  images_mem_size = registered_samples * data_size * sizeof(float);
-  labels_mem_size = registered_samples * sizeof(int64_t);
-  forward_pass_mem_size = registered_samples * values_per_sample * bytes_per_value;
-  forward_pass_indices_mem_size = registered_samples * sizeof(uint32_t);
+  reg_data_size = num_samples * sample_size;
+  forward_pass_mem_size = num_samples * forward_pass_info.values_per_sample * forward_pass_info.bytes_per_value;
+  forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
 
-  cudaHostAlloc((void**)&registered_images, images_mem_size, cudaHostAllocDefault);
-  cudaHostAlloc((void**)&registered_labels, labels_mem_size, cudaHostAllocDefault);
+  // Init structs
+  cudaHostAlloc((void**)&reg_data, reg_data_size, cudaHostAllocDefault);
   cudaHostAlloc((void**)&forward_pass, forward_pass_mem_size, cudaHostAllocDefault);
   cudaHostAlloc((void**)&forward_pass_indices, forward_pass_indices_mem_size, cudaHostAllocDefault);
 
-  Logger::instance().log("registered_samples: " + std::to_string(registered_samples) + "\n");
+  Logger::instance().log("registered_samples: " + std::to_string(num_samples) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " +
-                         std::to_string(images_mem_size + labels_mem_size) + " bytes\n");
+                         std::to_string(reg_data_size) + " bytes\n");
 
   // Copy data from the original dataset to the registered memory
   size_t i = 0;  // Counter for the registered memory
   std::unordered_map<size_t, size_t> index_map;
   for (const auto& original_idx : indices) {
     auto example = plain_mnist.get(original_idx);
-    auto normalized_image = (example.data.to(torch::kFloat32) - 0.1307) / 0.3081;
 
-    // Flatten the image tensor and copy it to the registered memory
-    auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
-    std::memcpy(
-        registered_images + (i * data_size), reshaped_image.data_ptr<float>(), 784 * sizeof(float));
-
-    // Store idx in the last position, for rbyz to identify server VD images
-    uint32_t* index_ptr = reinterpret_cast<uint32_t*>(&registered_images[i * data_size + 784]);
-    *index_ptr = static_cast<uint32_t>(i);
+    // Store idx, for rbyz to identify server VD images
+    *getOriginalIndex(i) = static_cast<uint32_t>(i);
 
     // Copy the label
-    registered_labels[i] = example.target.item<int64_t>();
-    if (registered_labels[i] < 0 || registered_labels[i] >= 10) {
-      throw std::runtime_error("Invalid label: " + std::to_string(registered_labels[i]));
-    }
+    *getLabel(i) = static_cast<int64_t>(example.target.item<int64_t>());
+
+    // Copy the image data
+    auto normalized_image = (example.data.to(torch::kFloat32) - 0.1307) / 0.3081;
+    auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
+    std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
 
     // Map original index to registered index for retrieval
     index_map[original_idx] = i;
     ++i;
   }
 
-  registered_dataset = std::make_unique<RegisteredMNIST>(
-      registered_images, registered_labels, registered_samples, index_map, data_size, false);
+  registered_dataset = std::make_unique<RegisteredMNIST>(data_info, index_map);
 
   auto loader_temp =
       torch::data::make_data_loader(*registered_dataset,
@@ -76,12 +68,11 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   registered_loader = std::move(loader_temp);
 
   Logger::instance().log("Registered memory dataset prepared with " +
-                         std::to_string(registered_samples) + " samples\n");
+                         std::to_string(num_samples) + " samples\n");
 }
 
 RegisteredMnistTrain::~RegisteredMnistTrain() {
-  cudaFreeHost(registered_images);
-  cudaFreeHost(registered_labels);
+  cudaFreeHost(reg_data);
   cudaFreeHost(forward_pass);
   cudaFreeHost(forward_pass_indices);
   Logger::instance().log("Freed Cuda registered memory for dataset\n");
@@ -186,10 +177,9 @@ void RegisteredMnistTrain::train(size_t epoch,
     for (const auto& example : batch) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
-      uint32_t original_idx = getOriginalIndex(img_idx);
 
       // Copy the data to registered memory
-      forward_pass_indices[img_idx] = original_idx;
+      forward_pass_indices[img_idx] = *getOriginalIndex(img_idx);
       ++img_idx;
     }
 

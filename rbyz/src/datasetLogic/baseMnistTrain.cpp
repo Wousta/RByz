@@ -188,12 +188,13 @@ void BaseMnistTrain::copyModelParameters(const Net& source_model) {
 
 std::vector<size_t> BaseMnistTrain::getClientsSamplesCount() {
   Logger::instance().log("Getting samples count for each client\n");
-  std::vector<size_t> samples_count(num_workers, 0);
+  int num_clients = num_workers - 1; // Exclude server
+  std::vector<size_t> samples_count(num_clients, 0);
 
   // Allocate indices to workers
   float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / DATASET_SIZE;
-  float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
-  for (size_t i = 1; i < num_workers; i++) {
+  float clnt_proportion = (1 - srvr_proportion) / (num_clients);
+  for (size_t i = 0; i < num_clients; i++) {
     std::vector<size_t> worker_indices;
     for (const auto& [label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
@@ -201,9 +202,10 @@ std::vector<size_t> BaseMnistTrain::getClientsSamplesCount() {
       size_t samples_srvr = static_cast<size_t>(std::ceil(total_samples * srvr_proportion));
 
 
-      size_t start = static_cast<size_t>(std::ceil(samples_srvr + (i - 1) * samples_clnt));
+      size_t start = static_cast<size_t>(std::ceil(samples_srvr + i * samples_clnt));
       size_t end;
-      if (i == num_workers - 1) {
+      if (i == num_clients - 1) {
+        end = static_cast<size_t>(std::ceil(samples_srvr + (i + 1) * samples_clnt));
         end = total_samples;  // Last worker gets the remaining samples
       } else {
         end = start + samples_clnt;
@@ -219,9 +221,6 @@ std::vector<size_t> BaseMnistTrain::getClientsSamplesCount() {
 
     size_t worker_samples_count = worker_indices.size();
     samples_count[i] = worker_samples_count;
-    Logger::instance().log("Worker " + std::to_string(i) +
-                            " using stratified indices of size: " +
-                            std::to_string(worker_samples_count) + "\n");
   }
 
   return samples_count;

@@ -10,6 +10,8 @@ RdmaOps::RdmaOps(std::vector<comm_info> conn_data) :
   posted_wqes(0) {
     
   latency->reserve(10);
+  netflags_sync.send_flags = IBV_SEND_SIGNALED;
+  netflags_sync.is_sync = true;
 }
 
 RdmaOps::~RdmaOps() {
@@ -21,7 +23,7 @@ int RdmaOps::exec_rdma_read(uint32_t size, uint32_t loc_info_idx, uint32_t rem_i
   local_info.indices.push_back(loc_info_idx);
   RemoteInfo remote_info;
   remote_info.indx = rem_info_idx;
-  return norm::read(this->conn_data[conn_data_idx], {size}, {local_info}, NetFlags(), remote_info, this->latency, this->posted_wqes);
+  return norm::read(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency, this->posted_wqes);
 }
 
 int RdmaOps::exec_rdma_write(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx, int conn_data_idx) {
@@ -29,7 +31,15 @@ int RdmaOps::exec_rdma_write(uint32_t size, uint32_t loc_info_idx, uint32_t rem_
   local_info.indices.push_back(loc_info_idx);
   RemoteInfo remote_info;
   remote_info.indx = rem_info_idx;
-  return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, NetFlags(), remote_info, this->latency, this->posted_wqes);
+  return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency, this->posted_wqes);
+}
+
+int RdmaOps::exec_rdma_write(uint32_t size, LocalInfo &local_info, RemoteInfo &remote_info, int conn_data_idx, bool is_sync) {
+  if (is_sync) {
+    return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency, this->posted_wqes);
+  } else {
+    return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_no_sync, remote_info, this->latency, this->posted_wqes);
+  }
 }
 
 int RdmaOps::exec_rdma_CAS(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx, uint64_t compare_add, uint64_t swap, int conn_data_idx) {
@@ -39,7 +49,7 @@ int RdmaOps::exec_rdma_CAS(uint32_t size, uint32_t loc_info_idx, uint32_t rem_in
   local_info.swap = swap;
   RemoteInfo remote_info;
   remote_info.indx = rem_info_idx;
-  return norm::CAS(this->conn_data[conn_data_idx], {size}, {local_info}, NetFlags(), remote_info, this->latency, this->posted_wqes);
+  return norm::CAS(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency, this->posted_wqes);
 }
 
 int RdmaOps::exec_rdma_read(uint32_t size, uint32_t same_idx, int conn_data_idx) {

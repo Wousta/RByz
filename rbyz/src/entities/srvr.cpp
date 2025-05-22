@@ -49,8 +49,7 @@ void prepareRdmaRegistration(
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
-    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredImages()));
-    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredLabels()));
+    reg_info[i].addr_locs.push_back(castI(regMem.vd_sample));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
@@ -63,8 +62,7 @@ void prepareRdmaRegistration(
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredImagesMemSize());
-    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredLabelsMemSize());
+    reg_info[i].data_sizes.push_back(registered_mnist.getSampleSize());
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 
@@ -261,7 +259,7 @@ void allocateServerMemory(
     std::vector<ClientDataRbyz>& clnt_data_vec,
     RegisteredMnistTrain &registered_mnist) {
 
-  size_t data_size = registered_mnist.getDataSize();
+  size_t sample_size = registered_mnist.getSampleSize();
   std::vector<size_t> clnts_samples_count = registered_mnist.getClientsSamplesCount();
 
   for (int i = 0; i < n_clients; i++) {
@@ -278,15 +276,14 @@ void allocateServerMemory(
     clnt_data_vec[i].error_rate = regMem.clnt_loss_and_err[i] + 1;
 
     // Calculate memory sizes for client data
-    size_t registered_samples = clnts_samples_count[i];
+    size_t num_samples = clnts_samples_count[i];
     const size_t values_per_sample = registered_mnist.getValuesPerSample();
     const size_t bytes_per_value = registered_mnist.getBytesPerValue();
-    size_t forward_pass_mem_size = registered_samples * values_per_sample * bytes_per_value;
-    size_t forward_pass_indices_mem_size = registered_samples * sizeof(uint32_t);
+    size_t forward_pass_mem_size = num_samples * values_per_sample * bytes_per_value;
+    size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
     
     // Set memory size information
-    clnt_data_vec[i].images_mem_size = registered_samples * data_size * sizeof(float);
-    clnt_data_vec[i].labels_mem_size = registered_samples * sizeof(int64_t);
+    clnt_data_vec[i].dataset_size = num_samples * sample_size;
     clnt_data_vec[i].forward_pass_mem_size = forward_pass_mem_size;
     clnt_data_vec[i].forward_pass_indices_mem_size = forward_pass_indices_mem_size;
 
@@ -338,7 +335,7 @@ int main(int argc, char *argv[]) {
   std::vector<comm_info> conn_data;
 
   // Data structures for server and clients registered memory
-  RegMemSrvr regMem(n_clients);
+  RegMemSrvr regMem(n_clients, registered_mnist->getSampleSize());
   std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
   allocateServerMemory(n_clients, regMem, clnt_data_vec, *registered_mnist);
   prepareRdmaRegistration(n_clients, reg_info, regMem, clnt_data_vec, *registered_mnist);
