@@ -49,7 +49,7 @@ void prepareRdmaRegistration(
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
-    reg_info[i].addr_locs.push_back(castI(registered_mnist.getRegisteredData()));
+    reg_info[i].addr_locs.push_back(castI(regMem.vd_sample));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
@@ -62,7 +62,7 @@ void prepareRdmaRegistration(
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(registered_mnist.getRegisteredDataSize());
+    reg_info[i].data_sizes.push_back(registered_mnist.getSampleSize());
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 
@@ -335,7 +335,7 @@ int main(int argc, char *argv[]) {
   std::vector<comm_info> conn_data;
 
   // Data structures for server and clients registered memory
-  RegMemSrvr regMem(n_clients);
+  RegMemSrvr regMem(n_clients, registered_mnist->getSampleSize());
   std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
   allocateServerMemory(n_clients, regMem, clnt_data_vec, *registered_mnist);
   prepareRdmaRegistration(n_clients, reg_info, regMem, clnt_data_vec, *registered_mnist);

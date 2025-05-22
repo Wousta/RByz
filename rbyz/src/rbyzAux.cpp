@@ -178,9 +178,53 @@ void runRByzServer(int n_clients,
   float *global_w = all_tensors.data_ptr<float>();
   std::memcpy(regMem.srvr_w, global_w, total_bytes);
 
-  // Create VD splits and do first write of VD
+  // Create VD splits and do first write of VD to the clients
   RegMnistSplitter reg_mnist_splitter(n_clients, mnist, clnt_data_vec);
-  std::vector<int> offset_indices = reg_mnist_splitter.generateDerangement();
+  Logger::instance().log("Server: VD split created\n");
+  std::vector<int> derangement = reg_mnist_splitter.generateDerangement();
+  Logger::instance().log("Server: Derangement generated\n");
+
+  // Send the VD samples to the clients
+  for (int i = 0; i < n_clients; i++) {
+    std::vector<size_t> srvr_indices = reg_mnist_splitter.getServerIndices(i, derangement);
+    std::vector<size_t> clnt_offsets = reg_mnist_splitter.getClientOffsets(clnt_data_vec[i], derangement);
+
+    Logger::instance().log("srvr_indices size: " + std::to_string(srvr_indices.size()) + "\n");
+    Logger::instance().log("clnt_offsets size: " + std::to_string(clnt_offsets.size()) + "\n");
+
+    // Make sure we only use the minimum number of samples that both vectors can handle
+    size_t num_samples_to_send = std::min(srvr_indices.size(), clnt_offsets.size());
+    Logger::instance().log("Server: num_samples_to_send = " + std::to_string(num_samples_to_send) + "\n");
+
+    if (srvr_indices.size() != clnt_offsets.size()) {
+      Logger::instance().log("Server: WARNING: server and client indices sizes do not match\n");
+    }
+
+    Logger::instance().log("Server: Sending VD samples to client " + std::to_string(i) + "\n");
+    for (size_t j = 0; j < num_samples_to_send; j++) {
+      size_t srvr_idx = srvr_indices[j];
+      size_t clnt_offset = clnt_offsets[j];
+
+
+      // Copy server sample to registered memory
+      if (j % 100 == 0) {
+        Logger::instance().log("Server: Copying sample " + std::to_string(srvr_idx) + "\n");
+      }
+      void* srvr_sample = mnist.getSample(srvr_idx);
+      std::memcpy(regMem.vd_sample, srvr_sample, mnist.getSampleSize());
+      
+      LocalInfo local_info;
+      local_info.indices.push_back(SRVR_VD_SAMPLE_IDX);
+      RemoteInfo remote_info;
+      remote_info.indx = CLNT_DATASET_IDX;
+      remote_info.off = clnt_offset;
+
+      if (j % 100 == 0) {
+        Logger::instance().log("Server: Sending sample " + std::to_string(srvr_idx) + " to client " + std::to_string(i) + "\n");
+      }
+      rdma_ops.exec_rdma_write(mnist.getSampleSize(), local_info, remote_info, i, false);
+    }
+  }
   
   // Signal to clients that the server is ready
   regMem.srvr_ready_flag = SRVR_READY_RBYZ;
@@ -195,8 +239,7 @@ void runRByzServer(int n_clients,
 
     // For each client run N rounds of RByz
     for (int step = 0; step < LOCAL_STEPS_RBYZ; step++) {
-      int j = 0;
-      while (j < n_clients) {
+      for (int j = 0; j < n_clients; j++) {
         // Read error and loss from client
         aquireClntCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
         rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOSS_AND_ERR_IDX, j);
@@ -213,9 +256,6 @@ void runRByzServer(int n_clients,
         if (step == LOCAL_STEPS_RBYZ) {
           // Aggregate
         }
-
-        // TODO: to avoid the server running all rounds, it has to check if the client has advanced
-        j++;
       }
     }
   }
