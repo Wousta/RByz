@@ -34,6 +34,14 @@ int RdmaOps::exec_rdma_write(uint32_t size, uint32_t loc_info_idx, uint32_t rem_
   return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency, this->posted_wqes);
 }
 
+int RdmaOps::exec_rdma_write(uint32_t size, LocalInfo &local_info, RemoteInfo &remote_info, int conn_data_idx, bool is_sync) {
+  if (is_sync) {
+    return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency, this->posted_wqes);
+  } else {
+    return norm::write(this->conn_data[conn_data_idx], {size}, {local_info}, netflags_no_sync, remote_info, this->latency, this->posted_wqes);
+  }
+}
+
 int RdmaOps::exec_rdma_CAS(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx, uint64_t compare_add, uint64_t swap, int conn_data_idx) {
   LocalInfo local_info;
   local_info.indices.push_back(loc_info_idx);
