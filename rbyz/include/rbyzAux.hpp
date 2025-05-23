@@ -37,6 +37,8 @@ void writeErrorAndLoss(
   BaseMnistTrain& mnist,
   float* clnt_w);
 
+bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data);
+
 void runRByzClient(
     std::vector<torch::Tensor>& w,
     RegisteredMnistTrain& mnist,

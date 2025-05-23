@@ -359,15 +359,22 @@ void RegisteredMnistTrain::runInference() {
   int32_t correct = 0;
   size_t total = 0;
   double total_loss = 0.0;
-  int batch_idx = 0;
+  uint32_t img_idx = 0;
+
+  // Forward pass, first the losses and then the errors in the buffer
+  size_t loss_idx = 0;
+  const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
+  size_t error_idx = forward_pass_size / 2;
 
   for (const auto& batch : *registered_loader) {
-    batch_idx++;
     // Combine all data and targets in the batch into single tensors
     std::vector<torch::Tensor> data_vec, target_vec;
     for (const auto& example : batch) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
+
+      forward_pass_indices[img_idx] = *getOriginalIndex(img_idx);
+      img_idx++;
     }
 
     // Stack the tensors to create a single batch tensor
@@ -403,16 +410,8 @@ void RegisteredMnistTrain::runInference() {
     
     // Run forward pass
     auto output = model.forward(data);
-    auto nll_loss = torch::nll_loss(output, targets);
-    total_loss += nll_loss.template item<float>() * targets.size(0);
 
-    // Calculate accuracy and error rate for this batch
-    auto pred = output.argmax(1);
-    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
-    correct += batch_correct;
-    total += targets.size(0);
+    // Process batch results
+    processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
   }
-
-  loss = total_loss / total;
-  error_rate = 1.0 - (static_cast<float>(correct) / total);
 }

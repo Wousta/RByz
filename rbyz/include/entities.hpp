@@ -68,6 +68,7 @@ struct RegMemClnt {
  */
 struct ClientDataRbyz {
     int clnt_index;
+    bool is_byzantine = false;
     std::atomic<int> clnt_CAS;
     float trust_score;
     float* updates;
