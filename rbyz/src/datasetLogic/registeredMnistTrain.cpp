@@ -148,64 +148,92 @@ void RegisteredMnistTrain::processBatchResults(
 }
 
 void RegisteredMnistTrain::train(size_t epoch, 
-                            Net& model, 
-                            torch::Device device, 
-                            torch::optim::Optimizer& optimizer, 
-                            size_t dataset_size) {
+                           Net& model, 
+                           torch::Device device, 
+                           torch::optim::Optimizer& optimizer, 
+                           size_t dataset_size) {
 
   Logger::instance().log("Training model for epoch " + std::to_string(epoch) + "\n");
   model.train();
+
+  // Cache all batches
+  std::vector<std::vector<torch::Tensor>> cached_data;
+  std::vector<std::vector<torch::Tensor>> cached_targets;
+  std::vector<std::vector<uint32_t>> cached_indices;
+  
+  // Pre-load all batches
+  Logger::instance().log("Caching batches for epoch " + std::to_string(epoch) + "\n");
+  
+  for (const auto& batch : *registered_loader) {
+    std::vector<torch::Tensor> data_vec, target_vec;
+    std::vector<uint32_t> indices_vec;
+    
+    data_vec.reserve(batch.size());
+    target_vec.reserve(batch.size());
+    indices_vec.reserve(batch.size());
+    
+    for (size_t i = 0; i < batch.size(); ++i) {
+      const auto& example = batch[i];
+      data_vec.push_back(example.data);
+      target_vec.push_back(example.target);
+      indices_vec.push_back(*getOriginalIndex(i));
+    }
+    
+    cached_data.push_back(data_vec);
+    cached_targets.push_back(target_vec);
+    cached_indices.push_back(indices_vec);
+  }
+  
+  size_t num_batches = cached_data.size();
+  Logger::instance().log("Cached " + std::to_string(num_batches) + " batches\n");
+  
+  // Process all cached batches
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
   uint32_t img_idx = 0;
-  size_t start_pos_output = 0;
-
+  
   // Forward pass, first the losses and then the errors in the buffer
   size_t loss_idx = 0;
   const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
   size_t error_idx = forward_pass_size / 2;
-
-  for (const auto& batch : *registered_loader) {
+  
+  for (size_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
     optimizer.zero_grad();
-
-    // Combine all data and targets in the batch into single tensors
-    std::vector<torch::Tensor> data_vec, target_vec;
-    data_vec.reserve(batch.size());
-    target_vec.reserve(batch.size());
-
-    for (const auto& example : batch) {
-      data_vec.push_back(example.data);
-      target_vec.push_back(example.target);
-
-      // Copy the data to registered memory
-      forward_pass_indices[img_idx] = *getOriginalIndex(img_idx);
-      ++img_idx;
+    
+    auto& data_vec = cached_data[batch_idx];
+    auto& target_vec = cached_targets[batch_idx];
+    auto& indices_vec = cached_indices[batch_idx];
+    
+    // Copy the indices to registered memory
+    for (uint32_t idx : indices_vec) {
+      forward_pass_indices[img_idx] = idx;
+      img_idx++;
     }
-
+    
     // Stack the tensors to create a single batch tensor
     auto data_cpu = torch::stack(data_vec);
     auto targets_cpu = torch::stack(target_vec);
-
+    
     torch::Tensor data, targets;
     if (device.is_cuda()) {
       // Create CUDA tensors with the same shape and type
       data = torch::empty_like(data_cpu, torch::TensorOptions().device(device));
       targets = torch::empty_like(targets_cpu, torch::TensorOptions().device(device));
-
+      
       // Asynchronously copy data from CPU to GPU
       cudaMemcpyAsync(data.data_ptr<float>(),
-                      data_cpu.data_ptr<float>(),
-                      data_cpu.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice,
-                      memcpy_stream_A);
-
+                     data_cpu.data_ptr<float>(),
+                     data_cpu.numel() * sizeof(float),
+                     cudaMemcpyHostToDevice,
+                     memcpy_stream_A);
+                     
       cudaMemcpyAsync(targets.data_ptr<int64_t>(),
-                      targets_cpu.data_ptr<int64_t>(),
-                      targets_cpu.numel() * sizeof(int64_t),
-                      cudaMemcpyHostToDevice,
-                      memcpy_stream_B);
-
+                     targets_cpu.data_ptr<int64_t>(),
+                     targets_cpu.numel() * sizeof(int64_t),
+                     cudaMemcpyHostToDevice,
+                     memcpy_stream_B);
+                     
       // Ensure copy is complete before proceeding
       cudaDeviceSynchronize();
     } else {
@@ -213,40 +241,40 @@ void RegisteredMnistTrain::train(size_t epoch,
       data = data_cpu;
       targets = targets_cpu;
     }
-
+    
+    // Rest of training logic remains the same...
     auto output = model.forward(data);
-
+    
     processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
-
+    
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
     loss = nll_loss.template item<float>();
-
+    
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
     int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
     correct += batch_correct;
     total += targets.size(0);
     error_rate = 1.0 - (static_cast<float>(correct) / total);
-
+    
     // Backpropagation
     nll_loss.backward();
     optimizer.step();
-
-    if (batch_idx++ % kLogInterval == 0 && worker_id % 2 == 0) {
+    
+    if (batch_idx % kLogInterval == 0 && worker_id % 2 == 0) {
       std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f",
-                  epoch,
-                  batch_idx * data.size(0),
-                  dataset_size,
-                  nll_loss.template item<float>());
+                 epoch,
+                 batch_idx * data.size(0),
+                 dataset_size,
+                 nll_loss.template item<float>());
     }
   }
-
-  // Wait for the forward pass async copy to complete
+  
+  // Wait for any remaining async operations
   if (device.is_cuda()) {
     cudaDeviceSynchronize();
   }
-
 }
 
 std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
