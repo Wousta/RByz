@@ -102,11 +102,14 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1) {
 
 torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
                                 const torch::Tensor &server_update) {
-  // Compute cosine similarity between each client update and server update
+  
+                                  // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
+  
+  Logger::instance().log("\nComputing aggregation data ================\n");
 
   for (const auto &flat_client_update : client_updates) {
     // Compute cosine similarity
@@ -121,7 +124,23 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
 
     torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
     normalized_updates.push_back(normalized_update);
+
+      {
+        std::ostringstream oss;
+        oss << "  ClientUpdate:\n";
+        oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 5)) << " ";
+        oss << "  \nServerUpdate:\n";
+        oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 5)) << " ";
+        Logger::instance().log(oss.str());
+      }
+      Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) + "\n");
+      Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
+      Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
+      Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
+      Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
+      Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
+  Logger::instance().log("================================\n");
 
   {
     std::ostringstream oss;
