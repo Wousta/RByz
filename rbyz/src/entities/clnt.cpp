@@ -70,9 +70,9 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     // Keep updated values to follow FLtrust logic
-    // for (size_t i = 0; i < g.size(); ++i) {
-    //   g[i] -= w[i];
-    // }
+    for (size_t i = 0; i < g.size(); ++i) {
+      g[i] -= w[i];
+    }
 
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
