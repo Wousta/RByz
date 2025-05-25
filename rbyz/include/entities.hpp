@@ -67,7 +67,7 @@ struct RegMemClnt {
  * Used by the server to read the client's data.
  */
 struct ClientDataRbyz {
-    int clnt_index;
+    int index;
     bool is_byzantine = false;
     std::atomic<int> clnt_CAS;
     float trust_score;

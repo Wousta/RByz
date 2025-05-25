@@ -194,7 +194,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
-    std::vector<torch::Tensor> clnt_updates;
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
@@ -227,6 +226,10 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
       oss << "\n";
       Logger::instance().log(oss.str());
     }
+
+    std::vector<torch::Tensor> clnt_updates;
+    clnt_updates.reserve(polled_clients.size());
+
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
@@ -286,7 +289,7 @@ void allocateServerMemory(
     regMem.clnt_loss_and_err[i] = reinterpret_cast<float *>(malloc(MIN_SZ));
 
     // Set up client data structure
-    clnt_data_vec[i].clnt_index = i;
+    clnt_data_vec[i].index = i;
 
     // Shared memory locations with FLtrust
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
