@@ -37,6 +37,13 @@ void writeErrorAndLoss(
   BaseMnistTrain& mnist,
   float* clnt_w);
 
+void writeServerVD(
+    void* vd_sample,
+    RegMnistSplitter& splitter, 
+    RegisteredMnistTrain& mnist,
+    RdmaOps& rdma_ops,
+    std::vector<ClientDataRbyz>& clnt_data);
+
 bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data);
 
 void runRByzClient(
