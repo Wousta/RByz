@@ -197,6 +197,10 @@ void RegisteredMnistTrain::train(size_t epoch,
   size_t loss_idx = 0;
   const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
   size_t error_idx = forward_pass_size / 2;
+
+  // Track total loss for averaging
+  double total_loss = 0.0;
+  size_t total_batches = 0;
   
   for (size_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
     optimizer.zero_grad();
@@ -249,13 +253,19 @@ void RegisteredMnistTrain::train(size_t epoch,
     
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
-    loss = nll_loss.template item<float>();
+    
+    // Add current batch loss to total loss for averaging later
+    float batch_loss = nll_loss.template item<float>();
+    total_loss += batch_loss;
+    total_batches++;
     
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
     int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
     correct += batch_correct;
     total += targets.size(0);
+    
+    // Set the current error rate as running metric (this is correct as is)
     error_rate = 1.0 - (static_cast<float>(correct) / total);
     
     // Backpropagation
@@ -270,6 +280,9 @@ void RegisteredMnistTrain::train(size_t epoch,
                  nll_loss.template item<float>());
     }
   }
+
+  // Update the loss member to be the average loss across all batches
+  loss = static_cast<float>(total_loss / total_batches);
   
   // Wait for any remaining async operations
   if (device.is_cuda()) {
@@ -308,7 +321,7 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
 
   torch::optim::SGD optimizer(model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
 
-  if (round % 4 == 0) {
+  if (round % 1 == 0) {
     std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
   }
 
