@@ -144,11 +144,11 @@ void BaseMnistTrain::test(Net& model,
 
   test_loss /= dataset_size;
   std::ostringstream oss;
-  oss << "\nTest set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
+  oss << "\n  Test set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
       << " | Accuracy: " << std::fixed << std::setprecision(3)
       << static_cast<double>(correct) / dataset_size;
   Logger::instance().log(oss.str() + "\n");
-  Logger::instance().log("Testing done\n");
+  Logger::instance().log("  Testing done\n");
 }
 
 void BaseMnistTrain::saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename) {

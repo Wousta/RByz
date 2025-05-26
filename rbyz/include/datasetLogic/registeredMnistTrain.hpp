@@ -80,8 +80,6 @@ public:
     return image_idx * sample_size;
   }
 
-  
-
   void* getSample(size_t image_idx) {
     if (image_idx >= num_samples) {
       throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSample()");

@@ -153,7 +153,7 @@ void RegisteredMnistTrain::train(size_t epoch,
                            torch::optim::Optimizer& optimizer, 
                            size_t dataset_size) {
 
-  Logger::instance().log("Training model for epoch " + std::to_string(epoch) + "\n");
+  Logger::instance().log("  Training model for epoch " + std::to_string(epoch) + "\n");
   model.train();
 
   // Cache all batches
@@ -162,7 +162,7 @@ void RegisteredMnistTrain::train(size_t epoch,
   std::vector<std::vector<uint32_t>> cached_indices;
   
   // Pre-load all batches
-  Logger::instance().log("Caching batches for epoch " + std::to_string(epoch) + "\n");
+  //Logger::instance().log("Caching batches for epoch " + std::to_string(epoch) + "\n");
   
   for (const auto& batch : *registered_loader) {
     std::vector<torch::Tensor> data_vec, target_vec;
@@ -185,7 +185,7 @@ void RegisteredMnistTrain::train(size_t epoch,
   }
   
   size_t num_batches = cached_data.size();
-  Logger::instance().log("Cached " + std::to_string(num_batches) + " batches\n");
+  //Logger::instance().log("Cached " + std::to_string(num_batches) + " batches\n");
   
   // Process all cached batches
   size_t batch_idx = 0;
