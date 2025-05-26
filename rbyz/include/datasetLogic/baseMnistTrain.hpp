@@ -96,9 +96,13 @@ public:
   void testModel() {
     test(model, device, *test_loader, test_dataset_size);
   }
+
+  // Getters and setters
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
   torch::Tensor getOutput() { return output; }
   float getLoss() { return loss; }
+  void setLoss(float new_loss) { loss = new_loss; }
   float getErrorRate() { return error_rate; }
+  void setErrorRate(float new_error_rate) { error_rate = new_error_rate; }
 };

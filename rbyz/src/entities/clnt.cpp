@@ -178,13 +178,16 @@ int main(int argc, char* argv[]) {
 
   // Run the RByz client
   registered_mnist->copyModelParameters(regular_mnist->getModel());
+  registered_mnist->setLoss(regular_mnist->getLoss());
+  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   runRByzClient(w, *registered_mnist, regMem, rdma_ops);
+
+  std::cout << "\nClient done\n";
+  std::this_thread::sleep_for(std::chrono::minutes(1));
 
   free(addr_info.ipv4_addr);
   free(addr_info.port);
   conn.disconnect();
-
-  std::cout << "\nClient done\n";
 
   return 0;
 }

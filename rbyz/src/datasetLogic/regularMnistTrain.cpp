@@ -40,6 +40,11 @@ void RegularMnistTrain::train(size_t epoch,
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
+  
+  // Track total loss for averaging
+  double total_loss = 0.0;
+  size_t total_batches = 0;
+  
   for (auto& batch : data_loader) {
     torch::Tensor data_device, targets_device;
 
@@ -85,7 +90,11 @@ void RegularMnistTrain::train(size_t epoch,
     output = model.forward(data_device);
     auto nll_loss = torch::nll_loss(output, targets_device);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
-    loss = nll_loss.template item<float>();
+    
+    // Track batch loss for averaging later
+    float batch_loss = nll_loss.template item<float>();
+    total_loss += batch_loss * targets_device.size(0); // Weight by batch size
+    total_batches += targets_device.size(0);
 
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
@@ -103,9 +112,12 @@ void RegularMnistTrain::train(size_t epoch,
                   epoch,
                   batch_idx * batch.data.size(0),
                   dataset_size,
-                  nll_loss.template item<float>());
+                  batch_loss); // Show current batch loss in progress messages
     }
   }
+  
+  // Set the loss member to the average loss across all batches
+  loss = static_cast<float>(total_loss / total_batches);
 }
 
 std::vector<torch::Tensor> RegularMnistTrain::runMnistTrain(int round,
