@@ -3,7 +3,7 @@
 # Configuration
 srvr_ip=192.168.128.103
 port=2000
-n_clients=5
+n_clients=2
 remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")

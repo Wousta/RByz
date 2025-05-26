@@ -253,7 +253,7 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   
   // Before rbyz, the client has to write error and loss for the first time
   writeErrorAndLoss(mnist, regMem.loss_and_err);
-  Logger::instance().log("Client: Initial error and loss written: " +
+  Logger::instance().log("Client: Initial Error and loss from client: " +
                          std::to_string(*regMem.loss_and_err) + ", " +
                          std::to_string(*(regMem.loss_and_err + 1)) + "\n");
                          
@@ -262,6 +262,7 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   Logger::instance().log("Srvr ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
 
   while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
+    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " started ////////////////\n");
     // Wait for the server to be ready
     while (regMem.srvr_ready_flag != regMem.round.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -287,7 +288,7 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     torch::Tensor all_tensors = flatten_tensor_vector(w);
     size_t total_bytes_g = all_tensors.numel() * sizeof(float);
     if(total_bytes_g != (size_t)REG_SZ_DATA) {
-      Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
+      Logger::instance().log("  REG_SZ_DATA and total_bytes sent do not match!!\n");
     }
 
     float* all_tensors_float = all_tensors.data_ptr<float>();
@@ -303,8 +304,8 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     // Reset the memory ready flag
     releaseCASLock(regMem);
 
-    std::cout << "\nClient: Round " << regMem.round.load() << " completed\n";
-    Logger::instance().log("Client: Round " + std::to_string(regMem.round.load()) + " completed\n");
+    std::cout << "\n//////////////// Client: Round " << regMem.round.load() << " completed ////////////////\\n";
+    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " completed ////////////////\n");
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
   }
@@ -336,6 +337,7 @@ void runRByzServer(int n_clients,
 
     // Read the error and loss from the clients
     readClntsRByz(n_clients, rdma_ops, clnt_data_vec);
+    Logger::instance().log("Error and loss from client:\n");
     for (ClientDataRbyz& clnt_data : clnt_data_vec) {
       Logger::instance().log("Client " + std::to_string(clnt_data.index) + 
                              " loss = " + std::to_string(*clnt_data.loss) + 
@@ -458,15 +460,15 @@ void runRByzServer(int n_clients,
       }
 
       for (size_t j = 0; j < w.size(); j++) {
-        w[j] = w[j] + clnt_updates[i][j] * clnt_data_vec[clnt_idx].trust_score;
+        w[j] = w[j] + clnt_updates[i][j] * clnt_data_vec[clnt_idx].trust_score * GLOBAL_LEARN_RATE;
       }
 
       Logger::instance().log("Trust score for client " + std::to_string(clnt_idx) + ": " + 
                              std::to_string(clnt_data_vec[clnt_idx].trust_score) + "\n");
     }
 
-    std::cout << "\n///////////////// Server: Round " << round + 1 << " completed /////////////////\n";
-    Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round + 1) + " completed ////////////////\n");
+    std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
+    Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
     mnist.testModel();
   }
 
