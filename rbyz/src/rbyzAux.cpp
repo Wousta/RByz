@@ -129,7 +129,8 @@ void writeServerVD(void* vd_sample,
     Logger::instance().log("Server: num_samples_to_send = " + std::to_string(num_samples_to_send) + "\n");
 
     if (srvr_indices.size() != clnt_offsets.size()) {
-      Logger::instance().log("Server: WARNING: server and client indices sizes do not match\n");
+      Logger::instance().log("Server: WARNING: server and client indices sizes do not match: " +
+                             std::to_string(srvr_indices.size()) + " vs " + std::to_string(clnt_offsets.size()) + "\n");
     }
 
     Logger::instance().log("Server: Sending VD samples to client " + std::to_string(i) + "\n");
@@ -138,7 +139,7 @@ void writeServerVD(void* vd_sample,
       size_t clnt_offset = clnt_offsets[j];
 
       // Copy server sample to registered memory
-      if (j % 1 == 0) {
+      if (j % 100 == 0) {
         uint64_t srvr_label = *mnist.getLabel(srvr_idx);
         Logger::instance().log("Server: Copying sample " + std::to_string(srvr_idx) + " with label " + std::to_string(srvr_label) + "\n");
       }
@@ -151,9 +152,8 @@ void writeServerVD(void* vd_sample,
       remote_info.indx = CLNT_DATASET_IDX;
       remote_info.off = clnt_offset;
 
-      Logger::instance().log("Server: Writing sample with offset " + std::to_string(clnt_offset) + "\n");
-
-      if (j % 1 == 0) {
+      if (j % 100 == 0) {
+        Logger::instance().log("Server: Writing sample with offset " + std::to_string(clnt_offset) + "\n");
         Logger::instance().log("Server: Sending sample " + std::to_string(srvr_idx) + " to client " + std::to_string(i) + "\n");
       }
       rdma_ops.exec_rdma_write(mnist.getSampleSize(), local_info, remote_info, i, true);
@@ -184,11 +184,15 @@ bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data) {
     inserted_indices_set.insert(*mnist.getOriginalIndex(srvr_idx));
   }
 
+  Logger::instance().log("Server: Comparing VD output for " + std::to_string(inserted_indices_set.size()) + " inserted samples\n");
+
   size_t srvr_num_indices = mnist.getForwardPassMemSize() / sizeof(float);
   std::unordered_map<uint32_t, int> srvr_indices_map;
   for (size_t i = 0; i < srvr_num_indices; ++i) {
     srvr_indices_map[srvr_indices[i]] = i;
   }
+
+  Logger::instance().log("Server: Created map of server indices for comparison\n");
 
   // Tolerance threshold for comparing floating point values
   const float TOLERANCE = 1e-4;
@@ -204,11 +208,14 @@ bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data) {
       auto srvr_it = srvr_indices_map.find(clnt_idx);
       if (srvr_it == srvr_indices_map.end()) {
         // This should never happen for inserted indices
-        Logger::instance().log("Missing server index for inserted sample: " + std::to_string(clnt_idx) + "\n");
+        Logger::instance().log("Missinggg server index for inserted sample: " + std::to_string(clnt_idx) + "\n");
         return false;
       }
       
       size_t srvr_i = srvr_it->second;
+
+      Logger::instance().log("Comparing client index " + std::to_string(clnt_idx) + 
+                             " with server index " + std::to_string(srvr_indices[srvr_i]) + "\n");
       
       // Compare loss values
       float clnt_loss = clnt_out[loss_idx + i];
@@ -217,6 +224,9 @@ bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data) {
       // Compare error values
       float clnt_error = clnt_out[error_idx + i];
       float srvr_error = srvr_out[error_idx + srvr_i];
+
+      Logger::instance().log("Client loss: " + std::to_string(clnt_loss) + 
+                             ", Server loss: " + std::to_string(srvr_loss) + "\n");
       
       // Check if values match within tolerance
       bool loss_match = std::abs(clnt_loss - srvr_loss) < TOLERANCE;
@@ -304,7 +314,6 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     // Reset the memory ready flag
     releaseCASLock(regMem);
 
-    std::cout << "\n//////////////// Client: Round " << regMem.round.load() << " completed ////////////////\\n";
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " completed ////////////////\n");
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
@@ -330,6 +339,12 @@ void runRByzServer(int n_clients,
   
   // RBYZ training loop
   for (int round = 0; round < GLOBAL_ITERS_RBYZ; round++) {
+    Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
+    for (size_t i = 0; i < clnt_data_vec.size(); i++) {
+        Logger::instance().log("Before round " + std::to_string(round) + 
+                              " Client " + std::to_string(i) + 
+                              " dataset_size = " + std::to_string(clnt_data_vec[i].dataset_size) + "\n");
+    }
     auto all_tensors = flatten_tensor_vector(w);
     size_t total_bytes = all_tensors.numel() * sizeof(float);
     float *global_w = all_tensors.data_ptr<float>();
@@ -345,7 +360,7 @@ void runRByzServer(int n_clients,
     }
 
     // Before each round, write the server's VD to the clients to test after first local step
-    //writeServerVD(regMem.vd_sample, splitter, mnist, rdma_ops, clnt_data_vec);
+    writeServerVD(regMem.vd_sample, splitter, mnist, rdma_ops, clnt_data_vec);
   
     // Signal to clients that the server is ready
     regMem.srvr_ready_flag = round;
@@ -359,16 +374,20 @@ void runRByzServer(int n_clients,
     for (int srvr_step = 0; srvr_step < LOCAL_STEPS_RBYZ; srvr_step++) {
       Logger::instance().log("  Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
       for (ClientDataRbyz& clnt_data : clnt_data_vec) {
-        int j = clnt_data.index;      
+        int j = clnt_data.index;    
 
         if (clnt_data.is_byzantine) {
           continue;
         }
 
         // Get current client's local step and round
-        rdma_ops.exec_rdma_read(MIN_SZ, CLNT_ROUND_IDX, j);
-        rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOCAL_STEP_IDX, j);
-        Logger::instance().log("    -> Server: Client " + std::to_string(j) + " local step = " + std::to_string(clnt_data.local_step) + " server step = " + std::to_string(srvr_step) + "\n");
+        rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, j);
+
+        rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
+        Logger::instance().log("    -> Server: Client " + std::to_string(j) + 
+                               " local step = " + std::to_string(clnt_data.local_step) + 
+                               " server step = " + std::to_string(srvr_step) + 
+                               " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
         // Wait for client to finish the step with exponential backoff
         std::chrono::milliseconds default_step_time(30000);
@@ -383,23 +402,23 @@ void runRByzServer(int n_clients,
             break;
           }
 
-          rdma_ops.exec_rdma_read(MIN_SZ, CLNT_LOCAL_STEP_IDX, j);
+          rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
         }
         Logger::instance().log("    -> Server: Client " + std::to_string(j) + " now in step " + std::to_string(clnt_data.local_step) + "\n");
 
         // Test VD
-        // if (clnt_data.local_step == 1) {
-        //   rdma_ops.exec_rdma_read(clnt_data.forward_pass_mem_size, CLNT_FORWARD_PASS_IDX, j);
-        //   rdma_ops.exec_rdma_read(clnt_data.forward_pass_indices_mem_size, CLNT_FORWARD_PASS_INDICES_IDX, j);
-        //   mnist.runInference();
-        //   if (!compareVDOut(mnist, clnt_data)) {
-        //     Logger::instance().log("Server: VD validation failed for client " + std::to_string(j) + "\n");
-        //     clnt_data.is_byzantine = true;
-        //     continue;
-        //   } else {
-        //     Logger::instance().log("Server: VD validation passed for client " + std::to_string(j) + "\n");
-        //   }
-        // }
+        if (clnt_data.local_step == 1) {
+          rdma_ops.exec_rdma_read(clnt_data.forward_pass_mem_size, CLNT_FORWARD_PASS_IDX, j);
+          rdma_ops.exec_rdma_read(clnt_data.forward_pass_indices_mem_size, CLNT_FORWARD_PASS_INDICES_IDX, j);
+          mnist.runInference();
+          if (!compareVDOut(mnist, clnt_data)) {
+            Logger::instance().log("Server: VD validation failed for client " + std::to_string(j) + "\n");
+            clnt_data.is_byzantine = true;
+            continue;
+          } else {
+            Logger::instance().log("Server: VD validation passed for client " + std::to_string(j) + "\n");
+          }
+        }
 
         // Read error and loss from client
         aquireClntCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
@@ -408,8 +427,6 @@ void runRByzServer(int n_clients,
                                std::to_string(*clnt_data_vec[j].loss) + ", " +
                                std::to_string(*clnt_data_vec[j].error_rate) + "\n");
         releaseClntCASLock(j, rdma_ops, clnt_data_vec[j].clnt_CAS);
-
-        Logger::instance().log("      -> Read loss and error\n");
 
         if (clnt_data.local_step != 1) {
           // Run inference on server model to update its VD loss and error and then update TS
@@ -427,13 +444,14 @@ void runRByzServer(int n_clients,
     std::vector<uint32_t> clnt_indices;
     clnt_updates.reserve(n_clients);
     
-    for (size_t i = 0; i < n_clients; i++) {
+    for (size_t i = 0; i < clnt_data_vec.size(); i++) {
       ClientDataRbyz& client = clnt_data_vec[i];
       if (client.is_byzantine) {
         continue;
       }
 
       Logger::instance().log("reading flags from client: " + std::to_string(i) + "\n");
+      // Wait for the client to finish the round
       while (client.round != round + 1) {
         std::this_thread::yield();
       }
@@ -452,7 +470,7 @@ void runRByzServer(int n_clients,
     clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
 
     // Aggregation
-    for (int i = 0; i < n_clients; i++) {
+    for (int i = 0; i < clnt_indices.size(); i++) {
       int clnt_idx = clnt_indices[i];
 
       if (clnt_updates[i].numel() != REG_SZ_DATA / sizeof(float)) {
@@ -474,7 +492,7 @@ void runRByzServer(int n_clients,
 
   // TODO: Wait for all clients to finish by reading their round
   Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");
-  for (int i = 0; i < n_clients; i++) {
+  for (int i = 0; i < clnt_data_vec.size(); i++) {
     if (clnt_data_vec[i].is_byzantine) {
       continue;
     }
