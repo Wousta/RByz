@@ -44,7 +44,7 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
     auto example = plain_mnist.get(original_idx);
 
     // Store idx, for rbyz to identify server VD images
-    *getOriginalIndex(i) = static_cast<uint32_t>(i);
+    *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
 
     // Copy the label
     *getLabel(i) = static_cast<int64_t>(example.target.item<int64_t>());
@@ -153,7 +153,7 @@ void RegisteredMnistTrain::train(size_t epoch,
                            torch::optim::Optimizer& optimizer, 
                            size_t dataset_size) {
 
-  Logger::instance().log("  Training model for epoch " + std::to_string(epoch) + "\n");
+  Logger::instance().log("  RegTraining model for epoch " + std::to_string(epoch) + "\n");
   model.train();
 
   // Cache all batches
@@ -161,9 +161,8 @@ void RegisteredMnistTrain::train(size_t epoch,
   std::vector<std::vector<torch::Tensor>> cached_targets;
   std::vector<std::vector<uint32_t>> cached_indices;
   
-  // Pre-load all batches
-  //Logger::instance().log("Caching batches for epoch " + std::to_string(epoch) + "\n");
-  
+  // Pre-load all batches  
+  uint32_t global_idx = 0;
   for (const auto& batch : *registered_loader) {
     std::vector<torch::Tensor> data_vec, target_vec;
     std::vector<uint32_t> indices_vec;
@@ -176,7 +175,8 @@ void RegisteredMnistTrain::train(size_t epoch,
       const auto& example = batch[i];
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
-      indices_vec.push_back(*getOriginalIndex(i));
+      indices_vec.push_back(*getOriginalIndex(global_idx));
+      global_idx++;
     }
     
     cached_data.push_back(data_vec);
@@ -185,7 +185,6 @@ void RegisteredMnistTrain::train(size_t epoch,
   }
   
   size_t num_batches = cached_data.size();
-  //Logger::instance().log("Cached " + std::to_string(num_batches) + " batches\n");
   
   // Process all cached batches
   size_t batch_idx = 0;
@@ -201,6 +200,7 @@ void RegisteredMnistTrain::train(size_t epoch,
   // Track total loss for averaging
   double total_loss = 0.0;
   size_t total_batches = 0;
+
   
   for (size_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
     optimizer.zero_grad();
@@ -208,9 +208,10 @@ void RegisteredMnistTrain::train(size_t epoch,
     auto& data_vec = cached_data[batch_idx];
     auto& target_vec = cached_targets[batch_idx];
     auto& indices_vec = cached_indices[batch_idx];
-    
+
     // Copy the indices to registered memory
     for (uint32_t idx : indices_vec) {
+      Logger::instance().log("RegisteredMnistTrain::train: Forward pass index for image " + std::to_string(img_idx) + " is " + std::to_string(idx) + "\n");
       forward_pass_indices[img_idx] = idx;
       img_idx++;
     }
@@ -245,8 +246,7 @@ void RegisteredMnistTrain::train(size_t epoch,
       data = data_cpu;
       targets = targets_cpu;
     }
-    
-    // Rest of training logic remains the same...
+
     auto output = model.forward(data);
     
     processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
@@ -291,7 +291,7 @@ void RegisteredMnistTrain::train(size_t epoch,
 }
 
 std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
-    std::vector<torch::Tensor> params = model.parameters();
+  std::vector<torch::Tensor> params = model.parameters();
   size_t param_count = params.size();
   std::vector<torch::Tensor> w_cuda;
   
@@ -324,6 +324,9 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
   if (round % 1 == 0) {
     std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
   }
+
+  Logger::instance().log("Training model for step " + std::to_string(round) + " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
+  printTensorSlices(model.parameters());
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, optimizer, subset_size);
@@ -369,23 +372,30 @@ void RegisteredMnistTrain::runInference() {
   torch::NoGradGuard no_grad;  // Prevent gradient calculation
   model.eval();                // Set model to evaluation mode
 
+  Logger::instance().log("  Running inference on registered dataset\n");
+
   int32_t correct = 0;
   size_t total = 0;
-  double total_loss = 0.0;
   uint32_t img_idx = 0;
-
+  
   // Forward pass, first the losses and then the errors in the buffer
   size_t loss_idx = 0;
   const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
   size_t error_idx = forward_pass_size / 2;
 
+  // Track total loss for averaging
+  double total_loss = 0.0;
+  size_t total_batches = 0;
+
   for (const auto& batch : *registered_loader) {
     // Combine all data and targets in the batch into single tensors
     std::vector<torch::Tensor> data_vec, target_vec;
+    
     for (const auto& example : batch) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
 
+      // Store original indices in forward_pass_indices
       forward_pass_indices[img_idx] = *getOriginalIndex(img_idx);
       img_idx++;
     }
@@ -423,8 +433,35 @@ void RegisteredMnistTrain::runInference() {
     
     // Run forward pass
     auto output = model.forward(data);
-
+    
     // Process batch results
     processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
+    
+    // Calculate and track NLL loss for this batch
+    auto nll_loss = torch::nll_loss(output, targets);
+    float batch_loss = nll_loss.template item<float>();
+    total_loss += batch_loss;
+    total_batches++;
+    
+    // Calculate accuracy for this batch
+    auto pred = output.argmax(1);
+    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
+    correct += batch_correct;
+    total += targets.size(0);
+    
+    // Set the current error rate as running metric
+    error_rate = 1.0 - (static_cast<float>(correct) / total);
   }
+
+  // Update the loss member to be the average loss across all batches
+  loss = static_cast<float>(total_loss / total_batches);
+  
+  // Wait for any remaining async operations
+  if (device.is_cuda()) {
+    cudaDeviceSynchronize();
+  }
+  
+  Logger::instance().log("Inference completed - Loss: " + std::to_string(loss) + 
+                        ", Error rate: " + std::to_string(error_rate) + 
+                        ", Total samples: " + std::to_string(total) + "\n");
 }
