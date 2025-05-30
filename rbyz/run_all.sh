@@ -26,9 +26,6 @@ else
   load_model_param=""
 fi
 
-# Array for client PIDs and SSH PIDs
-SSH_PIDS=()
-
 # Cleanup function: kill local and remote processes
 cleanup() {
   echo "Terminating all processes..."
@@ -40,13 +37,7 @@ cleanup() {
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."
   for host in "${remote_hosts[@]}"; do
-    ssh $remote_user@$host "for pid in \$(cat $remote_script_path/clients_${host}.pid 2>/dev/null); do kill \$pid 2>/dev/null; done" &
-  done
-  wait
-  
-  # Kill SSH connections
-  for pid in "${SSH_PIDS[@]}"; do
-    kill $pid 2>/dev/null
+    ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs kill -9 2>/dev/null || true" &
   done
   
   exit 0
@@ -104,8 +95,6 @@ for i in "${!remote_hosts[@]}"; do
         echo \$! >> $remote_script_path/clients_${host}.pid; \
         sleep 0.5; \
       done" &
-    
-    SSH_PIDS+=($!)
   fi
 done
 
