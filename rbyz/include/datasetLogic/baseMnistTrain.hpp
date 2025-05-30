@@ -84,12 +84,13 @@ public:
 
   // Common interface methods
   virtual std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w) = 0;
-  virtual void runInference() = 0;
+  virtual void runInference(const std::vector<torch::Tensor>& w) = 0;
   
   virtual std::vector<torch::Tensor> getInitialWeights();
   void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
   std::vector<torch::Tensor> loadModelState(const std::string& filename);
   void copyModelParameters(const Net& source_model);
+  std::vector<torch::Tensor> updateModelParameters(const std::vector<torch::Tensor>& w);
   std::vector<size_t> getClientsSamplesCount();
   void buildLabelToIndicesMap();
 

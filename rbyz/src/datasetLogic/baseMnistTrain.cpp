@@ -115,8 +115,14 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id_arg,
   }
 
   Logger::instance().log(
-      "Worker " + std::to_string(worker_id) +
-      " using stratified indices of size: " + std::to_string(worker_indices.size()) + "\n");
+    "Worker " + std::to_string(worker_id) +
+    " using stratified indices of size: " + std::to_string(worker_indices.size()) + "\n");
+  for (size_t i = 0; i < worker_indices.size(); ++i) {
+    Logger::instance().log("  " + std::to_string(worker_indices[i]) + " ");
+    if ((i + 1) % 10 == 0) {
+      Logger::instance().log("\n");
+    }
+  }
 
   return SubsetSampler(worker_indices);
 }
@@ -184,6 +190,39 @@ void BaseMnistTrain::copyModelParameters(const Net& source_model) {
     } else {
         throw std::runtime_error("Model parameter count mismatch during parameter copy");
     }
+}
+
+std::vector<torch::Tensor> BaseMnistTrain::updateModelParameters(const std::vector<torch::Tensor>& w) {
+  // Update model parameters, w is in cpu so if device is cuda copy to device is needed
+  std::vector<torch::Tensor> params = model.parameters();
+  size_t param_count = params.size();
+  std::vector<torch::Tensor> w_cuda;
+  
+  if (device.is_cuda()) {
+    w_cuda.reserve(param_count);
+    for (const auto& param : w) {
+      auto cuda_tensor = torch::empty_like(param, torch::kCUDA);
+      cudaMemcpyAsync(cuda_tensor.data_ptr<float>(),
+                      param.data_ptr<float>(),
+                      param.numel() * sizeof(float),
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_A);
+      w_cuda.push_back(cuda_tensor);
+    }
+
+    cudaDeviceSynchronize();
+    for (size_t i = 0; i < params.size(); ++i) {
+      params[i].data().copy_(w_cuda[i]);
+    }
+
+    return w_cuda; // Return CUDA tensors if device is CUDA
+  } else {
+    for (size_t i = 0; i < params.size(); ++i) {
+      params[i].data().copy_(w[i]);
+    }
+
+    return w; // Return CPU tensors if device is CPU
+  }
 }
 
 std::vector<size_t> BaseMnistTrain::getClientsSamplesCount() {

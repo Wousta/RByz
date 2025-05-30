@@ -141,6 +141,12 @@ void RegisteredMnistTrain::processBatchResults(
       forward_pass[error_idx] = correct_accessor[i] ? 0.0f : 1.0f;
       loss_idx++;
       error_idx++;
+      if (loss_idx < 10) {
+          Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+          Logger::instance().log("Processed sample " + std::to_string(loss_idx) + 
+                        " with loss: " + std::to_string(forward_pass[loss_idx - 1]) + 
+                        " and error: " + std::to_string(forward_pass[error_idx - 1]) + "\n");
+      }
     } else {
       throw std::runtime_error("Forward pass buffer overflow");
     }
@@ -211,7 +217,6 @@ void RegisteredMnistTrain::train(size_t epoch,
 
     // Copy the indices to registered memory
     for (uint32_t idx : indices_vec) {
-      Logger::instance().log("RegisteredMnistTrain::train: Forward pass index for image " + std::to_string(img_idx) + " is " + std::to_string(idx) + "\n");
       forward_pass_indices[img_idx] = idx;
       img_idx++;
     }
@@ -291,31 +296,8 @@ void RegisteredMnistTrain::train(size_t epoch,
 }
 
 std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
-  std::vector<torch::Tensor> params = model.parameters();
-  size_t param_count = params.size();
-  std::vector<torch::Tensor> w_cuda;
-  
-  if (device.is_cuda()) {
-    w_cuda.reserve(param_count);
-    for (const auto& param : w) {
-      auto cuda_tensor = torch::empty_like(param, torch::kCUDA);
-      cudaMemcpyAsync(cuda_tensor.data_ptr<float>(),
-                      param.data_ptr<float>(),
-                      param.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice,
-                      memcpy_stream_A);
-      w_cuda.push_back(cuda_tensor);
-    }
-
-    cudaDeviceSynchronize();
-    for (size_t i = 0; i < params.size(); ++i) {
-      params[i].data().copy_(w_cuda[i]);
-    }
-  } else {
-    for (size_t i = 0; i < params.size(); ++i) {
-      params[i].data().copy_(w[i]);
-    }
-  }
+  std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
+  size_t param_count = w_cuda.size();
 
   //auto test_loader_instance = torch::data::make_data_loader(test_dataset, kTestBatchSize);
 
@@ -326,7 +308,6 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
   }
 
   Logger::instance().log("Training model for step " + std::to_string(round) + " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
-  printTensorSlices(model.parameters());
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, optimizer, subset_size);
@@ -337,8 +318,10 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
     test(model, device, *test_loader, test_dataset_size);
   }
 
+  std::vector<torch::Tensor> params = model.parameters();
   std::vector<torch::Tensor> result;
   result.reserve(param_count);
+
   if (device.is_cuda()) {
     for (size_t i = 0; i < params.size(); ++i) {
       // Subtract on GPU
@@ -368,10 +351,11 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
   return result;
 }
 
-void RegisteredMnistTrain::runInference() {
+void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   torch::NoGradGuard no_grad;  // Prevent gradient calculation
   model.eval();                // Set model to evaluation mode
 
+  updateModelParameters(w);
   Logger::instance().log("  Running inference on registered dataset\n");
 
   int32_t correct = 0;
