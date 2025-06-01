@@ -85,18 +85,14 @@ RegisteredMnistTrain::~RegisteredMnistTrain() {
  * @param targets Ground truth labels
  * @param device Device where tensors reside (CPU/CUDA)
  * @param forward_pass Buffer to store loss and error values
- * @param forward_pass_size Size of forward_pass buffer in number of float elements
- * @param loss_idx Reference to current loss index counter
- * @param error_idx Reference to current error index counter
+ * @param curr_idx Current index in the forward_pass buffer
  */
 void RegisteredMnistTrain::processBatchResults(
     const torch::Tensor& output, 
     const torch::Tensor& targets, 
     torch::Device device,
     float* forward_pass,
-    size_t forward_pass_size,
-    size_t& loss_idx,
-    size_t& error_idx) {
+    size_t& curr_idx) {
     
   // Calculate loss for each example in the batch at once
   auto individual_losses = torch::nll_loss(output, targets, {}, torch::Reduction::None);
@@ -134,19 +130,24 @@ void RegisteredMnistTrain::processBatchResults(
   // Copy values to forward_pass buffer
   auto losses_accessor = cpu_losses.accessor<float, 1>();
   auto correct_accessor = cpu_correct.accessor<bool, 1>();
+
+  const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
+  const size_t error_start = forward_pass_size / 2;
   
   for (size_t i = 0; i < cpu_losses.size(0); ++i) {
-    if (loss_idx < forward_pass_size / 2 && error_idx < forward_pass_size) {
-      forward_pass[loss_idx] = losses_accessor[i];
-      forward_pass[error_idx] = correct_accessor[i] ? 0.0f : 1.0f;
-      loss_idx++;
-      error_idx++;
-      if (loss_idx < 10) {
-          Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-          Logger::instance().log("Processed sample " + std::to_string(loss_idx) + 
-                        " with loss: " + std::to_string(forward_pass[loss_idx - 1]) + 
-                        " and error: " + std::to_string(forward_pass[error_idx - 1]) + "\n");
+    if (curr_idx < forward_pass_size / 2) {
+      forward_pass[curr_idx] = losses_accessor[i];
+      forward_pass[error_start + curr_idx] = correct_accessor[i] ? 0.0f : 1.0f;
+      if (curr_idx == 0) Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+      if (curr_idx < 10) {
+          Logger::instance().log("Processed sample " + std::to_string(curr_idx) + 
+                        " with original index: " + std::to_string(forward_pass_indices[curr_idx]) +
+                        " label: " + std::to_string(*getLabel(curr_idx)) +
+                        " with loss: " + std::to_string(forward_pass[curr_idx]) + 
+                        " and error: " + std::to_string(forward_pass[error_start + curr_idx]) + "\n");
       }
+
+      curr_idx++;
     } else {
       throw std::runtime_error("Forward pass buffer overflow");
     }
@@ -196,17 +197,14 @@ void RegisteredMnistTrain::train(size_t epoch,
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
-  uint32_t img_idx = 0;
-  
-  // Forward pass, first the losses and then the errors in the buffer
-  size_t loss_idx = 0;
-  const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
-  size_t error_idx = forward_pass_size / 2;
+  global_idx = 0;
+
+  // For tracking loss and error rate indices in the forward pass buffer
+  size_t curr_idx = 0;
 
   // Track total loss for averaging
   double total_loss = 0.0;
   size_t total_batches = 0;
-
   
   for (size_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
     optimizer.zero_grad();
@@ -217,8 +215,8 @@ void RegisteredMnistTrain::train(size_t epoch,
 
     // Copy the indices to registered memory
     for (uint32_t idx : indices_vec) {
-      forward_pass_indices[img_idx] = idx;
-      img_idx++;
+      forward_pass_indices[global_idx] = idx;
+      global_idx++;
     }
     
     // Stack the tensors to create a single batch tensor
@@ -252,10 +250,17 @@ void RegisteredMnistTrain::train(size_t epoch,
       targets = targets_cpu;
     }
 
+    // Switch to evaluation mode for inference logging
+    {
+      model.eval();
+      torch::NoGradGuard no_grad;
+      auto inference_output = model.forward(data);
+      processBatchResults(inference_output, targets, device, forward_pass, curr_idx);
+    }
+
+    // Switch back to training mode for training forward pass
+    model.train();
     auto output = model.forward(data);
-    
-    processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
-    
     auto nll_loss = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
     
@@ -354,19 +359,18 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
 void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   torch::NoGradGuard no_grad;  // Prevent gradient calculation
   model.eval();                // Set model to evaluation mode
+  updateModelParameters(w);
 
   updateModelParameters(w);
   Logger::instance().log("  Running inference on registered dataset\n");
 
   int32_t correct = 0;
   size_t total = 0;
-  uint32_t img_idx = 0;
   
-  // Forward pass, first the losses and then the errors in the buffer
-  size_t loss_idx = 0;
-  const size_t forward_pass_size = forward_pass_mem_size / sizeof(float);
-  size_t error_idx = forward_pass_size / 2;
-
+  // For tracking loss and error rate indices in the forward pass buffer
+  size_t curr_idx = 0;
+  size_t global_sample_idx = 0;  // Track global sample position
+  
   // Track total loss for averaging
   double total_loss = 0.0;
   size_t total_batches = 0;
@@ -379,9 +383,8 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
       data_vec.push_back(example.data);
       target_vec.push_back(example.target);
 
-      // Store original indices in forward_pass_indices
-      forward_pass_indices[img_idx] = *getOriginalIndex(img_idx);
-      img_idx++;
+      forward_pass_indices[global_sample_idx] = *getOriginalIndex(global_sample_idx);
+      global_sample_idx++;
     }
 
     // Stack the tensors to create a single batch tensor
@@ -414,12 +417,12 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
       data = data_cpu;
       targets = targets_cpu;
     }
-    
+
     // Run forward pass
     auto output = model.forward(data);
     
     // Process batch results
-    processBatchResults(output, targets, device, forward_pass, forward_pass_size, loss_idx, error_idx);
+    processBatchResults(output, targets, device, forward_pass, curr_idx);
     
     // Calculate and track NLL loss for this batch
     auto nll_loss = torch::nll_loss(output, targets);

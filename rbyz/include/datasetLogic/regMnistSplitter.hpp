@@ -61,6 +61,8 @@ class RegMnistSplitter {
 
         // For each VD, only a part of the data will be used
         vd_split_size = vd_size / VD_SPLIT;
+
+        vd_split_size = 10; // REMOVE AFTER TESTING
     }
 
     /**

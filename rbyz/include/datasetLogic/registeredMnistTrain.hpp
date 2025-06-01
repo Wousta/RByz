@@ -37,9 +37,7 @@ private:
     const torch::Tensor& targets, 
     torch::Device device,
     float* forward_pass,
-    size_t forward_pass_size,
-    size_t& loss_idx,
-    size_t& error_idx);
+    size_t& curr_idx);
       
   void train(
       size_t epoch, 
