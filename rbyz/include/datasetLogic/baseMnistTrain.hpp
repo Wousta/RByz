@@ -44,7 +44,7 @@ protected:
   const int64_t subset_size;
   const int64_t kTrainBatchSize = 32;
   const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 3;
+  const int64_t kNumberOfEpochs = 1;
   const int64_t kLogInterval = 10;
   torch::DeviceType device_type;
   torch::Device device;
@@ -84,21 +84,26 @@ public:
 
   // Common interface methods
   virtual std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w) = 0;
-  virtual void runInference() = 0;
+  virtual void runInference(const std::vector<torch::Tensor>& w) = 0;
   
   virtual std::vector<torch::Tensor> getInitialWeights();
   void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
   std::vector<torch::Tensor> loadModelState(const std::string& filename);
   void copyModelParameters(const Net& source_model);
+  std::vector<torch::Tensor> updateModelParameters(const std::vector<torch::Tensor>& w);
   std::vector<size_t> getClientsSamplesCount();
   void buildLabelToIndicesMap();
 
   void testModel() {
     test(model, device, *test_loader, test_dataset_size);
   }
+
+  // Getters and setters
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
   torch::Tensor getOutput() { return output; }
   float getLoss() { return loss; }
+  void setLoss(float new_loss) { loss = new_loss; }
   float getErrorRate() { return error_rate; }
+  void setErrorRate(float new_error_rate) { error_rate = new_error_rate; }
 };

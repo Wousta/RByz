@@ -61,6 +61,8 @@ class RegMnistSplitter {
 
         // For each VD, only a part of the data will be used
         vd_split_size = vd_size / VD_SPLIT;
+
+        vd_split_size = 10; // REMOVE AFTER TESTING
     }
 
     /**
@@ -126,7 +128,7 @@ class RegMnistSplitter {
     }
 
     std::vector<size_t> getClientOffsets(ClientDataRbyz &clnt_data, std::vector<int> derangement) {
-        int clnt_idx = clnt_data.clnt_index;
+        int clnt_idx = clnt_data.index;
         size_t dataset_size = clnt_data.dataset_size;
         Logger::instance().log("Client " + std::to_string(clnt_idx) + " dataset size: " + std::to_string(dataset_size) + "\n");
         size_t sample_size = mnist.getSampleSize();

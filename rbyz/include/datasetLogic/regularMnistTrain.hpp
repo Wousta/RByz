@@ -30,5 +30,5 @@ public:
   ~RegularMnistTrain() = default;
 
   std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w) override;
-  void runInference() override;
+  void runInference(const std::vector<torch::Tensor>& w) override;
 };

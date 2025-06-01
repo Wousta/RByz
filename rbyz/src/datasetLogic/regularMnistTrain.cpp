@@ -40,6 +40,11 @@ void RegularMnistTrain::train(size_t epoch,
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
+  
+  // Track total loss for averaging
+  double total_loss = 0.0;
+  size_t total_batches = 0;
+  
   for (auto& batch : data_loader) {
     torch::Tensor data_device, targets_device;
 
@@ -85,7 +90,11 @@ void RegularMnistTrain::train(size_t epoch,
     output = model.forward(data_device);
     auto nll_loss = torch::nll_loss(output, targets_device);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
-    loss = nll_loss.template item<float>();
+    
+    // Track batch loss for averaging later
+    float batch_loss = nll_loss.template item<float>();
+    total_loss += batch_loss * targets_device.size(0); // Weight by batch size
+    total_batches += targets_device.size(0);
 
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
@@ -103,38 +112,19 @@ void RegularMnistTrain::train(size_t epoch,
                   epoch,
                   batch_idx * batch.data.size(0),
                   dataset_size,
-                  nll_loss.template item<float>());
+                  batch_loss); // Show current batch loss in progress messages
     }
   }
+  
+  // Set the loss member to the average loss across all batches
+  loss = static_cast<float>(total_loss / total_batches);
 }
 
 std::vector<torch::Tensor> RegularMnistTrain::runMnistTrain(int round,
                                                             const std::vector<torch::Tensor>& w) {
   // Update model parameters, w is in cpu so if device is cuda copy to device is needed
-  std::vector<torch::Tensor> params = model.parameters();
-  size_t param_count = params.size();
-  std::vector<torch::Tensor> w_cuda;
-  
-  if (device.is_cuda()) {
-    w_cuda.reserve(param_count);
-    for (const auto& param : w) {
-      auto cuda_tensor = torch::empty_like(param, torch::kCUDA);
-      cudaMemcpyAsync(cuda_tensor.data_ptr<float>(),
-                      param.data_ptr<float>(),
-                      param.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice);
-      w_cuda.push_back(cuda_tensor);
-    }
-
-    cudaDeviceSynchronize();
-    for (size_t i = 0; i < params.size(); ++i) {
-      params[i].data().copy_(w_cuda[i]);
-    }
-  } else {
-    for (size_t i = 0; i < params.size(); ++i) {
-      params[i].data().copy_(w[i]);
-    }
-  }
+  std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
+  size_t param_count = w_cuda.size();
 
   //auto test_loader_instance = torch::data::make_data_loader(test_dataset, kTestBatchSize);
 
@@ -151,8 +141,10 @@ std::vector<torch::Tensor> RegularMnistTrain::runMnistTrain(int round,
     test(model, device, *test_loader, test_dataset_size);
   }
 
+  std::vector<torch::Tensor> params = model.parameters();
   std::vector<torch::Tensor> result;
   result.reserve(param_count);
+
   if (device.is_cuda()) {
     for (size_t i = 0; i < params.size(); ++i) {
       // Subtract on GPU
@@ -181,9 +173,12 @@ std::vector<torch::Tensor> RegularMnistTrain::runMnistTrain(int round,
   return result;
 }
 
-void RegularMnistTrain::runInference() {
+void RegularMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   torch::NoGradGuard no_grad;  // Prevent gradient calculation
   model.eval();                // Set model to evaluation mode
+  updateModelParameters(w);
+
+  throw std::runtime_error("runInference not fully implemented yet for RegularMnistTrain");
 
   int32_t correct = 0;
   size_t total = 0;

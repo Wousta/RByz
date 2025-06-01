@@ -45,9 +45,9 @@ struct RegMemClnt {
   int clnt_ready_flag;
   float* clnt_w;
   float* loss_and_err;
-  std::atomic<int> clnt_CAS;
-  std::atomic<int> local_step;
-  std::atomic<int> round;
+  alignas(8) std::atomic<int> clnt_CAS;
+  alignas(8) std::atomic<int> local_step;
+  alignas(8) std::atomic<int> round;
 
   RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0), round(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
@@ -67,24 +67,27 @@ struct RegMemClnt {
  * Used by the server to read the client's data.
  */
 struct ClientDataRbyz {
-    int clnt_index;
+    int index;
+    bool is_byzantine = false;
     std::atomic<int> clnt_CAS;
     float trust_score;
     float* updates;
     float* loss;       
     float* error_rate;  
-    int local_step = 0;
-    int round = 0;
+    alignas(8) int local_step = 0;
+    alignas(8) int round = 0;
 
     // Dataset data used
-    size_t dataset_size;  // Size of the registered dataset
-    std::vector<size_t> inserted_indices;  // Indices the server put a test into that might be in the forward pass table
+    alignas(8) size_t dataset_size; // Remove the initialization here
+    std::vector<size_t> inserted_indices;
 
     // Forward pass data used
     size_t forward_pass_mem_size;
     size_t forward_pass_indices_mem_size;
     float* forward_pass;
     uint32_t* forward_pass_indices;
+
+    ClientDataRbyz() : clnt_CAS(MEM_FREE), trust_score(0) {}
 
     ~ClientDataRbyz() {
         // Only free memory that was allocated with malloc/new

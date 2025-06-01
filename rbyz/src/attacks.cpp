@@ -1,4 +1,4 @@
-#include "attacks.hpp"
+#include "../include/attacks.hpp"
 
 // These functions are translated from https://github.com/encryptogroup/SAFEFL/blob/main/attacks.py
 
@@ -37,6 +37,7 @@ std::vector<torch::Tensor> trim_attack(
     int f,
     torch::Device device)
 {
+    Logger::instance().log("Trim attack\n");
     std::vector<torch::Tensor> v_attack;
     for (const auto &t : v)
     {
@@ -61,7 +62,7 @@ std::vector<torch::Tensor> trim_attack(
 
     for (int i = 0; i < f; i++)
     {
-        auto random_12 = (1.0 + torch::rand(vi_shape_vec, device));
+        auto random_12 = (1.0 + torch::rand(vi_shape_vec, torch::kCPU));
         auto cond1 = (direction * directed_dim > 0).to(torch::kFloat32);
         auto cond2 = (direction * directed_dim < 0).to(torch::kFloat32);
         auto factor = cond1.div(random_12) + cond2 * random_12;
@@ -104,7 +105,7 @@ std::vector<torch::Tensor> krum_attack(
     int64_t d = v_attack[0].size(0);
 
     // Create distance matrix
-    auto dist = torch::zeros({n, n}, device);
+    auto dist = torch::zeros({n, n}, torch::kCPU);
     for (int i = 0; i < n; i++)
     {
         for (int j = i + 1; j < n; j++)

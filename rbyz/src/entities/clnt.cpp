@@ -70,9 +70,9 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     // Keep updated values to follow FLtrust logic
-    // for (size_t i = 0; i < g.size(); ++i) {
-    //   g[i] -= w[i];
-    // }
+    for (size_t i = 0; i < g.size(); ++i) {
+      g[i] -= w[i];
+    }
 
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
@@ -178,13 +178,16 @@ int main(int argc, char* argv[]) {
 
   // Run the RByz client
   registered_mnist->copyModelParameters(regular_mnist->getModel());
+  registered_mnist->setLoss(regular_mnist->getLoss());
+  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   runRByzClient(w, *registered_mnist, regMem, rdma_ops);
+
+  std::cout << "\nClient done\n";
+  std::this_thread::sleep_for(std::chrono::minutes(1));
 
   free(addr_info.ipv4_addr);
   free(addr_info.port);
   conn.disconnect();
-
-  std::cout << "\nClient done\n";
 
   return 0;
 }
