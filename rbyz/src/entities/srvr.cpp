@@ -354,7 +354,6 @@ int main(int argc, char *argv[]) {
   // Data structures for connection and data registration
   std::vector<RegInfo> reg_info(n_clients);
   std::vector<RcConn> conns(n_clients);
-  std::vector<comm_info> conn_data;
 
   // Data structures for server and clients registered memory
   RegMemSrvr regMem(n_clients, registered_mnist->getSampleSize());
@@ -365,7 +364,6 @@ int main(int argc, char *argv[]) {
   // Accept connection from each client
   for (int i = 0; i < n_clients; i++) {
     conns[i].acceptConn(addr_info, reg_info[i]);
-    conn_data.push_back(conns[i].getConnData());
     std::cout << "Connected to client " << i << "\n";
   }
 
@@ -395,7 +393,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Global rounds of RByz
-  RdmaOps rdma_ops(conn_data);
+  RdmaOps rdma_ops(conns);
   registered_mnist->copyModelParameters(regular_mnist->getModel());
   registered_mnist->setLoss(regular_mnist->getLoss());
   registered_mnist->setErrorRate(regular_mnist->getErrorRate());

@@ -13,15 +13,26 @@ using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
 class RdmaOps {
   private:
+  std::vector<RcConn> conns;
   std::vector<comm_info> conn_data;
   std::shared_ptr<ltncyVec> latency;
   NetFlags netflags_sync;
   NetFlags netflags_no_sync;
-  unsigned int posted_wqes;
+
+  // Flow control thread members
+  std::thread flow_control_thread;
+  std::atomic<bool> stop_flow_control{false};
+  std::condition_variable flow_control_cv;
+  std::mutex flow_control_mutex;
+
+  void flowControlWorker();
 
   public:
-  RdmaOps(std::vector<comm_info> conn_data);
+  RdmaOps(std::vector<RcConn>& conns);
   ~RdmaOps();
+
+  void startFlowControl();
+  void stopFlowControl();
 
   int exec_rdma_read(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx, int conn_data_idx = 0);
   int exec_rdma_read(uint32_t size, uint32_t same_idx, int conn_data_idx = 0);

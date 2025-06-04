@@ -148,10 +148,13 @@ int main(int argc, char* argv[]) {
   // connect to server
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
+
   if (ret != 0) {
     throw std::runtime_error("Failed to connect to server");
   }
-  RdmaOps rdma_ops({conn.getConnData()});
+
+  std::vector<RcConn> conns = {conn}; 
+  RdmaOps rdma_ops(conns);
   std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
