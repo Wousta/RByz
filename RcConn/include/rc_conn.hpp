@@ -83,4 +83,5 @@ public:
               size_t length);
   int disconnect();
   comm_info getConnData();
+  unsigned int getPostedWqes() const { return conn.posted_wqes; }
 };

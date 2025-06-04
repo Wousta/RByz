@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16.3)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-9")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-12")
 
 file(GLOB SRC "src/*.cpp")
 file(GLOB HDR "include/*.hpp" "../../shared/redis.hpp" "../../shared/net.hpp" "../../shared/util.hpp" "../../shared/macros.hpp")
