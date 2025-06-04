@@ -397,7 +397,11 @@ int main(int argc, char *argv[]) {
   registered_mnist->copyModelParameters(regular_mnist->getModel());
   registered_mnist->setLoss(regular_mnist->getLoss());
   registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+
+  // ENABLE FLOW CONTROL WHEN READY
+  //rdma_ops.startFlowControl(); // Start monitoring queues
   runRByzServer(n_clients, w, *registered_mnist, rdma_ops, regMem, clnt_data_vec);
+  //rdma_ops.stopFlowControl(); // Stop monitoring queues
 
   for (RcConn conn : conns) {
     conn.disconnect();
