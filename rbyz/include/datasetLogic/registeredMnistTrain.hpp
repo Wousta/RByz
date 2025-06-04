@@ -80,7 +80,7 @@ public:
 
   void* getSample(size_t image_idx) {
     if (image_idx >= num_samples) {
-      throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSample()");
+      throw std::out_of_range("Image index " + std::to_string(image_idx) + " out of range in RegisteredMnistTrain::getSample()");
     }
 
     return getBasePointerForIndex(image_idx);

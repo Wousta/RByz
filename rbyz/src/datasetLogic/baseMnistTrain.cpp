@@ -117,12 +117,6 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id_arg,
   Logger::instance().log(
     "Worker " + std::to_string(worker_id) +
     " using stratified indices of size: " + std::to_string(worker_indices.size()) + "\n");
-  for (size_t i = 0; i < worker_indices.size(); ++i) {
-    Logger::instance().log("  " + std::to_string(worker_indices[i]) + " ");
-    if ((i + 1) % 10 == 0) {
-      Logger::instance().log("\n");
-    }
-  }
 
   return SubsetSampler(worker_indices);
 }

@@ -106,4 +106,5 @@ public:
   void setLoss(float new_loss) { loss = new_loss; }
   float getErrorRate() { return error_rate; }
   void setErrorRate(float new_error_rate) { error_rate = new_error_rate; }
+  int64_t getKTrainBatchSize() const { return kTrainBatchSize; }
 };
