@@ -23,6 +23,8 @@ class RegMnistSplitter {
     RegisteredMnistTrain& mnist;
     std::vector<ClientDataRbyz>& clnt_data_vec;
     std::vector<std::vector<size_t>> vd_indexes;              // Vector of indices for the start of each VD
+    std::vector<size_t> clnt_offsets;                         // Vector of offsets for the clients till n-1
+    std::vector<size_t> last_clnt_offsets;                         // Vector of offsets for the clients till n-1
 
     // Vector of integers corresponding to the indices in vd_indexes and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
@@ -42,6 +44,8 @@ class RegMnistSplitter {
         // Split the server registered data into n_clients VDs
         size_t vd_size = mnist.getNumSamples() / n_clients;
 
+        Logger::instance().log("Splitting registered dataset into " + std::to_string(n_clients) + " VDs of size " + std::to_string(vd_size) + "\n");
+
         for (int i = 0; i < n_clients; i++) {
             size_t start_idx = i * vd_size;
             size_t end_idx;
@@ -56,13 +60,39 @@ class RegMnistSplitter {
             std::iota(indices.begin(), indices.end(), start_idx);
             vd_indexes[i] = indices;
 
-            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + "\n");
+            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + "size: " + std::to_string(vd_indexes[i].size()) + "\n");
+        }
+
+        size_t sample_size = mnist.getSampleSize();
+
+        // Initialize the offsets for the normal clients and the last client
+        int count = 2;
+        for (size_t i = clnt_data_vec.size() - 1; i >= 0 && count > 0; i--) {
+            size_t dataset_size = clnt_data_vec[i].dataset_size;
+            size_t num_possible_positions = dataset_size / sample_size;
+
+            Logger::instance().log("Client " + std::to_string(i) + " dataset size: " + std::to_string(dataset_size) + 
+                        ", num_possible_positions: " + std::to_string(num_possible_positions) + "\n");
+
+            // Last client may have different dataset size, so separate vector for its offsets
+            if (i == clnt_data_vec.size() - 1) {
+                for (size_t j = 0; j < num_possible_positions; ++j) {
+                    last_clnt_offsets.push_back(j * sample_size);
+                }
+                Logger::instance().log("Client " + std::to_string(i) + " last offsets size: " + std::to_string(last_clnt_offsets.size()) + "\n");
+            } else {
+                // Fill with multiples of sample_size: 0, sample_size, sample_size*2, etc.
+                for (size_t j = 0; j < num_possible_positions; ++j) {
+                    clnt_offsets.push_back(j * sample_size);
+                }
+                Logger::instance().log("Client " + std::to_string(i) + " offsets size: " + std::to_string(clnt_offsets.size()) + "\n");
+            }
+
+            count--;
         }
 
         // For each VD, only a part of the data will be used
-        vd_split_size = vd_size / VD_SPLIT;
-
-        vd_split_size = 10; // REMOVE AFTER TESTING
+        vd_split_size = mnist.getKTrainBatchSize();
     }
 
     /**
@@ -127,25 +157,31 @@ class RegMnistSplitter {
         return indexes;
     }
 
-    std::vector<size_t> getClientOffsets(ClientDataRbyz &clnt_data, std::vector<int> derangement) {
-        int clnt_idx = clnt_data.index;
-        size_t dataset_size = clnt_data.dataset_size;
-        Logger::instance().log("Client " + std::to_string(clnt_idx) + " dataset size: " + std::to_string(dataset_size) + "\n");
-        size_t sample_size = mnist.getSampleSize();
-
-        size_t num_possible_positions = dataset_size / sample_size;
-        std::vector<size_t> all_possible_offsets(num_possible_positions);
-
-        // Fill with multiples of sample_size: 0, sample_size, sample_size*2, etc.
-        for (size_t i = 0; i < all_possible_offsets.size(); ++i) {
-            all_possible_offsets[i] = i * sample_size;
+    std::vector<size_t> getClientOffsets(int clnt_idx) {
+        std::vector<size_t> offsets;
+        offsets.reserve(vd_split_size);
+        std::vector<size_t>& all_offsets = (clnt_idx == n_clients - 1) ? last_clnt_offsets : clnt_offsets;
+    
+        // Handle edge case where we want more offsets than available
+        size_t actual_sample_size = std::min(static_cast<size_t>(vd_split_size), all_offsets.size());
+        
+        // Reservoir sampling for efficient random selection
+        for (size_t i = 0; i < actual_sample_size; ++i) {
+            offsets.push_back(all_offsets[i]);
         }
+        
+        // Reservoir sampling: for each remaining element, decide if it should replace an element in our sample
+        for (size_t i = actual_sample_size; i < all_offsets.size(); ++i) {
+            // Generate random index from 0 to current position i (inclusive range for reservoir sampling)
+            std::uniform_int_distribution<size_t> dis(0, i);
+            size_t j = dis(rng);
 
-        // Choose random offsets for the client
-        std::shuffle(all_possible_offsets.begin(), all_possible_offsets.end(), rng);
-        size_t num_offsets = std::min(static_cast<size_t>(vd_split_size), num_possible_positions);
-        std::vector<size_t> offsets(all_possible_offsets.begin(), all_possible_offsets.begin() + num_offsets);
-
+            // If random index falls within our sample size, replace that element
+            if (j < actual_sample_size) {
+                offsets[j] = all_offsets[i];
+            }
+        }
+    
         return offsets;
     }
 

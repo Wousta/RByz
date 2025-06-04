@@ -298,10 +298,11 @@ void allocateServerMemory(
 
     // Calculate memory sizes for client data
     size_t num_samples = clnts_samples_count[i];
+    size_t batch_size = registered_mnist.getKTrainBatchSize();
     const size_t values_per_sample = registered_mnist.getValuesPerSample();
     const size_t bytes_per_value = registered_mnist.getBytesPerValue();
-    size_t forward_pass_mem_size = num_samples * values_per_sample * bytes_per_value;
-    size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
+    size_t forward_pass_mem_size = batch_size * values_per_sample * bytes_per_value;
+    size_t forward_pass_indices_mem_size = batch_size * sizeof(uint32_t);
     
     // Set memory size information
     clnt_data_vec[i].dataset_size = num_samples * sample_size;
