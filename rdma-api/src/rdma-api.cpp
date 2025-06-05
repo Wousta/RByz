@@ -132,7 +132,7 @@ int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
     posted_wqes += send_info[0].wqe_depth;
   }
   if (ret) {
-    std::cerr << "post send failed\n";
+    std::cerr << "post send failed " << strerror(errno) << "\n";
     ret = -1;
     delete[] send_wr;
     exit(-1);

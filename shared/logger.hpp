@@ -66,7 +66,7 @@ public:
 private:
     Logger() {
         // Create the logs/ directory if it does not exist.
-        system("mkdir -p logs");
+        int ret = system("mkdir -p logs");
 
         // Use the process ID to create a unique log file name.
         int pid = getpid();
