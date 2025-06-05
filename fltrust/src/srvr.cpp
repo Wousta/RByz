@@ -1,12 +1,12 @@
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/rdmaOps.hpp"
-#include "../include/tensorOps.hpp"
-#include "../include/logger.hpp"
-#include "../include/attacks.hpp"
+#include "rc_conn.hpp"
+#include "rdma-api.hpp"
+#include "util.hpp"
+#include "mnistTrain.hpp"
+#include "globalConstants.hpp"
+#include "rdmaOps.hpp"
+#include "tensorOps.hpp"
+#include "logger.hpp"
+#include "attacks.hpp"
 
 #include <chrono>
 #include <cstring>

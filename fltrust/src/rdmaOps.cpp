@@ -1,7 +1,7 @@
-#include "../include/rdmaOps.hpp"
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
+#include "rdmaOps.hpp"
+#include "rc_conn.hpp"
+#include "rdma-api.hpp"
+#include "util.hpp"
 
 RdmaOps::RdmaOps(std::vector<comm_info> conn_data) : 
   conn_data(conn_data),

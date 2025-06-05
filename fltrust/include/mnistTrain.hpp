@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../include/subsetSampler.hpp"
-#include "../include/globalConstants.hpp"
+#include "subsetSampler.hpp"
+#include "globalConstants.hpp"
 
 #include <vector>
 

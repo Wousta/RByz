@@ -1,7 +1,7 @@
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
-#include "../include/tensorOps.hpp"
+#include "mnistTrain.hpp"
+#include "globalConstants.hpp"
+#include "logger.hpp"
+#include "tensorOps.hpp"
 
 #include <cstddef>
 #include <cstdio>

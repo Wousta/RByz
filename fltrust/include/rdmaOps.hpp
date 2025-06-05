@@ -1,9 +1,9 @@
 // Class for RDMA operations
 #pragma once
 
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
+#include "rc_conn.hpp"
+#include "rdma-api.hpp"
+#include "util.hpp"
 
 #include <vector>
 

@@ -1,5 +1,5 @@
-#include "../include/attacks.hpp"
-#include "../include/logger.hpp"
+#include "attacks.hpp"
+#include "logger.hpp"
 
 // These functions are translated from https://github.com/encryptogroup/SAFEFL/blob/main/attacks.py
 
