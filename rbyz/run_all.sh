@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-srvr_ip=192.168.128.101
+srvr_ip=192.168.128.103
 port=2000
 n_clients=10
 remote_user="bustaman"

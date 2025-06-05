@@ -8,7 +8,7 @@ file(GLOB HDR "include/*.hpp" "../../shared/redis.hpp" "../../shared/net.hpp" ".
 
 add_library(rc_conn SHARED ${SRC} ${HDR})
 
-target_compile_options(rc_conn PRIVATE -g)
+target_compile_options(rc_conn PRIVATE -g) # comment for release mode
 
 target_include_directories(rc_conn PUBLIC ${nlohmann_json_INCLUDE_DIR})
 target_include_directories(rc_conn PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

@@ -72,10 +72,10 @@ void RcConn::qpMkRdy(uint32_t qp_num, uint32_t dlid, uint8_t slvl,
   memset(&rts_attr, 0, sizeof(rts_attr));
   rts_attr.qp_state = ibv_qp_state::IBV_QPS_RTS;
   rts_attr.timeout = 12;
-  rts_attr.retry_cnt = 10;
-  rts_attr.rnr_retry = 10;
+  rts_attr.retry_cnt = 20;
+  rts_attr.rnr_retry = 20;
   rts_attr.sq_psn = 0;
-  rts_attr.max_rd_atomic = 10;
+  rts_attr.max_rd_atomic = 16;
   ret = ibv_modify_qp(conn.qp, &rts_attr,
                       IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
                           IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN |
