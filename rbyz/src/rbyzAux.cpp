@@ -150,11 +150,11 @@ void writeServerVD(void* vd_sample,
       remote_info.indx = CLNT_DATASET_IDX;
       remote_info.off = clnt_offset;
 
-      if (j % 1 == 0) {
-        Logger::instance().log("Server img idx " + std::to_string(srvr_idx) + ": Sending sample og index " + 
-                               std::to_string(*mnist.getOriginalIndex(srvr_idx)) + " with label " + std::to_string(*mnist.getLabel(srvr_idx)) + 
-                               " to client " + std::to_string(i) + " with offset " + std::to_string(clnt_offset) + "\n");
-      }
+      // if (j % 1 == 0) {
+      //   Logger::instance().log("Server img idx " + std::to_string(srvr_idx) + ": Sending sample og index " + 
+      //                          std::to_string(*mnist.getOriginalIndex(srvr_idx)) + " with label " + std::to_string(*mnist.getLabel(srvr_idx)) + 
+      //                          " to client " + std::to_string(i) + " with offset " + std::to_string(clnt_offset) + "\n");
+      // }
       rdma_ops.exec_rdma_write(mnist.getSampleSize(), local_info, remote_info, i, true);
     }
   }

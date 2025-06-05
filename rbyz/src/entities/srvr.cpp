@@ -369,7 +369,6 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
-  Logger::instance().logCoreCpuState("CPU CHECK START\n");
   Logger::instance().startCpuProfiling();
   auto start = std::chrono::high_resolution_clock::now();
   
@@ -413,7 +412,7 @@ int main(int argc, char *argv[]) {
   //rdma_ops.stopFlowControl(); // Stop monitoring queues
 
   Logger::instance().logCoreCpuState("CPU UTILIZATION");
-  
+
   auto end = std::chrono::high_resolution_clock::now();
   Logger::instance().log("Total time taken: " +
                          std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +

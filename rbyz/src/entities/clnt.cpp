@@ -157,7 +157,6 @@ int main(int argc, char* argv[]) {
   std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
-  Logger::instance().logCoreCpuState("CPU CHECK START\n");
   Logger::instance().startCpuProfiling();
 
   std::vector<torch::Tensor> w;

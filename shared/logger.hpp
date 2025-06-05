@@ -45,26 +45,10 @@ public:
         logFile_.flush();
     }
 
-    void logCoreCpuState(const std::string& context) {
-        logCoreCpuState(-1, context);
-    }
-
-    void logCoreCpuState(int core_id = -1, const std::string& context = "") {
+    void logCoreCpuState(const std::string& context = "") {
         std::lock_guard<std::mutex> lock(mtx_);
 
-        if (core_id == -1) {
-            core_id = sched_getcpu();
-        }
-        
-        if (core_id < 0) {
-            log("Failed to get CPU core information\n");
-            return;
-        }
-
-        cpuProfiler_.startCoreMeasure(core_id);
-
-        // Small delay to get meaningful measurement
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        int core_id = sched_getcpu();
         double coreUtil = cpuProfiler_.getCoreUtil(core_id);
         std::string message = "Core " + std::to_string(core_id) + " Utilization";
         if (!context.empty()) {
