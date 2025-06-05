@@ -7,9 +7,7 @@ n_clients=10
 remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
-remote_script_path="/home/bustaman/rbyz/rbyz"
-load_model=false
-model_file="mnist_model_params.pt"
+remote_script_path="/home/bustaman/rbyz/fltrust"
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
@@ -18,13 +16,6 @@ remainder=$((n_clients % ${#remote_hosts[@]}))
 # Server runs locally, clients run remotely
 run_server_remote=false
 run_clients_remote=true
-
-# Lyra handling of boolean flag
-if [ "$load_model" = true ]; then
-  load_model_param="--load"
-else
-  load_model_param=""
-fi
 
 # Cleanup function: kill local and remote processes
 cleanup() {
