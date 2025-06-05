@@ -277,7 +277,10 @@ void RegisteredMnistTrain::train(size_t epoch,
 
   // Update the loss member to be the average loss across all batches
   loss = static_cast<float>(total_loss / total_batches);
-  
+
+  // Update the train accuracy member
+  setTrainAccuracy(static_cast<double>(correct) / total);
+
   // Wait for any remaining async operations
   if (device.is_cuda()) {
     cudaDeviceSynchronize();

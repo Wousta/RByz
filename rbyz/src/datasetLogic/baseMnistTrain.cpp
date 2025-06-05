@@ -143,10 +143,11 @@ void BaseMnistTrain::test(Net& model,
   }
 
   test_loss /= dataset_size;
+  setTestAccuracy(static_cast<double>(correct) / dataset_size);
   std::ostringstream oss;
   oss << "\n  Test set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
       << " | Accuracy: " << std::fixed << std::setprecision(3)
-      << static_cast<double>(correct) / dataset_size;
+      << getTestAccuracy();
   Logger::instance().log(oss.str() + "\n");
   Logger::instance().log("  Testing done\n");
 }

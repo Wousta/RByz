@@ -8,6 +8,7 @@ inline constexpr int SRVR_SUBSET_SIZE = 5000;
 inline constexpr float GLOBAL_LEARN_RATE = 0.01f;
 inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;
+inline constexpr double ACCURACY_WARMUP = 0.7;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 
 // RBYZ

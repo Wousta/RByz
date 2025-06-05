@@ -53,6 +53,8 @@ protected:
   torch::Tensor output;
   float loss;
   float error_rate;
+  double train_accuracy = 0.0; // Initialize train accuracy
+  double test_accuracy = 0.0; // Initialize test accuracy
   std::unordered_map<int64_t, std::vector<size_t>> label_to_indices; // 
   cudaStream_t memcpy_stream_A; // Stream for async memcpy
   cudaStream_t memcpy_stream_B; // Stream for async memcpy
@@ -105,6 +107,10 @@ public:
   float getLoss() { return loss; }
   void setLoss(float new_loss) { loss = new_loss; }
   float getErrorRate() { return error_rate; }
+  double getTrainAccuracy() { return train_accuracy; }
+  void setTrainAccuracy(double new_train_accuracy) { train_accuracy = new_train_accuracy; }
+  double getTestAccuracy() { return test_accuracy; }
+  void setTestAccuracy(double new_test_accuracy) { test_accuracy = new_test_accuracy; }
   void setErrorRate(float new_error_rate) { error_rate = new_error_rate; }
   int64_t getKTrainBatchSize() const { return kTrainBatchSize; }
 };
