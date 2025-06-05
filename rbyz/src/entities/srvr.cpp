@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <chrono>
 
 #include "rc_conn.hpp"
 #include "rdma-api.hpp"
@@ -368,9 +369,9 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
-  //Logger::instance().startCpuProfiling();
   Logger::instance().logCoreCpuState("CPU CHECK START\n");
   Logger::instance().startCpuProfiling();
+  auto start = std::chrono::high_resolution_clock::now();
   
   std::vector<torch::Tensor> w;
   if (load_model) {
@@ -412,6 +413,11 @@ int main(int argc, char *argv[]) {
   //rdma_ops.stopFlowControl(); // Stop monitoring queues
 
   Logger::instance().logCoreCpuState("CPU UTILIZATION");
+  
+  auto end = std::chrono::high_resolution_clock::now();
+  Logger::instance().log("Total time taken: " +
+                         std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +
+                         " seconds\n");
 
   // Test the model after training
   registered_mnist->testModel();

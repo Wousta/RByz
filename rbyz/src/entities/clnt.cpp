@@ -157,6 +157,9 @@ int main(int argc, char* argv[]) {
   std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
+  Logger::instance().logCoreCpuState("CPU CHECK START\n");
+  Logger::instance().startCpuProfiling();
+
   std::vector<torch::Tensor> w;
   if (load_model) {
     w = regular_mnist->loadModelState(model_file);
@@ -183,6 +186,8 @@ int main(int argc, char* argv[]) {
   registered_mnist->setLoss(regular_mnist->getLoss());
   registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   runRByzClient(w, *registered_mnist, regMem, rdma_ops);
+
+  Logger::instance().logCoreCpuState("CPU UTILIZATION");
 
   std::cout << "\nClient done\n";
   std::this_thread::sleep_for(std::chrono::minutes(1));

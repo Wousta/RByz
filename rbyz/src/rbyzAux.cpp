@@ -340,6 +340,13 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     // Reset the memory ready flag
     releaseCASLock(regMem);
 
+    mnist.testModel();
+
+    if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
+      Logger::instance().log("Client: Target accuracy reached, stopping RByz\n");
+      break;
+    }
+
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " completed ////////////////\n");
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
@@ -520,6 +527,11 @@ void runRByzServer(int n_clients,
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
     mnist.testModel();
+
+    if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
+      Logger::instance().log("Server: Target accuracy reached, stopping RByz\n");
+      break;
+    }
   }
 
   // TODO: Wait for all clients to finish by reading their round
