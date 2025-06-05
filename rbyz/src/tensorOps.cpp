@@ -1,5 +1,5 @@
 #include "tensorOps.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 
 #include <iostream>
 #include <vector>

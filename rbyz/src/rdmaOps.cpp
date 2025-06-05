@@ -2,7 +2,7 @@
 #include "rc_conn.hpp"
 #include "rdma-api.hpp"
 #include "util.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 
 RdmaOps::RdmaOps(std::vector<RcConn>& conns) : 
   conns(conns),

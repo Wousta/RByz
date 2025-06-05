@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "global/globalConstants.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "tensorOps.hpp"
 
 RegularMnistTrain::RegularMnistTrain(int worker_id, int num_workers, int64_t subset_size)

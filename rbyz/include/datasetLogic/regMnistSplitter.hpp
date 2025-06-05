@@ -1,7 +1,7 @@
 #pragma once
 
 #include "registeredMnistTrain.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "global/globalConstants.hpp"
 #include "entities.hpp"
 

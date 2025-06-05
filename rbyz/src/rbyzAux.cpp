@@ -1,7 +1,7 @@
 #include "rbyzAux.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "tensorOps.hpp"
 
 #include <algorithm>

@@ -7,7 +7,6 @@
 #include "datasetLogic/regularMnistTrain.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
-#include "global/logger.hpp"
 #include "rbyzAux.hpp"
 #include "entities.hpp"
 

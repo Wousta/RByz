@@ -1,5 +1,5 @@
 #include "datasetLogic/baseMnistTrain.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "tensorOps.hpp"
 
 #include <random>

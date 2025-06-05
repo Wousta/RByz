@@ -18,7 +18,6 @@
 #include "util.hpp"
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
-#include "global/logger.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "datasetLogic/regularMnistTrain.hpp"
 #include "datasetLogic/baseMnistTrain.hpp"
@@ -204,6 +203,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     regMem.srvr_ready_flag = round;
 
     // Run local training
+    Logger::instance().log("Server: Running MNIST training for round " + std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
     // Keep updated values to follow FLtrust logic
@@ -316,7 +316,8 @@ void allocateServerMemory(
 }
 
 int main(int argc, char *argv[]) {
-  Logger::instance().log("Server starting RBYZ\n");
+  Logger::instance().log("Server starting RBYZ in core: " + std::to_string(sched_getcpu()) + "\n");
+
   int n_clients;
   bool load_model = false;
   std::string model_file = "mnist_model_params.pt";
@@ -367,6 +368,10 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
+  //Logger::instance().startCpuProfiling();
+  Logger::instance().logCoreCpuState("CPU CHECK START\n");
+  Logger::instance().startCpuProfiling();
+  
   std::vector<torch::Tensor> w;
   if (load_model) {
     w = regular_mnist->loadModelState(model_file);
@@ -405,6 +410,8 @@ int main(int argc, char *argv[]) {
   //rdma_ops.startFlowControl(); // Start monitoring queues
   runRByzServer(n_clients, w, *registered_mnist, rdma_ops, regMem, clnt_data_vec);
   //rdma_ops.stopFlowControl(); // Stop monitoring queues
+
+  Logger::instance().logCoreCpuState("CPU UTILIZATION");
 
   // Test the model after training
   registered_mnist->testModel();

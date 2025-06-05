@@ -3,12 +3,12 @@
 # Configuration
 srvr_ip=192.168.128.101
 port=2000
-n_clients=2
+n_clients=10
 remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
-load_model=true
+load_model=false
 model_file="mnist_model_params.pt"
 
 # Calculate clients per machine (even distribution)
@@ -61,7 +61,7 @@ rm -rf logs/*
 
 # Start the server process locally
 echo "Starting server locally..."
-build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_model_param --file $model_file & 
+taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_model_param --file $model_file & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
@@ -88,11 +88,22 @@ for i in "${!remote_hosts[@]}"; do
     done
     
     # Start clients on this machine using SSH with keys
+    # ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
+    #   for id in ${client_ids[@]}; do \
+    #     echo \"Starting client \$id on $host\" && \
+    #     build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_model_param --file $model_file & \
+    #     echo \$! >> $remote_script_path/clients_${host}.pid; \
+    #     sleep 0.5; \
+    #   done" &
+
     ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
+      core_id=0; \
       for id in ${client_ids[@]}; do \
-        echo \"Starting client \$id on $host\" && \
-        build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_model_param --file $model_file & \
+        echo \"Starting client \$id on $host with physical core \$core_id\" && \
+        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_model_param --file $model_file & \
         echo \$! >> $remote_script_path/clients_${host}.pid; \
+        core_id=\$((core_id + 1)); \
+        if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.5; \
       done" &
   fi
