@@ -161,8 +161,6 @@ void writeServerVD(void* vd_sample,
   Logger::instance().log("Server: VD samples sent to all clients\n");
 }
 
-
-
 bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data) {
   // Compare the output of the forward pass with the server's output
   float* clnt_out = clnt_data.forward_pass;
@@ -542,8 +540,4 @@ void runRByzServer(int n_clients,
       }
     }
   }
-  
-  // Test the model after training
-  mnist.testModel();
-
 }

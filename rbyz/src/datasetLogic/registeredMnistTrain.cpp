@@ -228,7 +228,7 @@ void RegisteredMnistTrain::train(size_t epoch,
     }
 
     // Switch to evaluation mode for writing forward pass results
-    if (batch_idx == 0) {
+    if (batch_idx == 0 && epoch == 1) {
       model.eval();
       torch::NoGradGuard no_grad;
       auto inference_output = model.forward(data);

@@ -398,10 +398,16 @@ int main(int argc, char *argv[]) {
   registered_mnist->setLoss(regular_mnist->getLoss());
   registered_mnist->setErrorRate(regular_mnist->getErrorRate());
 
+  Logger::instance().log("Initial test of the model before RByz\n");
+  registered_mnist->testModel();
+
   // ENABLE FLOW CONTROL WHEN READY
   //rdma_ops.startFlowControl(); // Start monitoring queues
   runRByzServer(n_clients, w, *registered_mnist, rdma_ops, regMem, clnt_data_vec);
   //rdma_ops.stopFlowControl(); // Stop monitoring queues
+
+  // Test the model after training
+  registered_mnist->testModel();
 
   for (RcConn conn : conns) {
     conn.disconnect();
