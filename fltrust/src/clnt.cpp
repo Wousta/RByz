@@ -110,6 +110,8 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops({conn_data});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
+  Logger::instance().startCpuProfiling();
+
   MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_clnt(
     GLOBAL_ITERS,
@@ -120,6 +122,8 @@ int main(int argc, char* argv[]) {
     srvr_w,
     clnt_w
   );
+
+  Logger::instance().logCoreCpuState("CPU UTILIZATION");
 
   Logger::instance().log("Client: Final weights\n");
   printTensorSlices(w, 0, 5);

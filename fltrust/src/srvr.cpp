@@ -104,6 +104,9 @@ int main(int argc, char* argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
+  Logger::instance().startCpuProfiling();
+  auto start = std::chrono::high_resolution_clock::now();
+
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
   MnistTrain mnist(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_srvr(
@@ -115,6 +118,13 @@ int main(int argc, char* argv[]) {
     clnt_ready_flags,
     clnt_ws
   );
+
+  Logger::instance().logCoreCpuState("CPU UTILIZATION");
+
+  auto end = std::chrono::high_resolution_clock::now();
+  Logger::instance().log("Total time taken: " +
+                         std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +
+                         " seconds\n");
 
   {
     std::ostringstream oss;
@@ -162,7 +172,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
-    std::vector<torch::Tensor> clnt_updates(polled_clients.size());
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
@@ -173,30 +182,20 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     srvr_ready_flag.store(round);
     //srvr_ready_flag = round;
 
-    Logger::instance().log("Server: going to train with this w:\n");
-    printTensorSlices(w, 0, 5);
-
-    {
-      std::ostringstream oss;
-      float total_norm = 0.0f;
-      oss << "\nWeight norms after iteration " << round << ":\n";
-      
-      for (size_t i = 0; i < w.size(); i++) {
-        float layer_norm = torch::norm(w[i], 2).item<float>();
-        total_norm += layer_norm;
-        oss << "  Layer " << i << " norm: " << layer_norm << "\n";
-      }
-      
-      oss << "  Total norm: " << total_norm << "\n";
-      Logger::instance().log(oss.str());
-    }
-
-    // Run local training
+    Logger::instance().log("Server: Running MNIST training for round " + std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+
+    // Why does repeatedly subtract the weights improve accuracy?
+    for (size_t i = 0; i < g.size(); ++i) {
+      g[i] -= w[i];
+    }
 
     //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
     //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
+    std::vector<torch::Tensor> clnt_updates(polled_clients.size());
+    clnt_updates.reserve(polled_clients.size());
     Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
+
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
@@ -212,26 +211,18 @@ std::vector<torch::Tensor> run_fltrust_srvr(
           torch::kFloat32
       ).clone();
 
-      // Print slice of the tensor
-      if (client % 20 == 0) {
-        std::ostringstream oss;
-        oss << "\nClient " << client << " update:\n";
-        oss << "  " << flat_tensor.slice(0, 0, std::min<size_t>(flat_tensor.numel(), 5)) << " ";
-        Logger::instance().log(oss.str());
-      }
-
       clnt_updates[client] = flat_tensor;
     }
 
     // Use attacks to simulate Byzantine clients
-    //clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    clnt_updates = krum_attack(
-      clnt_updates, 
-      mnist.getModel(), 
-      GLOBAL_LEARN_RATE, 
-      N_BYZ_CLNTS, 
-      mnist.getDevice()
-    );
+    clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    // clnt_updates = krum_attack(
+    //   clnt_updates, 
+    //   mnist.getModel(), 
+    //   GLOBAL_LEARN_RATE, 
+    //   N_BYZ_CLNTS, 
+    //   mnist.getDevice()
+    // );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
 
@@ -241,6 +232,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
     Logger::instance().log("Server: aggregated update:\n");
     printTensorSlices(aggregated_update_vec, 0, 5);
+
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
@@ -276,79 +268,81 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   return result;
 }
 
-torch::Tensor aggregate_updates(
-  const std::vector<torch::Tensor>& client_updates,
-  const torch::Tensor& server_update) {
-
-  // Compute cosine similarity between each client update and server update
+torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
+                                const torch::Tensor &server_update) {
+  
+                                  // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
-  //Logger::instance().log("\nComputing aggregation data ================\n");
-  for (const auto& flat_client_update : client_updates) {
+  
+  Logger::instance().log("\nComputing aggregation data ================\n");
 
-      // Compute cosine similarity
-      torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
-      float client_norm = torch::norm(flat_client_update, 2).item<float>();
-      float server_norm = torch::norm(server_update, 2).item<float>();
-      float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
-      
-      // Apply ReLU (max with 0)
-      float trust_score = std::max(0.0f, cosine_sim);
-      trust_scores.push_back(trust_score);
+  for (const auto &flat_client_update : client_updates) {
+    // Compute cosine similarity
+    torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
+    float client_norm = torch::norm(flat_client_update, 2).item<float>();
+    float server_norm = torch::norm(server_update, 2).item<float>();
+    float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
 
-      torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
-      normalized_updates.push_back(normalized_update);
-      // {
-      //   std::ostringstream oss;
-      //   oss << "  ClientUpdate:\n";
-      //   oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 3)) << " ";
-      //   oss << "  \nServerUpdate:\n";
-      //   oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 3)) << " ";
-      //   Logger::instance().log(oss.str());
-      // }
-      // Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) + "\n");
-      // Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
-      // Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
-      // Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
-      // Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
-      // Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
+    // Apply ReLU (max with 0)
+    float trust_score = std::max(0.0f, cosine_sim);
+    trust_scores.push_back(trust_score);
+
+    torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
+    normalized_updates.push_back(normalized_update);
+
+      {
+        std::ostringstream oss;
+        oss << "  ClientUpdate:\n";
+        oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 5)) << " ";
+        oss << "  \nServerUpdate:\n";
+        oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 5)) << " ";
+        Logger::instance().log(oss.str());
+      }
+      Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) + "\n");
+      Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
+      Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
+      Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
+      Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
+      Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
-  //Logger::instance().log("================================\n");
-
+  Logger::instance().log("================================\n");
 
   {
     std::ostringstream oss;
     oss << "\nTRUST SCORES:\n";
-    for(int i = 0; i < trust_scores.size(); i++) {
+    for (int i = 0; i < trust_scores.size(); i++) {
       if (i % 1 == 0) {
         oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
       }
     }
     Logger::instance().log(oss.str());
   }
-  
+
   // Normalize trust scores
   float sum_trust = 0.0f;
   for (float score : trust_scores) {
-      sum_trust += score;
+    sum_trust += score;
   }
-  
+
   torch::Tensor aggregated_update = torch::zeros_like(server_update);
   if (sum_trust > 0) {
-      for (int i = 0; i < trust_scores.size(); i++) {
-        aggregated_update += trust_scores[i] * normalized_updates[i];
-      }
+    for (int i = 0; i < trust_scores.size(); i++) {
+      aggregated_update += trust_scores[i] * normalized_updates[i];
+    }
 
-      aggregated_update /= sum_trust;
+    aggregated_update /= sum_trust;
   }
 
   // Print the aggregated update
   {
     std::ostringstream oss;
     oss << "\nAggregated update:\n";
-    oss << "  " << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() << "\n";
+    oss << "  "
+        << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString()
+        << "\n";
     Logger::instance().log(oss.str());
   }
 
