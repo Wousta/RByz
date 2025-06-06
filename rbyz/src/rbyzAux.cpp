@@ -76,6 +76,53 @@ void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   clnt_data.trust_score = (loss_Calc + err_Calc) / 2;
 }
 
+torch::Tensor aggregate_updates(const std::vector<torch::Tensor>& client_updates,
+                                const torch::Tensor& flat_w,
+                                std::vector<ClientDataRbyz> &clnt_data_vec) {
+
+  // Normalize the client updates
+  std::vector<torch::Tensor> normalized_updates;
+  normalized_updates.reserve(client_updates.size());
+  float server_norm = torch::norm(flat_w, 2).item<float>();
+
+  Logger::instance().log("\nComputing aggregation data ================\n");
+
+  for (const auto &client_update : client_updates) {
+    float client_norm = torch::norm(client_update, 2).item<float>();
+    torch::Tensor normalized_update = client_update * (server_norm / client_norm);
+    normalized_updates.push_back(normalized_update);
+
+    Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
+    Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
+    Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
+  }
+
+  float trust_scores[client_updates.size()];
+  for (size_t i = 0; i < client_updates.size(); i++) {
+    trust_scores[i] = clnt_data_vec[i].trust_score;
+  }
+
+  // Normalize trust scores
+  float sum_trust = 0.0f;
+  for (float score : trust_scores) {
+    sum_trust += score;
+  }
+
+  torch::Tensor aggregated_update = torch::zeros_like(flat_w);
+  if (sum_trust > 0) {
+    for (int i = 0; i < client_updates.size(); i++) {
+      aggregated_update += trust_scores[i] * normalized_updates[i];
+    }
+
+    aggregated_update /= sum_trust;
+  }
+
+  Logger::instance().log("Final Aggregated update: " + aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() + "\n");
+  Logger::instance().log("================================\n");
+
+  return aggregated_update;
+}
+
 //////////////////////////////////////////////////////////////
 ////////////////////// CLIENT FUNCTIONS //////////////////////
 void writeErrorAndLoss(BaseMnistTrain& mnist, float* loss_and_err) {
@@ -155,7 +202,7 @@ void writeServerVD(void* vd_sample,
       //                          std::to_string(*mnist.getOriginalIndex(srvr_idx)) + " with label " + std::to_string(*mnist.getLabel(srvr_idx)) + 
       //                          " to client " + std::to_string(i) + " with offset " + std::to_string(clnt_offset) + "\n");
       // }
-      rdma_ops.exec_rdma_write(mnist.getSampleSize(), local_info, remote_info, i, true);
+      rdma_ops.exec_rdma_write(mnist.getSampleSize(), local_info, remote_info, i, false);
     }
   }
   Logger::instance().log("Server: VD samples sent to all clients\n");
@@ -397,9 +444,6 @@ void runRByzServer(int n_clients,
 
     Logger::instance().log("WEIGHTS SAME\n");
     printTensorSlices(w, 0, 2);
-
-    Logger::instance().log("FIRST INFERENCE\n");
-    mnist.runInference(w);
   
     // Signal to clients that the server is ready
     regMem.srvr_ready_flag = round;
@@ -509,19 +553,12 @@ void runRByzServer(int n_clients,
     clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
 
     // Aggregation
-    for (int i = 0; i < clnt_indices.size(); i++) {
-      int clnt_idx = clnt_indices[i];
+    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, all_tensors, clnt_data_vec);
+    std::vector<torch::Tensor> aggregated_update_vec =
+        reconstruct_tensor_vector(aggregated_update, w);
 
-      if (clnt_updates[i].numel() != REG_SZ_DATA / sizeof(float)) {
-        throw std::runtime_error("Server: Client update size does not match expected size");
-      }
-
-      for (size_t j = 0; j < w.size(); j++) {
-        w[j] = w[j] + clnt_updates[i][j] * clnt_data_vec[clnt_idx].trust_score * GLOBAL_LEARN_RATE;
-      }
-
-      Logger::instance().log("Trust score for client " + std::to_string(clnt_idx) + ": " + 
-                             std::to_string(clnt_data_vec[clnt_idx].trust_score) + "\n");
+    for (size_t i = 0; i < w.size(); i++) {
+      w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
 
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";

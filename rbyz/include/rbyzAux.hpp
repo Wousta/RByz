@@ -33,6 +33,11 @@ void updateTS(
     float srvr_loss, 
     float srvr_error_rate);
 
+torch::Tensor aggregate_updates(
+    const std::vector<torch::Tensor>& client_updates,
+    const torch::Tensor& w,
+    std::vector<ClientDataRbyz> &clnt_data_vec);
+
 void writeErrorAndLoss(
   BaseMnistTrain& mnist,
   float* clnt_w);
