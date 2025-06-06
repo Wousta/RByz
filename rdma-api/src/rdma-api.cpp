@@ -128,6 +128,12 @@ int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
     latency->push_back({send_info[0].wqe_depth, get_dur(start, end)});
     posted_wqes += send_info[0].wqe_depth;
   } else {
+    int posted_wqes_ceil = 1000 - 2 * send_info[0].wqe_depth;
+    if (posted_wqes >= posted_wqes_ceil) {
+      // Poll the CQ to avoid overflow
+      ret = poll_cq(send_info[0].cq, posted_wqes_ceil);
+      posted_wqes -= posted_wqes_ceil;
+    }
     ret = ibv_post_send(send_info[0].qp, send_wr, &send_failure);
     posted_wqes += send_info[0].wqe_depth;
   }
@@ -203,6 +209,12 @@ int post_recv(const comm_info &recv_info, const NetFlags &net_flags,
     auto end = NOW();
     latency->push_back({recv_info.wqe_depth, get_dur(start, end)});
   } else {
+    int posted_wqes_ceil = 1000 - 2 * recv_info.wqe_depth;
+    if (posted_wqes >= posted_wqes_ceil) {
+      // Poll the CQ to avoid overflow
+      ret = poll_cq(recv_info.cq, posted_wqes_ceil);
+      posted_wqes -= posted_wqes_ceil;
+    }
     ret = ibv_post_recv(recv_info.qp, recv_wr, &recv_failure);
   }
   posted_wqes += recv_info.wqe_depth;
