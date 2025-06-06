@@ -77,11 +77,8 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1) {
     min_sz = n_clients;
   }
 
-  std::cout << "Generating random unique vector of size " << n_clients << "\n";
-
   // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
-
   std::vector<int> allValues(n_clients);
   for (int i = 0; i < n_clients; i++) {
     allValues[i] = i;
@@ -217,17 +214,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
 
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND,
     // BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
-    Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
-    {
-      std::ostringstream oss;
-      oss << "Clients polled: \n";
-      for (int index : polled_clients) {
-        oss << index << " ";
-      }
-      oss << "\n";
-      Logger::instance().log(oss.str());
-    }
-
     std::vector<torch::Tensor> clnt_updates;
     clnt_updates.reserve(polled_clients.size());
 
@@ -235,7 +221,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
       while (regMem.clnt_ready_flags[client] != round) {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
       size_t numel_server = REG_SZ_DATA / sizeof(float);
@@ -264,6 +250,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec =
         reconstruct_tensor_vector(aggregated_update, w);
+        
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
