@@ -11,6 +11,8 @@ add_library(norm SHARED ${SRC} ${HDR})
 
 target_compile_options(norm PRIVATE -g)
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/include)
+
 target_include_directories(norm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(norm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
 target_include_directories(norm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../normal/include)
