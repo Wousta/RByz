@@ -26,10 +26,15 @@ public:
     }
 
     // CPU profiling methods
-    void startCpuProfiling() {
+    void startCpuProfilingTotal() {
         std::lock_guard<std::mutex> lock(mtx_);
         cpuProfiler_.startTotalMeasure();
-        cpuProfiler_.startCoreMeasure(sched_getcpu());
+    }
+
+    void startCpuProfilingCore() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        int core_id = sched_getcpu();
+        cpuProfiler_.startCoreMeasure(core_id);
     }
 
     void logCpuState(const std::string& context = "") {

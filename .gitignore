@@ -59,3 +59,5 @@ rdma-api/build
 pass.txt
 .clang-format
 rbyz/.vscode
+Results/build
+Results/logs
