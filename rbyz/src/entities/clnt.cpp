@@ -59,7 +59,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
   for (int round = 1; round <= rounds; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::yield();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     } while (regMem.srvr_ready_flag != round);
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
@@ -67,11 +67,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     // Read the weights from the server and run training
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
-
-    // Keep updated values to follow FLtrust logic
-    for (size_t i = 0; i < g.size(); ++i) {
-      g[i] -= w[i];
-    }
 
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
@@ -157,8 +152,6 @@ int main(int argc, char* argv[]) {
   std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
-  Logger::instance().startCpuProfiling();
-
   std::vector<torch::Tensor> w;
   if (load_model) {
     w = regular_mnist->loadModelState(model_file);
@@ -185,8 +178,6 @@ int main(int argc, char* argv[]) {
   registered_mnist->setLoss(regular_mnist->getLoss());
   registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   runRByzClient(w, *registered_mnist, regMem, rdma_ops);
-
-  Logger::instance().logCoreCpuState("CPU UTILIZATION");
 
   std::cout << "\nClient done\n";
   std::this_thread::sleep_for(std::chrono::minutes(1));

@@ -72,25 +72,23 @@ void prepareRdmaRegistration(
   }
 }
 
-std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1) {
+std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   if (min_sz == -1) {
     min_sz = n_clients;
   }
-
-  // Initialize random number generator
   std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
   std::vector<int> allValues(n_clients);
   for (int i = 0; i < n_clients; i++) {
-    allValues[i] = i;
+      allValues[i] = i;
   }
   std::shuffle(allValues.begin(), allValues.end(), rng);
-
+  
   // Generate random size
   std::uniform_int_distribution<int> sizeDist(min_sz, n_clients);
   int size = sizeDist(rng);
 
   std::cout << "Random size: " << size << "\n";
-
+  
   std::vector<int> result(allValues.begin(), allValues.begin() + size);
   std::sort(result.begin(), result.end());
 
@@ -98,34 +96,34 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz = -1) {
 }
 
 torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
-                                const torch::Tensor &server_update) {
+                                const torch::Tensor &server_update,
+                                std::vector<ClientDataRbyz> &clntsData) {
   
                                   // Compute cosine similarity between each client update and server update
-  std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
-  trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
   
   Logger::instance().log("\nComputing aggregation data ================\n");
 
-  for (const auto &flat_client_update : client_updates) {
+  for (int i = 0; i < client_updates.size(); i++) {
     // Compute cosine similarity
-    torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
-    float client_norm = torch::norm(flat_client_update, 2).item<float>();
+    torch::Tensor dot_product = torch::dot(client_updates[i], server_update);
+    float client_norm = torch::norm(client_updates[i], 2).item<float>();
     float server_norm = torch::norm(server_update, 2).item<float>();
     float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
 
     // Apply ReLU (max with 0)
     float trust_score = std::max(0.0f, cosine_sim);
-    trust_scores.push_back(trust_score);
+    clntsData[i].trust_score = trust_score;
 
-    torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
+    torch::Tensor normalized_update = client_updates[i] * (server_norm / client_norm);
     normalized_updates.push_back(normalized_update);
+
 
       {
         std::ostringstream oss;
         oss << "  ClientUpdate:\n";
-        oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 5)) << " ";
+        oss << "    " << client_updates[i].slice(0, 0, std::min<size_t>(client_updates[i].numel(), 5)) << " ";
         oss << "  \nServerUpdate:\n";
         oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 5)) << " ";
         Logger::instance().log(oss.str());
@@ -142,9 +140,9 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   {
     std::ostringstream oss;
     oss << "\nTRUST SCORES:\n";
-    for (int i = 0; i < trust_scores.size(); i++) {
+    for (int i = 0; i < clntsData.size(); i++) {
       if (i % 1 == 0) {
-        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
+        oss << "  Client " << i << " score: " << clntsData[i].trust_score << "\n";
       }
     }
     Logger::instance().log(oss.str());
@@ -152,14 +150,14 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
 
   // Normalize trust scores
   float sum_trust = 0.0f;
-  for (float score : trust_scores) {
-    sum_trust += score;
+  for (int i = 0; i < clntsData.size(); i++) {
+    sum_trust += clntsData[i].trust_score;
   }
 
   torch::Tensor aggregated_update = torch::zeros_like(server_update);
   if (sum_trust > 0) {
-    for (int i = 0; i < trust_scores.size(); i++) {
-      aggregated_update += trust_scores[i] * normalized_updates[i];
+    for (int i = 0; i < clntsData.size(); i++) {
+      aggregated_update += clntsData[i].trust_score * normalized_updates[i];
     }
 
     aggregated_update /= sum_trust;
@@ -190,11 +188,11 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
 
   for (int round = 1; round <= rounds; round++) {
     auto all_tensors = flatten_tensor_vector(w);
-    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
+    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
 
     // Copy to shared memory
     size_t total_bytes = all_tensors.numel() * sizeof(float);
-    float *global_w = all_tensors.data_ptr<float>();
+    float* global_w = all_tensors.data_ptr<float>();
     std::memcpy(regMem.srvr_w, global_w, total_bytes);
 
     // Set the flag to indicate that the weights are ready for the clients to read
@@ -204,11 +202,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     Logger::instance().log("Server: Running MNIST training for round " + std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
-    // Keep updated values to follow FLtrust logic
-    for (size_t i = 0; i < g.size(); ++i) {
-      g[i] -= w[i];
-    }
-
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
 
@@ -216,6 +209,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     // BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     std::vector<torch::Tensor> clnt_updates;
     clnt_updates.reserve(polled_clients.size());
+    Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
 
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
@@ -247,7 +241,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
 
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
-    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
+    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update, clntsData);
     std::vector<torch::Tensor> aggregated_update_vec =
         reconstruct_tensor_vector(aggregated_update, w);
         
@@ -356,7 +350,6 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
-  Logger::instance().startCpuProfiling();
   auto start = std::chrono::high_resolution_clock::now();
   
   std::vector<torch::Tensor> w;
@@ -393,12 +386,7 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Initial test of the model before RByz\n");
   registered_mnist->testModel();
 
-  // ENABLE FLOW CONTROL WHEN READY
-  //rdma_ops.startFlowControl(); // Start monitoring queues
   runRByzServer(n_clients, w, *registered_mnist, rdma_ops, regMem, clnt_data_vec);
-  //rdma_ops.stopFlowControl(); // Stop monitoring queues
-
-  Logger::instance().logCoreCpuState("CPU UTILIZATION");
 
   auto end = std::chrono::high_resolution_clock::now();
   Logger::instance().log("Total time taken: " +

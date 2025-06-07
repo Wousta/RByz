@@ -29,8 +29,8 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   int n_clients,
   int rounds, 
   MnistTrain& mnist,
-  std::atomic<int>& srvr_ready_flag,
-  //int& srvr_ready_flag,
+  //std::atomic<int>& srvr_ready_flag,
+  int& srvr_ready_flag,
   float* srvr_w,
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws
@@ -75,8 +75,8 @@ int main(int argc, char* argv[]) {
   std::vector<LocalInfo> loc_info(n_clients);
 
   // Data structures for server and clients
-  //int srvr_ready_flag = 0;
-  std::atomic<int> srvr_ready_flag(0);
+  int srvr_ready_flag = 0;
+  //std::atomic<int> srvr_ready_flag(0);
   float* srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
   std::vector<int> clnt_ready_flags(n_clients, 0);
   std::vector<float*> clnt_ws(n_clients);
@@ -104,7 +104,6 @@ int main(int argc, char* argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
-  Logger::instance().startCpuProfiling();
   auto start = std::chrono::high_resolution_clock::now();
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
@@ -118,8 +117,6 @@ int main(int argc, char* argv[]) {
     clnt_ready_flags,
     clnt_ws
   );
-
-  Logger::instance().logCoreCpuState("CPU UTILIZATION");
 
   auto end = std::chrono::high_resolution_clock::now();
   Logger::instance().log("Total time taken: " +
@@ -159,8 +156,8 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   int rounds, 
   int n_clients,
   MnistTrain& mnist,
-  std::atomic<int>& srvr_ready_flag,
-  //int& srvr_ready_flag,
+  //std::atomic<int>& srvr_ready_flag,
+  int& srvr_ready_flag,
   float* srvr_w,
   std::vector<int>& clnt_ready_flags,
   std::vector<float*>& clnt_ws) {
@@ -179,20 +176,15 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     std::memcpy(srvr_w, global_w, total_bytes);
 
     // Set the flag to indicate that the weights are ready for the clients to read
-    srvr_ready_flag.store(round);
-    //srvr_ready_flag = round;
+    //srvr_ready_flag.store(round);
+    srvr_ready_flag = round;
 
     Logger::instance().log("Server: Running MNIST training for round " + std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
-    // Why does repeatedly subtract the weights improve accuracy?
-    for (size_t i = 0; i < g.size(); ++i) {
-      g[i] -= w[i];
-    }
-
     //NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND, 
     //BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
-    std::vector<torch::Tensor> clnt_updates(polled_clients.size());
+    std::vector<torch::Tensor> clnt_updates;
     clnt_updates.reserve(polled_clients.size());
     Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
 
@@ -200,7 +192,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
       while(clnt_ready_flags[client] != round) { 
-        // Wait for the client to be ready
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
@@ -211,7 +202,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
           torch::kFloat32
       ).clone();
 
-      clnt_updates[client] = flat_tensor;
+      clnt_updates.push_back(flat_tensor);
     }
 
     // Use attacks to simulate Byzantine clients
