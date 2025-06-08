@@ -7,7 +7,6 @@
 #include "datasetLogic/regularMnistTrain.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
-#include "global/logger.hpp"
 #include "rbyzAux.hpp"
 #include "entities.hpp"
 
@@ -60,7 +59,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
   for (int round = 1; round <= rounds; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::yield();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     } while (regMem.srvr_ready_flag != round);
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
@@ -68,11 +67,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     // Read the weights from the server and run training
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
-
-    // Keep updated values to follow FLtrust logic
-    for (size_t i = 0; i < g.size(); ++i) {
-      g[i] -= w[i];
-    }
 
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
@@ -148,10 +142,13 @@ int main(int argc, char* argv[]) {
   // connect to server
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
+
   if (ret != 0) {
     throw std::runtime_error("Failed to connect to server");
   }
-  RdmaOps rdma_ops({conn.getConnData()});
+
+  std::vector<RcConn> conns = {conn}; 
+  RdmaOps rdma_ops(conns);
   std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 

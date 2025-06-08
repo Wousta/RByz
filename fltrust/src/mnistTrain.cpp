@@ -1,7 +1,7 @@
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
-#include "../include/tensorOps.hpp"
+#include "mnistTrain.hpp"
+#include "globalConstants.hpp"
+#include "logger.hpp"
+#include "tensorOps.hpp"
 
 #include <cstddef>
 #include <cstdio>
@@ -167,6 +167,7 @@ void MnistTrain::train(
   size_t batch_idx = 0;
   int32_t correct = 0;
   size_t total = 0;
+
   for (auto &batch : data_loader)
   {
     torch::Tensor data_device, targets_device;
@@ -217,19 +218,13 @@ void MnistTrain::train(
 
     optimizer.zero_grad();
     output = model.forward(data_device);
-    auto nll_loss = torch::nll_loss(output, targets_device);
-    AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
-    loss = nll_loss.template item<float>();
+    
+    // Calculate sum of losses (not mean) for this batch
+    auto nll_loss_mean = torch::nll_loss(output, targets_device);
+    AT_ASSERT(!std::isnan(nll_loss_mean.template item<float>()));
 
-    // Calculate accuracy and error rate for this batch
-    auto pred = output.argmax(1);
-    int32_t batch_correct = pred.eq(targets_device).sum().template item<int32_t>();
-    correct += batch_correct;
-    total += targets_device.size(0);
-    error_rate = 1.0 - (static_cast<float>(correct) / total);
-
-    // Backpropagation
-    nll_loss.backward();
+    // Backpropagation (use mean loss for gradients)
+    nll_loss_mean.backward();
     optimizer.step();
 
     if (batch_idx++ % kLogInterval == 0 && worker_id % 2 == 0)
@@ -239,9 +234,10 @@ void MnistTrain::train(
           epoch,
           batch_idx * batch.data.size(0),
           dataset_size,
-          nll_loss.template item<float>());
+          nll_loss_mean.template item<float>());
     }
   }
+  
 }
 
 template <typename DataLoader>
@@ -253,27 +249,40 @@ void MnistTrain::test(
 {
   torch::NoGradGuard no_grad;
   model.eval();
-  double test_loss = 0;
+  
+  double total_loss = 0.0;
   int32_t correct = 0;
+  int32_t total_samples = 0;  // Track actual samples processed
+  
   for (const auto &batch : data_loader)
   {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     auto output = model.forward(data);
-    test_loss += torch::nll_loss(
+    
+    // Calculate sum of losses for this batch
+    total_loss += torch::nll_loss(
                      output,
                      targets,
                      /*weight=*/{},
                      torch::Reduction::Sum)
                      .template item<float>();
+    
     auto pred = output.argmax(1);
     correct += pred.eq(targets).sum().template item<int64_t>();
+    total_samples += targets.size(0);  // Add actual batch size
   }
 
-  test_loss /= dataset_size;
+  // Update class members with properly calculated metrics
+  loss = static_cast<float>(total_loss / total_samples);  // True mean loss
+  error_rate = 1.0 - (static_cast<float>(correct) / total_samples);  // True error rate
+  accuracy = static_cast<float>(correct) / total_samples;  // True accuracy
+  
   std::ostringstream oss;
-  oss << "\nTest set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
+  oss << "\nTest set: Average loss: " << std::fixed << std::setprecision(4) << loss
       << " | Accuracy: " << std::fixed << std::setprecision(3)
-      << static_cast<double>(correct) / dataset_size << std::endl;
+      << static_cast<double>(correct) / total_samples
+      << " | Error rate: " << std::fixed << std::setprecision(3) << error_rate
+      << " (" << correct << "/" << total_samples << ")";  // Show actual counts
   Logger::instance().log(oss.str());
   Logger::instance().log("Testing done\n");
 }

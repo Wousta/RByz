@@ -17,9 +17,6 @@ remainder=$((n_clients % ${#remote_hosts[@]}))
 run_server_remote=false
 run_clients_remote=true
 
-# Array for client PIDs and SSH PIDs
-SSH_PIDS=()
-
 # Cleanup function: kill local and remote processes
 cleanup() {
   echo "Terminating all processes..."
@@ -31,13 +28,7 @@ cleanup() {
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."
   for host in "${remote_hosts[@]}"; do
-    ssh $remote_user@$host "for pid in \$(cat $remote_script_path/clients_${host}.pid 2>/dev/null); do kill \$pid 2>/dev/null; done" &
-  done
-  wait
-  
-  # Kill SSH connections
-  for pid in "${SSH_PIDS[@]}"; do
-    kill $pid 2>/dev/null
+    ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs kill -9 2>/dev/null || true" &
   done
   
   exit 0
@@ -46,7 +37,7 @@ cleanup() {
 # Trap SIGINT and SIGTERM to run cleanup
 trap cleanup SIGINT SIGTERM
 
-# Launch redis
+# Launch redis (disowned so it is not affected)
 echo "Starting Redis server on $srvr_ip:$port"
 redis-server --bind "$srvr_ip" --port "$port" >/dev/null &
 disown
@@ -60,11 +51,10 @@ echo "Redis server started on $srvr_ip:$port"
 rm -rf logs/*
 
 # Start the server process locally
-echo "Starting server on localhost..."
-build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients &
+echo "Starting server locally..."
+taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients & 
 SRVR_PID=$!
 
-sleep 1
 echo "Starting clients on remote machines..."
 client_id=1
 
@@ -89,17 +79,27 @@ for i in "${!remote_hosts[@]}"; do
     done
     
     # Start clients on this machine using SSH with keys
+    # ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
+    #   for id in ${client_ids[@]}; do \
+    #     echo \"Starting client \$id on $host\" && \
+    #     build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients & \
+    #     echo \$! >> $remote_script_path/clients_${host}.pid; \
+    #     sleep 0.5; \
+    #   done" &
+
     ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
+      core_id=0; \
       for id in ${client_ids[@]}; do \
-        echo \"Starting client \$id on $host\" && \
-        build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients & \
+        echo \"Starting client \$id on $host with physical core \$core_id\" && \
+        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients & \
         echo \$! >> $remote_script_path/clients_${host}.pid; \
+        core_id=\$((core_id + 1)); \
+        if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.5; \
       done" &
-    
-    SSH_PIDS+=($!)
   fi
 done
 
 # Wait for the local server process
 wait $SRVR_PID
+

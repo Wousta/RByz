@@ -1,11 +1,11 @@
-#include "../../RcConn/include/rc_conn.hpp"
-#include "../../rdma-api/include/rdma-api.hpp"
-#include "../../shared/util.hpp"
-#include "../include/rdmaOps.hpp"
-#include "../include/tensorOps.hpp"
-#include "../include/mnistTrain.hpp"
-#include "../include/globalConstants.hpp"
-#include "../include/logger.hpp"
+#include "rc_conn.hpp"
+#include "rdma-api.hpp"
+#include "util.hpp"
+#include "rdmaOps.hpp"
+#include "tensorOps.hpp"
+#include "mnistTrain.hpp"
+#include "globalConstants.hpp"
+#include "logger.hpp"
 
 //#include <logger.hpp>
 #include <lyra/lyra.hpp>
@@ -106,8 +106,7 @@ int main(int argc, char* argv[]) {
   // connect to server
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
-  comm_info conn_data = conn.getConnData();
-  RdmaOps rdma_ops({conn_data});
+  RdmaOps rdma_ops({conn});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
   MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);

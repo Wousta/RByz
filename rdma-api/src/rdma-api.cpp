@@ -16,9 +16,8 @@ get_dur(std::chrono::steady_clock::time_point start,
   return elapsed.count();
 }
 
-int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
-              const NetFlags &net_flags, ltncyPtr latency,
-              unsigned int &posted_wqes) {
+int post_send(ibv_wr_opcode opcode, RcConn &conn, const std::deque<comm_info> &send_info,
+              const NetFlags &net_flags, ltncyPtr latency) {
   int ret = 0;
   unsigned int addr_upperBound = 0;
   struct ibv_send_wr *send_wr = new ibv_send_wr[send_info[0].wqe_depth];
@@ -124,15 +123,22 @@ int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
     auto start = NOW();
     ret = ibv_post_send(send_info[0].qp, send_wr, &send_failure);
     ret = poll_cq(send_info[0].cq, send_info[0].wqe_depth);
+    conn.addPolled(send_info[0].wqe_depth);
     auto end = NOW();
     latency->push_back({send_info[0].wqe_depth, get_dur(start, end)});
-    posted_wqes += send_info[0].wqe_depth;
+    conn.addPosted(send_info[0].wqe_depth);
   } else {
+    int poll_no = 1000 - 2 * send_info[0].wqe_depth;
+    if (conn.getPosted() - conn.getPolled() > 1000 - send_info[0].wqe_depth) {
+      // Poll the CQ to avoid overflow
+      ret = poll_cq(send_info[0].cq, poll_no);
+      conn.addPolled(poll_no);
+    }
     ret = ibv_post_send(send_info[0].qp, send_wr, &send_failure);
-    posted_wqes += send_info[0].wqe_depth;
+    conn.addPosted(send_info[0].wqe_depth);
   }
   if (ret) {
-    std::cerr << "post send failed\n";
+    std::cerr << "post send failed " << strerror(errno) << "\n";
     ret = -1;
     delete[] send_wr;
     exit(-1);
@@ -141,8 +147,8 @@ int post_send(ibv_wr_opcode opcode, const std::deque<comm_info> &send_info,
   delete[] send_wr;
   return ret;
 }
-int post_recv(const comm_info &recv_info, const NetFlags &net_flags,
-              ltncyPtr latency, unsigned int &posted_wqes) {
+int post_recv(const comm_info &recv_info, RcConn &conn, const NetFlags &net_flags,
+              ltncyPtr latency) {
   int ret = 0;
   unsigned int addr_upperBound = 0;
   struct ibv_recv_wr *recv_wr = new ibv_recv_wr[recv_info.wqe_depth];
@@ -200,12 +206,19 @@ int post_recv(const comm_info &recv_info, const NetFlags &net_flags,
     auto start = NOW();
     ret = ibv_post_recv(recv_info.qp, recv_wr, &recv_failure);
     ret = poll_cq(recv_info.cq, recv_info.wqe_depth);
+    conn.addPolled(recv_info.wqe_depth);
     auto end = NOW();
     latency->push_back({recv_info.wqe_depth, get_dur(start, end)});
   } else {
+    int poll_no = 1000 - 2 * recv_info.wqe_depth;
+    if (conn.getPosted() - conn.getPolled() > 1000 - recv_info.wqe_depth) {
+      // Poll the CQ to avoid overflow
+      ret = poll_cq(recv_info.cq, poll_no);
+      conn.addPolled(poll_no);
+    }
     ret = ibv_post_recv(recv_info.qp, recv_wr, &recv_failure);
   }
-  posted_wqes += recv_info.wqe_depth;
+  conn.addPosted(recv_info.wqe_depth);
   if (ret) {}
     ret = -1;
 
@@ -230,9 +243,10 @@ int poll_cq(ibv_cq *cq, unsigned int poll_no) {
   delete[] wc;
   return ret;
 }
-int send(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
+int send(RcConn &conn, const std::vector<uint32_t> &payload_sizes,
          const std::vector<LocalInfo> &local_info, const NetFlags &net_flags,
-         ltncyPtr latency, unsigned int &posted_wqes) {
+         ltncyPtr latency) {
+  comm_info conn_data = conn.getConnData();
   int ret = 0;
   std::vector<uint32_t> payload;
   if (conn_data.local_addresses.size() == 1 && payload_sizes.size() > 1) {
@@ -252,13 +266,14 @@ int send(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
     send_infos[info].local_addr_offs = local_info[info].offs;
     send_infos[info].l_indices = local_info[info].indices;
   }
-  ret = post_send(IBV_WR_SEND, send_infos, net_flags, latency, posted_wqes);
+  ret = post_send(IBV_WR_SEND, conn, send_infos, net_flags, latency);
   return ret;
 }
 //template <typename VecPair_t>
-int receive(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
+int receive(RcConn &conn, const std::vector<uint32_t> &payload_sizes,
             const LocalInfo &local_info, const NetFlags &net_flags,
-            ltncyPtr latency, unsigned int &posted_wqes) {
+            ltncyPtr latency) {
+  comm_info conn_data = conn.getConnData();
   int ret = 0;
   comm_info recv_info(conn_data.qp_type);
   recv_info = conn_data;
@@ -274,13 +289,13 @@ int receive(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
   recv_info.local_addr_offs = local_info.offs;
   recv_info.l_indices = local_info.indices;
 
-  ret = post_recv(recv_info, net_flags, latency, posted_wqes);
+  ret = post_recv(recv_info, conn, net_flags, latency);
   return ret;
 }
-int read(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
+int read(RcConn &conn, const std::vector<uint32_t> &payload_sizes,
          const std::vector<LocalInfo> &local_info, const NetFlags &net_flags,
-         const RemoteInfo &remote_info, ltncyPtr latency,
-         unsigned int &posted_wqes) {
+         const RemoteInfo &remote_info, ltncyPtr latency) {
+  comm_info conn_data = conn.getConnData();
   int ret = 0;
   std::vector<uint32_t> payload;
   if (conn_data.local_addresses.size() == 1 && payload_sizes.size() > 1) {
@@ -304,13 +319,13 @@ int read(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
     send_infos[info].r_key = remote_info.r_key;
   }
   ret =
-      post_send(IBV_WR_RDMA_READ, send_infos, net_flags, latency, posted_wqes);
+      post_send(IBV_WR_RDMA_READ, conn, send_infos, net_flags, latency);
   return ret;
 }
-int write(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
+int write(RcConn &conn, const std::vector<uint32_t> &payload_sizes,
           const std::vector<LocalInfo> &local_info, const NetFlags &net_flags,
-          const RemoteInfo &remote_info, ltncyPtr latency,
-          unsigned int &posted_wqes) {
+          const RemoteInfo &remote_info, ltncyPtr latency) {
+  comm_info conn_data = conn.getConnData();
   int ret = 0;
   std::vector<uint32_t> payload;
   if (conn_data.local_addresses.size() == 1 && payload_sizes.size() > 1) {
@@ -336,14 +351,14 @@ int write(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
   }
 
   ret =
-      post_send(IBV_WR_RDMA_WRITE, send_infos, net_flags, latency, posted_wqes);
+      post_send(IBV_WR_RDMA_WRITE, conn, send_infos, net_flags, latency);
 
   return ret;
 }
-int FAA(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
+int FAA(RcConn &conn, const std::vector<uint32_t> &payload_sizes,
         const std::vector<LocalInfo> &local_info, const NetFlags &net_flags,
-        const RemoteInfo &remote_info, ltncyPtr latency,
-        unsigned int &posted_wqes) {
+        const RemoteInfo &remote_info, ltncyPtr latency) {
+  comm_info conn_data = conn.getConnData();
   int ret = 0;
   std::vector<uint32_t> payload;
   if (conn_data.local_addresses.size() == 1 && payload_sizes.size() > 1) {
@@ -370,16 +385,15 @@ int FAA(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
     send_infos[info].swap = local_info[0].swap;
   }
 
-  ret = post_send(IBV_WR_ATOMIC_FETCH_AND_ADD, send_infos, net_flags, latency,
-                  posted_wqes);
+  ret = post_send(IBV_WR_ATOMIC_FETCH_AND_ADD, conn, send_infos, net_flags, latency);
 
   return ret;
 }
 
-int CAS(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
+int CAS(RcConn &conn, const std::vector<uint32_t> &payload_sizes,
         const std::vector<LocalInfo> &local_info, const NetFlags &net_flags,
-        const RemoteInfo &remote_info, ltncyPtr latency,
-        unsigned int &posted_wqes) {
+        const RemoteInfo &remote_info, ltncyPtr latency) {
+  comm_info conn_data = conn.getConnData();
   int ret = 0;
   std::vector<uint32_t> payload;
   if (conn_data.local_addresses.size() == 1 && payload_sizes.size() > 1) {
@@ -406,8 +420,7 @@ int CAS(comm_info &conn_data, const std::vector<uint32_t> &payload_sizes,
     send_infos[info].swap = local_info[0].swap;
   }
 
-  ret = post_send(IBV_WR_ATOMIC_CMP_AND_SWP, send_infos, net_flags, latency,
-                  posted_wqes);
+  ret = post_send(IBV_WR_ATOMIC_CMP_AND_SWP, conn, send_infos, net_flags, latency);
 
   return ret;
 }

@@ -24,7 +24,7 @@ struct Net : torch::nn::Module {
         torch::max_pool2d(conv2_drop->forward(conv2->forward(x)), 2));
     x = x.view({-1, 320});
     x = torch::relu(fc1->forward(x));
-    x = torch::dropout(x, /*p=*/0.5, /*training=*/is_training());
+    x = torch::dropout(x, /*p=*/0.5, /*training=*/is_training()); // Dropout probability set to 0 for now during testing (was 0.5)
     x = fc2->forward(x);
     return torch::log_softmax(x, /*dim=*/1);
   }
@@ -53,6 +53,8 @@ protected:
   torch::Tensor output;
   float loss;
   float error_rate;
+  float train_accuracy = 0.0; // Initialize train accuracy
+  float test_accuracy = 0.0; // Initialize test accuracy
   std::unordered_map<int64_t, std::vector<size_t>> label_to_indices; // 
   cudaStream_t memcpy_stream_A; // Stream for async memcpy
   cudaStream_t memcpy_stream_B; // Stream for async memcpy
@@ -105,5 +107,10 @@ public:
   float getLoss() { return loss; }
   void setLoss(float new_loss) { loss = new_loss; }
   float getErrorRate() { return error_rate; }
+  float getTrainAccuracy() { return train_accuracy; }
+  void setTrainAccuracy(float new_train_accuracy) { train_accuracy = new_train_accuracy; }
+  float getTestAccuracy() { return test_accuracy; }
+  void setTestAccuracy(float new_test_accuracy) { test_accuracy = new_test_accuracy; }
   void setErrorRate(float new_error_rate) { error_rate = new_error_rate; }
+  int64_t getKTrainBatchSize() const { return kTrainBatchSize; }
 };

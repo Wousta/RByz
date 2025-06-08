@@ -78,7 +78,7 @@ struct ClientDataRbyz {
     alignas(8) int round = 0;
 
     // Dataset data used
-    alignas(8) size_t dataset_size; // Remove the initialization here
+    alignas(8) size_t dataset_size;     // Size of the dataset for the client in bytes
     std::vector<size_t> inserted_indices;
 
     // Forward pass data used

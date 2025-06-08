@@ -4,7 +4,7 @@
 #include "datasetLogic/baseMnistTrain.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "datasetLogic/regMnistSplitter.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "global/globalConstants.hpp"
 #include "entities.hpp"
 #include <atomic>
@@ -32,6 +32,11 @@ void updateTS(
     ClientDataRbyz& clnt_data, 
     float srvr_loss, 
     float srvr_error_rate);
+
+torch::Tensor aggregate_updates(
+    const std::vector<torch::Tensor>& client_updates,
+    const torch::Tensor& w,
+    std::vector<ClientDataRbyz> &clnt_data_vec);
 
 void writeErrorAndLoss(
   BaseMnistTrain& mnist,

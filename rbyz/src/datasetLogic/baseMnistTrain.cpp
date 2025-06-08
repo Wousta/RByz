@@ -1,5 +1,5 @@
 #include "datasetLogic/baseMnistTrain.hpp"
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "tensorOps.hpp"
 
 #include <random>
@@ -117,12 +117,6 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id_arg,
   Logger::instance().log(
     "Worker " + std::to_string(worker_id) +
     " using stratified indices of size: " + std::to_string(worker_indices.size()) + "\n");
-  for (size_t i = 0; i < worker_indices.size(); ++i) {
-    Logger::instance().log("  " + std::to_string(worker_indices[i]) + " ");
-    if ((i + 1) % 10 == 0) {
-      Logger::instance().log("\n");
-    }
-  }
 
   return SubsetSampler(worker_indices);
 }
@@ -136,6 +130,8 @@ void BaseMnistTrain::test(Net& model,
   model.eval();
   double test_loss = 0;
   int32_t correct = 0;
+  int32_t total_samples = 0;  // Track actual samples processed
+  
   for (const auto& batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     auto output = model.forward(data);
@@ -146,13 +142,17 @@ void BaseMnistTrain::test(Net& model,
                      .template item<float>();
     auto pred = output.argmax(1);
     correct += pred.eq(targets).sum().template item<int64_t>();
+    total_samples += targets.size(0);  // Add actual batch size
   }
 
-  test_loss /= dataset_size;
+  test_loss /= total_samples;  // Use actual samples processed
+  setTestAccuracy(static_cast<double>(correct) / total_samples);  // Use actual samples
+  
   std::ostringstream oss;
   oss << "\n  Test set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
       << " | Accuracy: " << std::fixed << std::setprecision(3)
-      << static_cast<double>(correct) / dataset_size;
+      << getTestAccuracy() 
+      << " (" << correct << "/" << total_samples << ")";  // Show actual counts for verification
   Logger::instance().log(oss.str() + "\n");
   Logger::instance().log("  Testing done\n");
 }

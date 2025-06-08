@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../include/subsetSampler.hpp"
-#include "../include/globalConstants.hpp"
+#include "subsetSampler.hpp"
+#include "globalConstants.hpp"
 
 #include <vector>
 
@@ -55,6 +55,7 @@ private:
   torch::Tensor output;
   float loss;
   float error_rate;
+  float accuracy = 0.0; // Initialize accuracy
   
   using DatasetType = decltype(
     torch::data::datasets::MNIST(kDataRoot)
@@ -112,4 +113,5 @@ public:
   torch::Tensor getOutput() { return output; }
   float getLoss() { return loss; }
   float getErrorRate() { return error_rate; }
+  float getAccuracy() { return accuracy; }
 };

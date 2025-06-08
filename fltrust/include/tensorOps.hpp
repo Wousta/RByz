@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-#include "logger.hpp"
 #include <torch/torch.h>
 
 // Functions to execute Tensor operations

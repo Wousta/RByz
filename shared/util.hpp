@@ -11,15 +11,14 @@
 // This file includes all struct that the user need to use the api
 
 struct NetFlags {
-  //unsigned int send_flags = IBV_SEND_SIGNALED;
-  unsigned int send_flags; // Do not specify if is_sync is false
-  bool is_sync = false; // Set this to false 
+  unsigned int send_flags = IBV_SEND_SIGNALED;
+  bool is_sync = true;
   unsigned int get() const { return send_flags; }
 };
 struct AddrInfo {
   char *ipv4_addr;
   char *port;
-  unsigned int rdma_port = 0;
+  unsigned int rdma_port = 1;
   bool operator==(const AddrInfo &other) const {
     return (ipv4_addr == other.ipv4_addr) && (port == other.port) &&
            (rdma_port == other.rdma_port);

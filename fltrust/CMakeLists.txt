@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16.3)
 
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-9" CACHE STRING "C++ compiler path")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-12" CACHE STRING "C++ compiler path")
 set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc" CACHE STRING "CUDA compiler path")
 
 set(CMAKE_CXX_STANDARD 14)
@@ -14,8 +14,12 @@ project(RByz LANGUAGES CXX CUDA)
 include(${CMAKE_BINARY_DIR}/conan_toolchain.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cache.cmake)
 
-find_package(CUDA REQUIRED)
-include_directories(${CUDA_INCLUDE_DIRS})
+find_package(CUDAToolkit REQUIRED)
+
+if(NOT TARGET CUDA::nvToolsExt)
+  add_library(CUDA::nvToolsExt INTERFACE IMPORTED)
+  message(STATUS "nvToolsExt not found - creating dummy target")
+endif()
 
 set(Torch_DIR "/home/bustaman/libtorch-cxx11-abi-shared-with-deps-2.7.0+cu128/libtorch/share/cmake/Torch")
 find_package(Torch REQUIRED)
@@ -28,6 +32,13 @@ find_package(Torch REQUIRED)
 
 find_package(Threads REQUIRED)
 find_package(lyra REQUIRED)
+
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/../RcConn/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../shared
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
 add_library(libnorm SHARED IMPORTED)
 set_target_properties(libnorm PROPERTIES

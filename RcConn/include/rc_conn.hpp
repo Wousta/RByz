@@ -27,7 +27,8 @@ private:
     struct redisContext *redis_context = nullptr;
     struct ibv_pd *pd = nullptr;
     struct ibv_qp *qp = nullptr;
-    unsigned int posted_wqes = 0;
+    unsigned int posted = 0;
+    unsigned int polled = 0;
     std::vector<std::uintptr_t> app_addresses{};
     std::vector<uint64_t> app_lengths{};
     unsigned int permissions;
@@ -83,4 +84,8 @@ public:
               size_t length);
   int disconnect();
   comm_info getConnData();
+  unsigned int getPosted() { return conn.posted; }
+  unsigned int getPolled() { return conn.polled; }
+  void addPosted(unsigned int num) { conn.posted += num; }
+  void addPolled(unsigned int num) { conn.polled += num; }
 };

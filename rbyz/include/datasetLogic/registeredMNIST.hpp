@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "global/logger.hpp"
+#include "logger.hpp"
 #include "structs.h"
 
 
