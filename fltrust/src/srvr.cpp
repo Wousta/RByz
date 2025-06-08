@@ -104,6 +104,7 @@ int main(int argc, char* argv[]) {
     std::cout << "\nConnected to client " << i << "\n";
   }
 
+  Logger::instance().openFLAccLog();
   auto start = std::chrono::high_resolution_clock::now();
 
   // Create a dummy set of weights, needed for first call to runMNISTTrain():
@@ -167,6 +168,9 @@ std::vector<torch::Tensor> run_fltrust_srvr(
   Logger::instance().log("\nInitial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
+    mnist.testModel();
+    Logger::instance().logFLAcc(std::to_string(round) + " " + std::to_string(mnist.getAccuracy()) + "\n");
+
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients);
 

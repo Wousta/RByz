@@ -106,8 +106,7 @@ int main(int argc, char* argv[]) {
   // connect to server
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
-  comm_info conn_data = conn.getConnData();
-  RdmaOps rdma_ops({conn_data});
+  RdmaOps rdma_ops({conn});
   std:: cout << "\nClient id: " << id << " connected to server ret: " << ret << "\n";
 
   MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
