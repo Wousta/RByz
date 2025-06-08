@@ -179,7 +179,7 @@ void RegisteredMnistTrain::train(size_t epoch,
 
   // Track total loss for averaging
   double total_loss = 0.0;
-  size_t total_batches = 0;
+  size_t total_samples = 0;
   size_t total = 0;
   int32_t correct = 0;
 
@@ -243,13 +243,16 @@ void RegisteredMnistTrain::train(size_t epoch,
 
     // Forward pass
     auto output = model.forward(data);
-    auto nll_loss = torch::nll_loss(output, targets);
-    AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
 
-    // Add current batch loss to total loss for averaging later
-    float batch_loss = nll_loss.template item<float>();
-    total_loss += batch_loss;
-    total_batches++;
+    // Calculate sum of losses (not mean) for this batch
+    auto nll_loss_sum = torch::nll_loss(output, targets, {}, torch::Reduction::Sum);
+    auto nll_loss_mean = torch::nll_loss(output, targets);  // Keep for backprop
+    AT_ASSERT(!std::isnan(nll_loss_mean.template item<float>()));
+
+    // Add batch sum to total loss
+    float batch_loss_sum = nll_loss_sum.template item<float>();
+    total_loss += batch_loss_sum;
+    total_samples += targets.size(0); 
 
     // Calculate accuracy and error rate for this batch
     auto pred = output.argmax(1);
@@ -257,11 +260,8 @@ void RegisteredMnistTrain::train(size_t epoch,
     correct += batch_correct;
     total += targets.size(0);
 
-    // Set the current error rate as running metric
-    error_rate = 1.0 - (static_cast<float>(correct) / total);
-
     // Backpropagation
-    nll_loss.backward();
+    nll_loss_mean.backward();
     optimizer.step();
     
     if (batch_idx % kLogInterval == 0 && worker_id % 2 == 0) {
@@ -269,17 +269,20 @@ void RegisteredMnistTrain::train(size_t epoch,
                  epoch,
                  batch_idx * data.size(0),
                  dataset_size,
-                 nll_loss.template item<float>());
+                 nll_loss_mean.template item<float>());
     }
     
     batch_idx++;
   }
 
   // Update the loss member to be the average loss across all batches
-  loss = static_cast<float>(total_loss / total_batches);
+  loss = static_cast<float>(total_loss / total_samples);
 
   // Update the train accuracy member
-  setTrainAccuracy(static_cast<double>(correct) / total);
+  setTrainAccuracy(static_cast<float>(correct) / total);
+
+  // Calculate final error rate for the entire epoch (should match 1 - train_accuracy)
+  error_rate = 1.0 - (static_cast<double>(correct) / total);
 
   // Wait for any remaining async operations
   if (device.is_cuda()) {
@@ -360,7 +363,7 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   
   // Track total loss for averaging
   double total_loss = 0.0;
-  size_t total_batches = 0;
+  size_t total_samples = 0;
 
   for (const auto& batch : *registered_loader) {
     // Combine all data and targets in the batch into single tensors
@@ -411,24 +414,24 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
     // Process batch results
     processBatchResults(output, targets, device, forward_pass, curr_idx);
     
-    // Calculate and track NLL loss for this batch
-    auto nll_loss = torch::nll_loss(output, targets);
-    float batch_loss = nll_loss.template item<float>();
-    total_loss += batch_loss;
-    total_batches++;
+    // Calculate sum of losses (not mean) for this batch
+    auto nll_loss_sum = torch::nll_loss(output, targets, {}, torch::Reduction::Sum);
+    float batch_loss_sum = nll_loss_sum.template item<float>();
+    total_loss += batch_loss_sum;
+    total_samples += targets.size(0);  // Add number of samples in this batch
     
     // Calculate accuracy for this batch
     auto pred = output.argmax(1);
     int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
     correct += batch_correct;
     total += targets.size(0);
-    
-    // Set the current error rate as running metric
-    error_rate = 1.0 - (static_cast<float>(correct) / total);
   }
 
-  // Update the loss member to be the average loss across all batches
-  loss = static_cast<float>(total_loss / total_batches);
+  // Calculate true mean loss across all samples
+  loss = static_cast<float>(total_loss / total_samples);
+  
+  // Calculate final error rate for the entire inference (should match 1 - accuracy)
+  error_rate = 1.0 - (static_cast<double>(correct) / total);
   
   // Wait for any remaining async operations
   if (device.is_cuda()) {

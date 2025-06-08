@@ -8,6 +8,7 @@ remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
+results_path="/home/bustaman/rbyz/Results"
 load_model=false
 model_file="mnist_model_params.pt"
 
@@ -38,6 +39,7 @@ cleanup() {
   echo "Killing remote client processes..."
   for host in "${remote_hosts[@]}"; do
     ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs kill -9 2>/dev/null || true" &
+    ssh $remote_user@$host "ps aux | grep cpuTracker | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true" &
   done
   
   exit 0
@@ -96,16 +98,20 @@ for i in "${!remote_hosts[@]}"; do
     #     sleep 0.5; \
     #   done" &
 
-    ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
+    ssh $remote_user@$host "cd $remote_script_path && \
       core_id=0; \
       for id in ${client_ids[@]}; do \
         echo \"Starting client \$id on $host with physical core \$core_id\" && \
         taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_model_param --file $model_file & \
-        echo \$! >> $remote_script_path/clients_${host}.pid; \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.5; \
       done" &
+
+    # Start profiling CPU
+    ssh $remote_user@$host "cd $results_path && \
+      echo \"Starting CPU profiling on $host\" && \
+      build/cpuTracker" &
   fi
 done
 
