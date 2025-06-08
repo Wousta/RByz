@@ -88,15 +88,6 @@ for i in "${!remote_hosts[@]}"; do
       client_ids+=($client_id)
       client_id=$((client_id + 1))
     done
-    
-    # Start clients on this machine using SSH with keys
-    # ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
-    #   for id in ${client_ids[@]}; do \
-    #     echo \"Starting client \$id on $host\" && \
-    #     build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_model_param --file $model_file & \
-    #     echo \$! >> $remote_script_path/clients_${host}.pid; \
-    #     sleep 0.5; \
-    #   done" &
 
     ssh $remote_user@$host "cd $remote_script_path && \
       core_id=0; \

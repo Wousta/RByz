@@ -130,6 +130,8 @@ void BaseMnistTrain::test(Net& model,
   model.eval();
   double test_loss = 0;
   int32_t correct = 0;
+  int32_t total_samples = 0;  // Track actual samples processed
+  
   for (const auto& batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     auto output = model.forward(data);
@@ -140,14 +142,17 @@ void BaseMnistTrain::test(Net& model,
                      .template item<float>();
     auto pred = output.argmax(1);
     correct += pred.eq(targets).sum().template item<int64_t>();
+    total_samples += targets.size(0);  // Add actual batch size
   }
 
-  test_loss /= dataset_size;
-  setTestAccuracy(static_cast<double>(correct) / dataset_size);
+  test_loss /= total_samples;  // Use actual samples processed
+  setTestAccuracy(static_cast<double>(correct) / total_samples);  // Use actual samples
+  
   std::ostringstream oss;
   oss << "\n  Test set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
       << " | Accuracy: " << std::fixed << std::setprecision(3)
-      << getTestAccuracy();
+      << getTestAccuracy() 
+      << " (" << correct << "/" << total_samples << ")";  // Show actual counts for verification
   Logger::instance().log(oss.str() + "\n");
   Logger::instance().log("  Testing done\n");
 }

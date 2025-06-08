@@ -24,7 +24,7 @@ struct Net : torch::nn::Module {
         torch::max_pool2d(conv2_drop->forward(conv2->forward(x)), 2));
     x = x.view({-1, 320});
     x = torch::relu(fc1->forward(x));
-    x = torch::dropout(x, /*p=*/0.0, /*training=*/is_training()); // Dropout probability set to 0 for now during testing (was 0.5)
+    x = torch::dropout(x, /*p=*/0.5, /*training=*/is_training()); // Dropout probability set to 0 for now during testing (was 0.5)
     x = fc2->forward(x);
     return torch::log_softmax(x, /*dim=*/1);
   }

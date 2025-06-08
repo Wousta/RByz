@@ -10,7 +10,6 @@ std::atomic<bool> stop_requested(false);
 // Signal handler for SIGINT (Ctrl+C)
 void signalHandler(int signal) {
     if (signal == SIGINT) {
-        Logger::instance().log("SIGINT received, stopping CPU tracking...\n");
         stop_requested = true;
     }
 }
