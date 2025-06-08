@@ -64,6 +64,44 @@ public:
         logFile_.flush();
     }
 
+    void openRByzAccLog() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (!rbyzAccLogFile_.is_open()) {
+            std::string accLogsDir = "/home/bustaman/rbyz/Results/accLogs";
+            int pid = getpid();
+            std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid) + ".log";
+            rbyzAccLogFile_.open(rbyzAccFilename, std::ios::app);
+            if (!rbyzAccLogFile_.is_open()) {
+                std::cerr << "Failed to open RByz accuracy log file: " << rbyzAccFilename << std::endl;
+            }
+        }
+    }
+
+    void openFLAccLog() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (!flAccLogFile_.is_open()) {
+            std::string accLogsDir = "/home/bustaman/rbyz/Results/accLogs";
+            int pid = getpid();
+            std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid) + ".log";
+            flAccLogFile_.open(flAccFilename, std::ios::app);
+            if (!flAccLogFile_.is_open()) {
+                std::cerr << "Failed to open FL accuracy log file: " << flAccFilename << std::endl;
+            }
+        }
+    }
+
+    void logRByzAcc(const std::string &message) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        rbyzAccLogFile_ << message;
+        rbyzAccLogFile_.flush();
+    }
+
+    void logFLAcc(const std::string &message) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        flAccLogFile_ << message;
+        flAccLogFile_.flush();
+    }
+
     // Delete copying to enforce singleton behavior.
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
@@ -71,20 +109,26 @@ public:
 private:
     Logger() {
         // Create the logs/ directory if it does not exist.
+        std::string accLogsDir = "/home/bustaman/rbyz/Results/accLogs";
         int ret = system("mkdir -p logs");
+        ret = system(("mkdir -p " + accLogsDir).c_str());
 
         // Use the process ID to create a unique log file name.
         int pid = getpid();
         std::string filename = "logs/execution_" + std::to_string(pid) + ".log";
+        std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid) + ".log";
+        std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid) + ".log";
 
         logFile_.open(filename, std::ios::app);
-        if (!logFile_.is_open())
-            std::cerr << "Failed to open log file: " << filename << std::endl;
     }
 
     ~Logger() {
         if (logFile_.is_open())
             logFile_.close();
+        if (rbyzAccLogFile_.is_open())
+            rbyzAccLogFile_.close();
+        if (flAccLogFile_.is_open())
+            flAccLogFile_.close();
     }
 
     // Helper function to get current date and time as a string.
@@ -96,6 +140,8 @@ private:
     }
 
     std::ofstream logFile_;
+    std::ofstream rbyzAccLogFile_;
+    std::ofstream flAccLogFile_;
     std::mutex mtx_;
     CPUProfiler cpuProfiler_;  // Add CPU profiler instance
 };
