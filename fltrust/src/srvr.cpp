@@ -264,7 +264,7 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
                                 const torch::Tensor &server_update) {
   
-                                  // Compute cosine similarity between each client update and server update
+  // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
@@ -329,15 +329,7 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
     aggregated_update /= sum_trust;
   }
 
-  // Print the aggregated update
-  {
-    std::ostringstream oss;
-    oss << "\nAggregated update:\n";
-    oss << "  "
-        << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString()
-        << "\n";
-    Logger::instance().log(oss.str());
-  }
+  Logger::instance().log("  Aggregated update: " + aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() + "\n");
 
   // If all trust scores are 0, just return the zero tensor
   return aggregated_update;
