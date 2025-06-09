@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "logger.hpp"
-#include "structs.h"
+#include "structs.hpp"
 
 
 /**

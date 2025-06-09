@@ -69,23 +69,24 @@ struct RegMemClnt {
 struct ClientDataRbyz {
     int index;
     bool is_byzantine = false;
-    std::atomic<int> clnt_CAS;
     float trust_score;
     float* updates;
     float* loss;       
     float* error_rate;  
-    alignas(8) int local_step = 0;
-    alignas(8) int round = 0;
-
-    // Dataset data used
-    alignas(8) size_t dataset_size;     // Size of the dataset for the client in bytes
+    
+    // Dataset data
+    alignas(8) size_t dataset_size;
     std::vector<size_t> inserted_indices;
 
-    // Forward pass data used
+    // Forward pass data
     size_t forward_pass_mem_size;
     size_t forward_pass_indices_mem_size;
     float* forward_pass;
     uint32_t* forward_pass_indices;
+    
+    alignas(8) std::atomic<int> clnt_CAS;    
+    alignas(8) int local_step = 0;           
+    alignas(8) int round = 0;               
 
     ClientDataRbyz() : clnt_CAS(MEM_FREE), trust_score(0) {}
 

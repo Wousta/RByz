@@ -225,8 +225,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
-    Logger::instance().log("Server: aggregated update:\n");
-    printTensorSlices(aggregated_update_vec, 0, 5);
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];

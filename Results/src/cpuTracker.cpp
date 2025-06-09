@@ -21,9 +21,6 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signalHandler);
 
     Logger::instance().startCpuProfilingTotal();
-
-    // Sleep until interrupted
-    Logger::instance().log("CPU Tracker running... Press Ctrl+C to stop\n");
     
     while (!stop_requested) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
