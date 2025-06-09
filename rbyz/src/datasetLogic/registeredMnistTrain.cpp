@@ -183,48 +183,51 @@ void RegisteredMnistTrain::train(size_t epoch,
   size_t total = 0;
   int32_t correct = 0;
 
+  torch::Tensor batch_data = torch::empty({kTrainBatchSize, 1, 28, 28}, torch::kFloat32);
+  torch::Tensor batch_targets = torch::empty({kTrainBatchSize}, torch::kInt64);
   
-  for (const auto& batch : *registered_loader) {    
-    // Combine all data and targets in the batch into single tensors
-    std::vector<torch::Tensor> data_vec, target_vec;
+  for (const auto& batch : *registered_loader) { 
+    size_t batch_size = batch.size();
+  
+    // Resize if needed (only for last batch)
+    if (batch_size != kTrainBatchSize) {
+      batch_data = batch_data.slice(0, 0, batch_size).contiguous();
+      batch_targets = batch_targets.slice(0, 0, batch_size).contiguous();
+    }
     
-    for (const auto& example : batch) {
-      data_vec.push_back(example.data);
-      target_vec.push_back(example.target);
-
+    // Direct copy to pre-allocated tensors
+    for (size_t i = 0; i < batch_size; ++i) {
+      batch_data[i].copy_(batch[i].data);
+      batch_targets[i] = batch[i].target;
       forward_pass_indices[global_sample_idx] = *getOriginalIndex(global_sample_idx);
       global_sample_idx++;
     }
-
-    // Stack the tensors to create a single batch tensor
-    auto data_cpu = torch::stack(data_vec);
-    auto targets_cpu = torch::stack(target_vec);
     
     torch::Tensor data, targets;
     if (device.is_cuda()) {
       // Create CUDA tensors with the same shape and type
-      data = torch::empty_like(data_cpu, torch::TensorOptions().device(device));
-      targets = torch::empty_like(targets_cpu, torch::TensorOptions().device(device));
+      data = torch::empty_like(batch_data, torch::TensorOptions().device(device));
+      targets = torch::empty_like(batch_targets, torch::TensorOptions().device(device));
       
       // Asynchronously copy data from CPU to GPU
       cudaMemcpyAsync(data.data_ptr<float>(),
-                     data_cpu.data_ptr<float>(),
-                     data_cpu.numel() * sizeof(float),
+                     batch_data.data_ptr<float>(),
+                     batch_data.numel() * sizeof(float),
                      cudaMemcpyHostToDevice,
                      memcpy_stream_A);
                      
       cudaMemcpyAsync(targets.data_ptr<int64_t>(),
-                     targets_cpu.data_ptr<int64_t>(),
-                     targets_cpu.numel() * sizeof(int64_t),
+                     batch_targets.data_ptr<int64_t>(),
+                     batch_targets.numel() * sizeof(int64_t),
                      cudaMemcpyHostToDevice,
                      memcpy_stream_B);
                      
       // Ensure copy is complete before proceeding
       cudaDeviceSynchronize();
     } else {
-      // For CPU, just use the original tensors
-      data = data_cpu;
-      targets = targets_cpu;
+      // For CPU, just use the pre-allocated tensors
+      data = batch_data;
+      targets = batch_targets;
     }
 
     // Switch to evaluation mode for writing forward pass results
