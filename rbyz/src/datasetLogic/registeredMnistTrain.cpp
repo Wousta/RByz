@@ -235,6 +235,7 @@ void RegisteredMnistTrain::train(size_t epoch,
       model.eval();
       torch::NoGradGuard no_grad;
       auto inference_output = model.forward(data);
+      Logger::instance().log("  Going to proc batch results in batch " + std::to_string(batch_idx) + "and epoch " + std::to_string(epoch) + "\n");
       processBatchResults(inference_output, targets, device, forward_pass, curr_idx);
     }
 

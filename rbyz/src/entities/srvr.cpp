@@ -106,11 +106,11 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   
   Logger::instance().log("\nComputing aggregation data ================\n");
 
+  float server_norm = torch::norm(server_update, 2).item<float>();
   for (const auto &flat_client_update : client_updates) {
     // Compute cosine similarity
     torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
     float client_norm = torch::norm(flat_client_update, 2).item<float>();
-    float server_norm = torch::norm(server_update, 2).item<float>();
     float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
 
     // Apply ReLU (max with 0)
@@ -153,7 +153,6 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   for (float score : trust_scores) {
     sum_trust += score;
   }
-  Logger::instance().log("  Sum of trust scores: " + std::to_string(sum_trust) + "\n");
 
   torch::Tensor aggregated_update = torch::zeros_like(server_update);
   if (sum_trust > 0) {
@@ -163,13 +162,6 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
 
     aggregated_update /= sum_trust;
   }
-
-  // Print the aggregated update
-  if (aggregated_update.numel() == 0) {
-    throw std::runtime_error("Aggregated update is empty. Check the client updates and server update.");
-  }
-  Logger::instance().log("Aggregated update size: " + std::to_string(aggregated_update.numel()) + "\n");
-  Logger::instance().log("  Aggregated update: " + aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() + "\n");
 
   // If all trust scores are 0, just return the zero tensor
   return aggregated_update;
@@ -368,16 +360,16 @@ int main(int argc, char *argv[]) {
 
   if (!load_model) {
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *regular_mnist, regMem, clnt_data_vec);
+    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *registered_mnist, regMem, clnt_data_vec);
 
     // regular_mnist.saveModelState(w, model_file);
   }
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
-  registered_mnist->copyModelParameters(regular_mnist->getModel());
-  registered_mnist->setLoss(regular_mnist->getLoss());
-  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+  // registered_mnist->copyModelParameters(regular_mnist->getModel());
+  // registered_mnist->setLoss(regular_mnist->getLoss());
+  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
 
   Logger::instance().log("Initial test of the model before RByz\n");
   registered_mnist->testModel();

@@ -114,7 +114,6 @@ torch::Tensor aggregate_updates_rbyz(const std::vector<torch::Tensor>& client_up
 
     Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
     Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
-    Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
 
   float trust_scores[client_updates.size()];
@@ -131,7 +130,7 @@ torch::Tensor aggregate_updates_rbyz(const std::vector<torch::Tensor>& client_up
   torch::Tensor aggregated_update = torch::zeros_like(flat_w);
   if (sum_trust > 0) {
     for (int i = 0; i < client_updates.size(); i++) {
-      aggregated_update += normalized_updates[i] * 0.9;//trust_scores[i];
+      aggregated_update += normalized_updates[i] * trust_scores[i];
     }
 
     aggregated_update /= sum_trust;
@@ -254,30 +253,12 @@ bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data) {
   for (size_t i = 0; i < srvr_num_indices; ++i) {
     srvr_indices_map[srvr_indices[i]] = i;
   }
-
-  Logger::instance().log("\n\nServer: Created map of server indices for comparison\n");
-
-  // Print the forward passes for debugging
-  Logger::instance().log("Server forward pass size " + std::to_string(srvr_num_indices) + " samples\n");
-  // for (size_t i = 0; i < std::min(10UL, srvr_num_indices); ++i) {
-  //   Logger::instance().log("Server index " + std::to_string(srvr_indices[i]) + 
-  //                       " - Loss: " + std::to_string(srvr_out[i]) + 
-  //                       ", Error: " + std::to_string(srvr_out[srvr_error_start + i]) + "\n");
-  // }
-
-  Logger::instance().log("Client forward pass size: " + std::to_string(clnt_num_indices) + " samples\n");
-  // for (size_t i = 0; i < std::min(10UL, clnt_num_indices); ++i) {
-  //   Logger::instance().log("Client index " + std::to_string(clnt_indices[i]) + 
-  //                       " - Loss: " + std::to_string(clnt_out[i]) + 
-  //                       ", Error: " + std::to_string(clnt_out[clnt_error_start + i]) + "\n");
-  // }
-
   // Tolerance threshold for comparing floating point values
   const float TOLERANCE = 1e-4;
   bool validation_passed = true;
   
   // Check only the inserted indices (VD samples) to minimize comparisons
-  for (size_t i = 0; i < clnt_num_indices; ++i) {
+  for (size_t i = 0; i < clnt_num_indices && validation_passed; ++i) {
     uint32_t clnt_idx = clnt_indices[i];
     
     // Only compare samples that were inserted by the server
@@ -360,9 +341,6 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     // Read the aggregated weights from the server and update the local weights
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
 
-    Logger::instance().log("WEIGHTS SAME\n");
-    printTensorSlices(w, 0, 2);
-
     // Run local training steps, all training data is sampled before training to let server insert VD samples
     while (regMem.local_step.load() < LOCAL_STEPS_RBYZ) {
       int step = regMem.local_step.load();
@@ -400,11 +378,6 @@ void runRByzClient(std::vector<torch::Tensor> &w,
 
     mnist.testModel();
 
-    if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
-      Logger::instance().log("Client: Target accuracy reached, stopping RByz\n");
-      break;
-    }
-
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " completed ////////////////\n");
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
@@ -437,10 +410,10 @@ void runRByzServer(int n_clients,
 
     mnist.testModel();
 
-    if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
-      Logger::instance().log("Server: Target accuracy reached, stopping RByz\n");
-      break;
-    }
+    // if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
+    //   Logger::instance().log("Server: Target accuracy reached, stopping RByz\n");
+    //   break;
+    // }
 
     // Log accuracy and round to Results
     Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
@@ -455,9 +428,6 @@ void runRByzServer(int n_clients,
       writeServerVD(regMem.vd_sample, splitter, mnist, rdma_ops, clnt_data_vec);
       vd_insert_rounds--;
     }
-
-    Logger::instance().log("WEIGHTS SAME\n");
-    printTensorSlices(w, 0, 2);
   
     // Signal to clients that the server is ready
     regMem.srvr_ready_flag = round;
@@ -490,7 +460,7 @@ void runRByzServer(int n_clients,
                                " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
         // Wait for client to finish the step with exponential backoff
-        std::chrono::milliseconds default_step_time(20000);
+        std::chrono::milliseconds default_step_time(30000);
         std::chrono::milliseconds initial_time(10);
 
         while (clnt_data.local_step != srvr_step + 1 && clnt_data.local_step != LOCAL_STEPS_RBYZ && clnt_data.round == round) {
@@ -523,15 +493,15 @@ void runRByzServer(int n_clients,
           }
         }
 
-        // if (clnt_data.local_step != 1) {
-        //   // Read the error and loss from the clients
-        //   Logger::instance().log("      $$$$$$$ STARTING TRUST SCORE UPDATE $$$$$$$\n");
-        //   Logger::instance().log("        -> Server: updating Trust Score " + std::to_string(j) + "\n");
-        //   updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
-        //   Logger::instance().log("        -> Server: Trust Score updated for client " + std::to_string(j) + " to " + 
-        //                          std::to_string(clnt_data_vec[j].trust_score) + "\n");
-        //   Logger::instance().log("      $$$$$$$  END OF TRUST SCORE UPDATE  $$$$$$$$\n");
-        // }
+        if (clnt_data.local_step != 1) {
+          // Read the error and loss from the clients
+          Logger::instance().log("      $$$$$$$ STARTING TRUST SCORE UPDATE $$$$$$$\n");
+          Logger::instance().log("        -> Server: updating Trust Score " + std::to_string(j) + "\n");
+          updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
+          Logger::instance().log("        -> Server: Trust Score updated for client " + std::to_string(j) + " to " + 
+                                 std::to_string(clnt_data_vec[j].trust_score) + "\n");
+          Logger::instance().log("      $$$$$$$  END OF TRUST SCORE UPDATE  $$$$$$$$\n");
+        }
       }
 
       Logger::instance().log("    Trust Scores after step " + std::to_string(srvr_step) + " round " + std::to_string(round) + ":\n");
@@ -543,6 +513,8 @@ void runRByzServer(int n_clients,
         Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
                                " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
       }
+
+      std::cout << "    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
 
     // Read client updates and aggregate them
