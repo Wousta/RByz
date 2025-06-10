@@ -69,10 +69,8 @@ void RdmaOps::read_mnist_update(std::vector<torch::Tensor> &update, float *local
   }
 
   size_t numel_server = REG_SZ_DATA / sizeof(float);
-  Logger::instance().log("Client: Read weights from server numel = " + std::to_string(numel_server) + "\n");
   torch::Tensor flat_tensor = torch::from_blob(
       local_w, {static_cast<long>(numel_server)}, torch::kFloat32
   ).clone();
-  Logger::instance().log("Client: Read weights from server done\n");
   update = reconstruct_tensor_vector(flat_tensor, update);
 }

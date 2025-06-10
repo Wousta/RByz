@@ -225,8 +225,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec = reconstruct_tensor_vector(aggregated_update, w);
-    Logger::instance().log("Server: aggregated update:\n");
-    printTensorSlices(aggregated_update_vec, 0, 5);
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
@@ -266,7 +264,7 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
                                 const torch::Tensor &server_update) {
   
-                                  // Compute cosine similarity between each client update and server update
+  // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
   trust_scores.reserve(client_updates.size());
@@ -331,15 +329,7 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
     aggregated_update /= sum_trust;
   }
 
-  // Print the aggregated update
-  {
-    std::ostringstream oss;
-    oss << "\nAggregated update:\n";
-    oss << "  "
-        << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString()
-        << "\n";
-    Logger::instance().log(oss.str());
-  }
+  Logger::instance().log("  Aggregated update: " + aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() + "\n");
 
   // If all trust scores are 0, just return the zero tensor
   return aggregated_update;

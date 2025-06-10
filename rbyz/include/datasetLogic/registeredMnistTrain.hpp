@@ -2,7 +2,7 @@
 
 #include "baseMnistTrain.hpp"
 #include "registeredMNIST.hpp"
-#include "structs.h"
+#include "structs.hpp"
 #include <memory>
 
 /**

@@ -149,6 +149,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     } while (srvr_ready_flag != round);
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
@@ -164,21 +165,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(
     ).clone();
 
     w = reconstruct_tensor_vector(flat_tensor, w);
-
-    {
-      std::ostringstream oss;
-      float total_norm = 0.0f;
-      oss << "\nWeight norms after iteration " << round << ":\n";
-      
-      for (size_t i = 0; i < w.size(); i++) {
-        float layer_norm = torch::norm(w[i], 2).item<float>();
-        total_norm += layer_norm;
-        oss << "  Layer " << i << " norm: " << layer_norm << "\n";
-      }
-      
-      oss << "  Total norm: " << total_norm << "\n";
-      Logger::instance().log(oss.str());
-    }
 
     Logger::instance().log("Client: Read weights from server numel = " + std::to_string(flat_tensor.numel()) + "\n");
     printTensorSlices(w, 0, 5);

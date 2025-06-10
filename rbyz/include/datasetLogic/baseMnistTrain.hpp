@@ -24,7 +24,7 @@ struct Net : torch::nn::Module {
         torch::max_pool2d(conv2_drop->forward(conv2->forward(x)), 2));
     x = x.view({-1, 320});
     x = torch::relu(fc1->forward(x));
-    x = torch::dropout(x, /*p=*/0.5, /*training=*/is_training()); // Dropout probability set to 0 for now during testing (was 0.5)
+    x = torch::dropout(x, /*p=*/0.0, /*training=*/is_training()); // Dropout probability set to 0 for now during testing (was 0.5)
     x = fc2->forward(x);
     return torch::log_softmax(x, /*dim=*/1);
   }
@@ -44,7 +44,7 @@ protected:
   const int64_t subset_size;
   const int64_t kTrainBatchSize = 32;
   const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 1;
+  const int64_t kNumberOfEpochs = 5;
   const int64_t kLogInterval = 10;
   torch::DeviceType device_type;
   torch::Device device;

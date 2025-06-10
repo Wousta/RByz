@@ -60,7 +60,7 @@ class RegMnistSplitter {
             std::iota(indices.begin(), indices.end(), start_idx);
             vd_indexes[i] = indices;
 
-            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + "size: " + std::to_string(vd_indexes[i].size()) + "\n");
+            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + " size: " + std::to_string(vd_indexes[i].size()) + "\n");
         }
 
         size_t sample_size = mnist.getSampleSize();

@@ -96,34 +96,34 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 }
 
 torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
-                                const torch::Tensor &server_update,
-                                std::vector<ClientDataRbyz> &clntsData) {
+                                const torch::Tensor &server_update) {
   
-                                  // Compute cosine similarity between each client update and server update
+  // Compute cosine similarity between each client update and server update
+  std::vector<float> trust_scores;
   std::vector<torch::Tensor> normalized_updates;
+  trust_scores.reserve(client_updates.size());
   normalized_updates.reserve(client_updates.size());
   
   Logger::instance().log("\nComputing aggregation data ================\n");
 
-  for (int i = 0; i < client_updates.size(); i++) {
+  float server_norm = torch::norm(server_update, 2).item<float>();
+  for (const auto &flat_client_update : client_updates) {
     // Compute cosine similarity
-    torch::Tensor dot_product = torch::dot(client_updates[i], server_update);
-    float client_norm = torch::norm(client_updates[i], 2).item<float>();
-    float server_norm = torch::norm(server_update, 2).item<float>();
+    torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
+    float client_norm = torch::norm(flat_client_update, 2).item<float>();
     float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
 
     // Apply ReLU (max with 0)
     float trust_score = std::max(0.0f, cosine_sim);
-    clntsData[i].trust_score = trust_score;
+    trust_scores.push_back(trust_score);
 
-    torch::Tensor normalized_update = client_updates[i] * (server_norm / client_norm);
+    torch::Tensor normalized_update = flat_client_update * (server_norm / client_norm);
     normalized_updates.push_back(normalized_update);
-
 
       {
         std::ostringstream oss;
         oss << "  ClientUpdate:\n";
-        oss << "    " << client_updates[i].slice(0, 0, std::min<size_t>(client_updates[i].numel(), 5)) << " ";
+        oss << "    " << flat_client_update.slice(0, 0, std::min<size_t>(flat_client_update.numel(), 5)) << " ";
         oss << "  \nServerUpdate:\n";
         oss << "    " << server_update.slice(0, 0, std::min<size_t>(server_update.numel(), 5)) << " ";
         Logger::instance().log(oss.str());
@@ -140,9 +140,9 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   {
     std::ostringstream oss;
     oss << "\nTRUST SCORES:\n";
-    for (int i = 0; i < clntsData.size(); i++) {
+    for (int i = 0; i < trust_scores.size(); i++) {
       if (i % 1 == 0) {
-        oss << "  Client " << i << " score: " << clntsData[i].trust_score << "\n";
+        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
       }
     }
     Logger::instance().log(oss.str());
@@ -150,27 +150,17 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
 
   // Normalize trust scores
   float sum_trust = 0.0f;
-  for (int i = 0; i < clntsData.size(); i++) {
-    sum_trust += clntsData[i].trust_score;
+  for (float score : trust_scores) {
+    sum_trust += score;
   }
 
   torch::Tensor aggregated_update = torch::zeros_like(server_update);
   if (sum_trust > 0) {
-    for (int i = 0; i < clntsData.size(); i++) {
-      aggregated_update += clntsData[i].trust_score * normalized_updates[i];
+    for (int i = 0; i < trust_scores.size(); i++) {
+      aggregated_update += trust_scores[i] * normalized_updates[i];
     }
 
     aggregated_update /= sum_trust;
-  }
-
-  // Print the aggregated update
-  {
-    std::ostringstream oss;
-    oss << "\nAggregated update:\n";
-    oss << "  "
-        << aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString()
-        << "\n";
-    Logger::instance().log(oss.str());
   }
 
   // If all trust scores are 0, just return the zero tensor
@@ -202,9 +192,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     Logger::instance().log("Server: Running MNIST training for round " + std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
 
-    Logger::instance().log("Weight updates:\n");
-    printTensorSlices(g, 0, 5);
-
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND,
     // BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     std::vector<torch::Tensor> clnt_updates;
@@ -219,10 +206,11 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
       }
 
       size_t numel_server = REG_SZ_DATA / sizeof(float);
-      torch::Tensor flat_tensor =
-          torch::from_blob(
-              regMem.clnt_ws[client], {static_cast<long>(numel_server)}, torch::kFloat32)
-              .clone();
+      torch::Tensor flat_tensor = torch::from_blob(
+              regMem.clnt_ws[client], 
+              {static_cast<long>(numel_server)}, 
+              torch::kFloat32
+            ).clone();
 
       clnt_updates.push_back(flat_tensor);
     }
@@ -241,7 +229,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
 
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
-    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update, clntsData);
+    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_srvr_update);
     std::vector<torch::Tensor> aggregated_update_vec =
         reconstruct_tensor_vector(aggregated_update, w);
         
@@ -372,16 +360,16 @@ int main(int argc, char *argv[]) {
 
   if (!load_model) {
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *regular_mnist, regMem, clnt_data_vec);
+    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *registered_mnist, regMem, clnt_data_vec);
 
     // regular_mnist.saveModelState(w, model_file);
   }
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
-  registered_mnist->copyModelParameters(regular_mnist->getModel());
-  registered_mnist->setLoss(regular_mnist->getLoss());
-  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+  // registered_mnist->copyModelParameters(regular_mnist->getModel());
+  // registered_mnist->setLoss(regular_mnist->getLoss());
+  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
 
   Logger::instance().log("Initial test of the model before RByz\n");
   registered_mnist->testModel();
