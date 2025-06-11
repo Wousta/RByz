@@ -234,9 +234,18 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
         reconstruct_tensor_vector(aggregated_update, w);
         
     for (size_t i = 0; i < w.size(); i++) {
-      w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
+      w[i] = w[i] - GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
+    
+    // mnist.updateModelParameters(w);
+    Logger::instance().log("PRE: testing\n");
+    mnist.testModel();
   }
+
+  // Logger::instance().log("INFERENSIA\n");
+  // mnist.runInference(w);
+  // Logger::instance().log("FINAL FLTRUST?\n");
+  mnist.testModel();
 
   return w;
 }

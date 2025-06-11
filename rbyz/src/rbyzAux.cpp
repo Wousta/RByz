@@ -98,7 +98,7 @@ void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
 
 torch::Tensor aggregate_updates_rbyz(const std::vector<torch::Tensor>& client_updates,
                                 const torch::Tensor& flat_w,
-                                std::vector<ClientDataRbyz> &clnt_data_vec) {
+                                const std::vector<ClientDataRbyz> &clnt_data_vec) {
 
   // Normalize the client updates
   std::vector<torch::Tensor> normalized_updates;
@@ -340,6 +340,8 @@ void runRByzClient(std::vector<torch::Tensor> &w,
 
     // Read the aggregated weights from the server and update the local weights
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
+    mnist.updateModelParameters(w);
+    mnist.testModel();
 
     // Run local training steps, all training data is sampled before training to let server insert VD samples
     while (regMem.local_step.load() < LOCAL_STEPS_RBYZ) {
@@ -357,19 +359,19 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     }
 
     // Store the updated weights in clnt_w
-    torch::Tensor all_tensors = flatten_tensor_vector(w);
-    size_t total_bytes_g = all_tensors.numel() * sizeof(float);
+    torch::Tensor flat_w = flatten_tensor_vector(w);
+    size_t total_bytes_g = flat_w.numel() * sizeof(float);
     if(total_bytes_g != (size_t)REG_SZ_DATA) {
       Logger::instance().log("  REG_SZ_DATA and total_bytes sent do not match!!\n");
     }
 
-    float* all_tensors_float = all_tensors.data_ptr<float>();
+    float* flat_w_float = flat_w.data_ptr<float>();
 
     // Make server wait until memory is written
     aquireCASLock(regMem);
 
     // Store the updates, error and loss values in clnt_w
-    std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
+    std::memcpy(regMem.clnt_w, flat_w_float, total_bytes_g);
     unsigned int total_bytes_w_int = static_cast<unsigned int>(REG_SZ_DATA);
     rdma_ops.exec_rdma_write(total_bytes_w_int, CLNT_W_IDX);
 
@@ -377,6 +379,9 @@ void runRByzClient(std::vector<torch::Tensor> &w,
     releaseCASLock(regMem);
 
     mnist.testModel();
+
+    Logger::instance().log("Printing client weights after round " + std::to_string(regMem.round.load()) + "\n");
+    printTensorSlices(w, 0, 3);
 
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " completed ////////////////\n");
     regMem.round.store(regMem.round.load() + 1);
@@ -418,9 +423,9 @@ void runRByzServer(int n_clients,
     // Log accuracy and round to Results
     Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
 
-    auto all_tensors = flatten_tensor_vector(w);
-    size_t total_bytes = all_tensors.numel() * sizeof(float);
-    float *global_w = all_tensors.data_ptr<float>();
+    auto flat_w = flatten_tensor_vector(w);
+    size_t total_bytes = flat_w.numel() * sizeof(float);
+    float *global_w = flat_w.data_ptr<float>();
     std::memcpy(regMem.srvr_w, global_w, total_bytes);
 
     // Before each round, write the server's VD to the clients to test after first local step
@@ -494,36 +499,31 @@ void runRByzServer(int n_clients,
         }
 
         if (clnt_data.local_step != 1) {
-          // Read the error and loss from the clients
-          Logger::instance().log("      $$$$$$$ STARTING TRUST SCORE UPDATE $$$$$$$\n");
-          Logger::instance().log("        -> Server: updating Trust Score " + std::to_string(j) + "\n");
           updateTS(clnt_data_vec, clnt_data_vec[j], mnist.getLoss(), mnist.getErrorRate());
-          Logger::instance().log("        -> Server: Trust Score updated for client " + std::to_string(j) + " to " + 
-                                 std::to_string(clnt_data_vec[j].trust_score) + "\n");
-          Logger::instance().log("      $$$$$$$  END OF TRUST SCORE UPDATE  $$$$$$$$\n");
         }
       }
 
-      Logger::instance().log("    Trust Scores after step " + std::to_string(srvr_step) + " round " + std::to_string(round) + ":\n");
-      for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
-        if (clnt_data.is_byzantine) {
-          Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
-          continue;
-        }
-        Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
-                               " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
-      }
+      // Logger::instance().log("    Trust Scores after step " + std::to_string(srvr_step) + " round " + std::to_string(round) + ":\n");
+      // for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
+      //   if (clnt_data.is_byzantine) {
+      //     Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
+      //     continue;
+      //   }
+      //   Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
+      //                          " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
+      // }
 
-      std::cout << "    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
+      std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
 
-    // Read client updates and aggregate them
     std::vector<torch::Tensor> clnt_updates;
     std::vector<uint32_t> clnt_indices;
     clnt_updates.reserve(n_clients);
-    
+
+    // Read client updates and aggregate them
     for (size_t i = 0; i < clnt_data_vec.size(); i++) {
       ClientDataRbyz& client = clnt_data_vec[i];
+
       if (client.is_byzantine) {
         continue;
       }
@@ -548,13 +548,21 @@ void runRByzServer(int n_clients,
     clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
 
     // Aggregation
-    torch::Tensor aggregated_update = aggregate_updates_rbyz(clnt_updates, all_tensors, clnt_data_vec);
+    torch::Tensor aggregated_update = aggregate_updates_rbyz(clnt_updates, flat_w, clnt_data_vec);
     std::vector<torch::Tensor> aggregated_update_vec =
         reconstruct_tensor_vector(aggregated_update, w);
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
+
+    Logger::instance().log("PRE: testing\n");
+    mnist.testModel();
+
+    //mnist.updateModelParameters(w);
+
+    Logger::instance().log("Printing server updates after round " + std::to_string(round) + "\n");
+    printTensorSlices(w, 0, 3);
 
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");

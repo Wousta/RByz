@@ -355,7 +355,6 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   model.eval();                // Set model to evaluation mode
   updateModelParameters(w);
 
-  updateModelParameters(w);
   Logger::instance().log("  Running inference on registered dataset\n");
 
   int32_t correct = 0;
