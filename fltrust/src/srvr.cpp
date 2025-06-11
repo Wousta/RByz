@@ -235,6 +235,10 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     printTensorSlices(w, 0, 5);
   }
 
+  Logger::instance().log("FINAL FLTRUST?\n");
+  mnist.updateModelParameters(w);
+  mnist.testModel();
+
   return w;
 }
 

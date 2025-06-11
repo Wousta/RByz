@@ -106,6 +106,7 @@ public:
 
   std::vector<torch::Tensor> runMnistTrainDummy(std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> runMnistTrain(int round, const std::vector<torch::Tensor>& w);
+  std::vector<torch::Tensor> updateModelParameters(const std::vector<torch::Tensor>& w);
   std::vector<torch::Tensor> getInitialWeights();
   void testModel();
   Net getModel() { return model; }
