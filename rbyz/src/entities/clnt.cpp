@@ -75,7 +75,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     torch::Tensor all_tensors = flatten_tensor_vector(g);
     size_t total_bytes_g = all_tensors.numel() * sizeof(float);
     if(total_bytes_g != (size_t)REG_SZ_DATA) {
-      Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
+      throw std::runtime_error("REG_SZ_DATA and total_bytes sent do not match!!");
     }
     float* all_tensors_float = all_tensors.data_ptr<float>();
     std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);

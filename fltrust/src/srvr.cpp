@@ -229,10 +229,6 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
-
-    // Print the first few updated weights
-    Logger::instance().log("\nUpdated weights at end of iteration\n");
-    printTensorSlices(w, 0, 5);
   }
 
   Logger::instance().log("FINAL FLTRUST?\n");

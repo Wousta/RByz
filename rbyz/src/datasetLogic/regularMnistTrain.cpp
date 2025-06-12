@@ -126,19 +126,12 @@ std::vector<torch::Tensor> RegularMnistTrain::runMnistTrain(int round,
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
   size_t param_count = w_cuda.size();
 
-  //auto test_loader_instance = torch::data::make_data_loader(test_dataset, kTestBatchSize);
-
   torch::optim::SGD optimizer(model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
 
   std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
-  }
-
-  if (round % 2 == 0) {
-    Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
-    test(model, device, *test_loader, test_dataset_size);
   }
 
   std::vector<torch::Tensor> params = model.parameters();

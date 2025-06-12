@@ -340,8 +340,8 @@ void runRByzClient(std::vector<torch::Tensor> &w,
 
     // Read the aggregated weights from the server and update the local weights
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
-    mnist.updateModelParameters(w);
-    mnist.testModel();
+    // mnist.updateModelParameters(w);
+    // mnist.testModel();
 
     // Run local training steps, all training data is sampled before training to let server insert VD samples
     while (regMem.local_step.load() < LOCAL_STEPS_RBYZ) {
@@ -556,10 +556,10 @@ void runRByzServer(int n_clients,
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
 
-    Logger::instance().log("PRE: testing\n");
+    Logger::instance().log("PRE: MNIST\n");
+    mnist.updateModelParameters(w);
     mnist.testModel();
 
-    //mnist.updateModelParameters(w);
 
     Logger::instance().log("Printing server updates after round " + std::to_string(round) + "\n");
     printTensorSlices(w, 0, 3);

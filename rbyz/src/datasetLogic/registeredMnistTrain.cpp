@@ -298,8 +298,6 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
   size_t param_count = w_cuda.size();
 
-  //auto test_loader_instance = torch::data::make_data_loader(test_dataset, kTestBatchSize);
-
   torch::optim::SGD optimizer(model.parameters(), torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
 
   if (round % 1 == 0) {
@@ -312,10 +310,10 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
     train(epoch, model, device, optimizer, subset_size);
   }
 
-  if (round % 2 == 0) {
-    Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
-    test(model, device, *test_loader, test_dataset_size);
-  }
+  // if (round % 2 == 0) {
+  //   Logger::instance().log("Testing model after training round " + std::to_string(round) + "\n");
+  //   test(model, device, *test_loader, test_dataset_size);
+  // }
 
   std::vector<torch::Tensor> params = model.parameters();
   std::vector<torch::Tensor> result;
@@ -354,7 +352,7 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   torch::NoGradGuard no_grad;  // Prevent gradient calculation
   model.eval();                // Set model to evaluation mode
   updateModelParameters(w);
-
+  
   Logger::instance().log("  Running inference on registered dataset\n");
 
   int32_t correct = 0;
