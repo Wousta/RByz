@@ -36,7 +36,8 @@ void updateTS(
 torch::Tensor aggregate_updates(
     const std::vector<torch::Tensor>& client_updates,
     const torch::Tensor& w,
-    std::vector<ClientDataRbyz> &clnt_data_vec);
+    const std::vector<ClientDataRbyz> &clnt_data_vec,
+    const std::vector<uint32_t>& clnt_indices);
 
 void writeErrorAndLoss(
   BaseMnistTrain& mnist,

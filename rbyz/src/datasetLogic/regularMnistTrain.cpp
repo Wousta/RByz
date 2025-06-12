@@ -130,6 +130,11 @@ std::vector<torch::Tensor> RegularMnistTrain::runMnistTrain(int round,
 
   std::cout << "Training model for round " << round << " epochs: " << kNumberOfEpochs << "\n";
 
+  if (round % 2 == 0) {
+    Logger::instance().log("Testing model pre training round " + std::to_string(round) + "\n");
+    test(model, device, *test_loader, test_dataset_size);
+  }
+
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, model, device, *train_loader, optimizer, subset_size);
   }

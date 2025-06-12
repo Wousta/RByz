@@ -98,7 +98,8 @@ void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
 
 torch::Tensor aggregate_updates_rbyz(const std::vector<torch::Tensor>& client_updates,
                                 const torch::Tensor& flat_w,
-                                const std::vector<ClientDataRbyz> &clnt_data_vec) {
+                                const std::vector<ClientDataRbyz> &clnt_data_vec,
+                                const std::vector<uint32_t>& clnt_indices) {
 
   // Normalize the client updates
   std::vector<torch::Tensor> normalized_updates;
@@ -117,8 +118,9 @@ torch::Tensor aggregate_updates_rbyz(const std::vector<torch::Tensor>& client_up
   }
 
   float trust_scores[client_updates.size()];
-  for (size_t i = 0; i < client_updates.size(); i++) {
-    trust_scores[i] = clnt_data_vec[i].trust_score;
+  for (int i = 0; i < client_updates.size(); i++) {
+    // Byzantine clients are skipped, so we have to keep track of good clients indices clnt_indices[i]
+    trust_scores[i] = clnt_data_vec[clnt_indices[i]].trust_score;
   }
 
   // Normalize trust scores
@@ -415,10 +417,10 @@ void runRByzServer(int n_clients,
 
     mnist.testModel();
 
-    // if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
-    //   Logger::instance().log("Server: Target accuracy reached, stopping RByz\n");
-    //   break;
-    // }
+    if (mnist.getTestAccuracy() >= GLOBAL_TARGET_ACCURACY) {
+      Logger::instance().log("Server: Target accuracy reached, stopping RByz\n");
+      break;
+    }
 
     // Log accuracy and round to Results
     Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
@@ -503,15 +505,15 @@ void runRByzServer(int n_clients,
         }
       }
 
-      // Logger::instance().log("    Trust Scores after step " + std::to_string(srvr_step) + " round " + std::to_string(round) + ":\n");
-      // for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
-      //   if (clnt_data.is_byzantine) {
-      //     Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
-      //     continue;
-      //   }
-      //   Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
-      //                          " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
-      // }
+      Logger::instance().log("    Trust Scores after step " + std::to_string(srvr_step) + " round " + std::to_string(round) + ":\n");
+      for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
+        if (clnt_data.is_byzantine) {
+          Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
+          continue;
+        }
+        Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
+                               " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
+      }
 
       std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
@@ -548,7 +550,7 @@ void runRByzServer(int n_clients,
     clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
 
     // Aggregation
-    torch::Tensor aggregated_update = aggregate_updates_rbyz(clnt_updates, flat_w, clnt_data_vec);
+    torch::Tensor aggregated_update = aggregate_updates_rbyz(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
     std::vector<torch::Tensor> aggregated_update_vec =
         reconstruct_tensor_vector(aggregated_update, w);
 
@@ -556,17 +558,12 @@ void runRByzServer(int n_clients,
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
 
-    Logger::instance().log("PRE: MNIST\n");
-    mnist.updateModelParameters(w);
-    mnist.testModel();
-
-
-    Logger::instance().log("Printing server updates after round " + std::to_string(round) + "\n");
-    printTensorSlices(w, 0, 3);
-
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
   }
+
+  // Final update of the model parameters
+  mnist.updateModelParameters(w);
 
   // TODO: Wait for all clients to finish by reading their round
   Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");

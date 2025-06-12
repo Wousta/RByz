@@ -50,7 +50,6 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
         }
 
         void* sample = static_cast<char*>(data_info->reg_data) + (index * sample_size);
-        uint32_t stored_index = *reinterpret_cast<uint32_t*>(sample);
         float* img_ptr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(sample) + index_size + label_size);
 
         // Create a tensor that references this memory (no copy)
