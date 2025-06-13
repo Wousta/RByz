@@ -44,8 +44,10 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
                          std::to_string(reg_data_size) + " bytes\n");
 
   // Copy data from the original dataset to the registered memory
-  size_t i = 0;  // Counter for the registered memory
   std::unordered_map<size_t, size_t> index_map;
+  index_map.reserve(indices.size());
+
+  size_t i = 0;  // Counter for the registered memory
   for (const auto& original_idx : indices) {
     auto example = plain_mnist.get(original_idx);
 
@@ -183,25 +185,21 @@ void RegisteredMnistTrain::train(size_t epoch,
   size_t total = 0;
   int32_t correct = 0;
 
-  torch::Tensor batch_data = torch::empty({kTrainBatchSize, 1, 28, 28}, torch::kFloat32);
-  torch::Tensor batch_targets = torch::empty({kTrainBatchSize}, torch::kInt64);
+  auto start = std::chrono::high_resolution_clock::now();
   
   for (const auto& batch : *registered_loader) { 
     size_t batch_size = batch.size();
-  
-    // Resize if needed (only for last batch)
-    if (batch_size != kTrainBatchSize) {
-      batch_data = batch_data.slice(0, 0, batch_size).contiguous();
-      batch_targets = batch_targets.slice(0, 0, batch_size).contiguous();
-    }
     
-    // Direct copy to pre-allocated tensors
-    for (size_t i = 0; i < batch_size; ++i) {
-      batch_data[i].copy_(batch[i].data);
-      batch_targets[i] = batch[i].target;
+    std::vector<torch::Tensor> data_vec, target_vec;
+    for (const auto& example : batch) {
+      data_vec.push_back(example.data);
+      target_vec.push_back(example.target);
       forward_pass_indices[global_sample_idx] = *getOriginalIndex(global_sample_idx);
       global_sample_idx++;
     }
+    
+    auto batch_data = torch::stack(data_vec);
+    auto batch_targets = torch::stack(target_vec);
     
     torch::Tensor data, targets;
     if (device.is_cuda()) {
@@ -237,32 +235,27 @@ void RegisteredMnistTrain::train(size_t epoch,
       auto inference_output = model.forward(data);
       Logger::instance().log("  Going to proc batch results in batch " + std::to_string(batch_idx) + "and epoch " + std::to_string(epoch) + "\n");
       processBatchResults(inference_output, targets, device, forward_pass, curr_idx);
+      model.train();  // Switch back to training mode
     }
-
-    // Switch back to training mode for training forward pass
-    model.train();
 
     // Clear gradients from previous iteration
     optimizer.zero_grad();
+    output = model.forward(data);
 
-    // Forward pass
-    auto output = model.forward(data);
-
-    // Calculate sum of losses (not mean) for this batch
-    auto nll_loss_sum = torch::nll_loss(output, targets, {}, torch::Reduction::Sum);
-    auto nll_loss_mean = torch::nll_loss(output, targets);  // Keep for backprop
+    // Calculate mean loss for this batch
+    auto nll_loss_mean = torch::nll_loss(output, targets);
     AT_ASSERT(!std::isnan(nll_loss_mean.template item<float>()));
 
-    // Add batch sum to total loss
-    float batch_loss_sum = nll_loss_sum.template item<float>();
-    total_loss += batch_loss_sum;
-    total_samples += targets.size(0); 
+    // Add to total loss (convert mean to sum, then accumulate)
+    // float batch_loss_mean = nll_loss_mean.template item<float>();
+    // total_loss += batch_loss_mean * targets.size(0);  // Convert mean to sum
+    // total_samples += targets.size(0);
 
-    // Calculate accuracy and error rate for this batch
-    auto pred = output.argmax(1);
-    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
-    correct += batch_correct;
-    total += targets.size(0);
+    // // Calculate accuracy and error rate for this batch
+    // auto pred = output.argmax(1);
+    // int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
+    // correct += batch_correct;
+    // total += targets.size(0);
 
     // Backpropagation
     nll_loss_mean.backward();
@@ -279,19 +272,29 @@ void RegisteredMnistTrain::train(size_t epoch,
     batch_idx++;
   }
 
-  // Update the loss member to be the average loss across all batches
-  loss = static_cast<float>(total_loss / total_samples);
+  // // Update the loss member to be the average loss across all batches
+  // loss = static_cast<float>(total_loss / total_samples);
 
-  // Update the train accuracy member
-  setTrainAccuracy(static_cast<float>(correct) / total);
+  // // Update the train accuracy member
+  // setTrainAccuracy(static_cast<float>(correct) / total);
 
-  // Calculate final error rate for the entire epoch (should match 1 - train_accuracy)
-  error_rate = 1.0 - (static_cast<double>(correct) / total);
+  // // Calculate final error rate for the entire epoch (should match 1 - train_accuracy)
+  // error_rate = 1.0 - (static_cast<double>(correct) / total);
+
+  testModel();
+  loss = getTestLoss();
+  setTrainAccuracy(getTestAccuracy());
+  error_rate = 1.0 - getTestAccuracy();
 
   // Wait for any remaining async operations
   if (device.is_cuda()) {
     cudaDeviceSynchronize();
   }
+
+  auto end = std::chrono::high_resolution_clock::now();
+    Logger::instance().log("Total time taken server side step: " +
+                          std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) +
+                          " ms\n");
 }
 
 std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {

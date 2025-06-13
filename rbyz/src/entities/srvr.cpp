@@ -142,16 +142,16 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   }
   Logger::instance().log("================================\n");
 
-  {
-    std::ostringstream oss;
-    oss << "\nTRUST SCORES:\n";
-    for (int i = 0; i < trust_scores.size(); i++) {
-      if (i % 1 == 0) {
-        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
-      }
-    }
-    Logger::instance().log(oss.str());
-  }
+  // {
+  //   std::ostringstream oss;
+  //   oss << "\nTRUST SCORES:\n";
+  //   for (int i = 0; i < trust_scores.size(); i++) {
+  //     if (i % 1 == 0) {
+  //       oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
+  //     }
+  //   }
+  //   Logger::instance().log(oss.str());
+  // }
 
   // Normalize trust scores
   float sum_trust = 0.0f;
@@ -362,23 +362,28 @@ int main(int argc, char *argv[]) {
 
       // Do one iteration of fltrust with ALL clients to initialize trust scores
       std::cout << "SRVR Running FLTrust with loaded model\n";
-      w = run_fltrust_srvr(1, n_clients, *regular_mnist, regMem, clnt_data_vec);
+      w = run_fltrust_srvr(1, n_clients, *registered_mnist, regMem, clnt_data_vec);
       Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
   }
 
   if (!load_model) {
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *regular_mnist, regMem, clnt_data_vec);
+    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *registered_mnist, regMem, clnt_data_vec);
 
     // regular_mnist.saveModelState(w, model_file);
   }
 
+  // auto end = std::chrono::high_resolution_clock::now();
+  // Logger::instance().log("Total time taken: " +
+  //                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +
+  //                        " seconds\n");
+
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
-  registered_mnist->copyModelParameters(regular_mnist->getModel());
-  registered_mnist->setLoss(regular_mnist->getLoss());
-  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+  // registered_mnist->copyModelParameters(regular_mnist->getModel());
+  // registered_mnist->setLoss(regular_mnist->getLoss());
+  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
 
   Logger::instance().log("Initial test of the model before RByz\n");
   registered_mnist->testModel();

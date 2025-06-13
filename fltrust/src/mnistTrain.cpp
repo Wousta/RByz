@@ -168,6 +168,8 @@ void MnistTrain::train(
   int32_t correct = 0;
   size_t total = 0;
 
+  auto start = std::chrono::high_resolution_clock::now();
+
   for (auto &batch : data_loader)
   {
     torch::Tensor data_device, targets_device;
@@ -201,21 +203,6 @@ void MnistTrain::train(
       targets_device = batch.target;
     }
 
-    if (batch_idx == 1 && epoch == 1)
-    {
-      std::ostringstream oss;
-      oss << "  Targets (first 10 elements): [";
-      int num_to_print = std::min(static_cast<int>(targets_device.numel()), static_cast<int>(targets_device.numel()));
-      for (int i = 0; i < num_to_print; ++i)
-      {
-        oss << targets_device[i].item<int64_t>();
-        if (i < num_to_print - 1)
-          oss << ", ";
-      }
-      oss << "]";
-      Logger::instance().log(oss.str() + "\n");
-    }
-
     optimizer.zero_grad();
     output = model.forward(data_device);
     
@@ -237,7 +224,11 @@ void MnistTrain::train(
           nll_loss_mean.template item<float>());
     }
   }
-  
+
+  auto end = std::chrono::high_resolution_clock::now();
+    Logger::instance().log("Total time taken server side step: " +
+                          std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) +
+                          " ms\n");
 }
 
 template <typename DataLoader>
