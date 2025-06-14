@@ -71,18 +71,24 @@ struct ClientDataRbyz {
     bool is_byzantine = false;
     float trust_score;
     float* updates;
-    float* loss;       
-    float* error_rate;  
+    float* loss;        // Unused in RByz, but kept for compatibility
+    float* error_rate;  // Unused in RByz, but kept for compatibility
     
     // Dataset data
     alignas(8) size_t dataset_size;
-    std::vector<size_t> inserted_indices;
+    std::unordered_set<size_t> inserted_indices;
 
     // Forward pass data
     size_t forward_pass_mem_size;
     size_t forward_pass_indices_mem_size;
     float* forward_pass;
     uint32_t* forward_pass_indices;
+
+    // VD out data
+    alignas(8) float loss_clnt;
+    alignas(8) float error_rate_clnt;
+    alignas(8) float loss_srvr;
+    alignas(8) float error_rate_srvr;
     
     alignas(8) std::atomic<int> clnt_CAS;    
     alignas(8) int local_step = 0;           

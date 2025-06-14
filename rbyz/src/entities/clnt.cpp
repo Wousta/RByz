@@ -164,19 +164,19 @@ int main(int argc, char* argv[]) {
 
       // Do one iteration of fltrust with one iteration to initialize trust scores
       std::cout << "CLNT Running FLTrust with loaded model\n";
-      w = run_fltrust_clnt(1, rdma_ops, *regular_mnist, regMem);
+      w = run_fltrust_clnt(1, rdma_ops, *registered_mnist, regMem);
       std::cout << "\nCLNT FLTrust with loaded model done\n";
     }
   }
   
   if (!load_model) {
-    w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *regular_mnist, regMem);
+    w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *registered_mnist, regMem);
   }
 
   // Run the RByz client
-  registered_mnist->copyModelParameters(regular_mnist->getModel());
-  registered_mnist->setLoss(regular_mnist->getLoss());
-  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+  // registered_mnist->copyModelParameters(regular_mnist->getModel());
+  // registered_mnist->setLoss(regular_mnist->getLoss());
+  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   runRByzClient(w, *registered_mnist, regMem, rdma_ops);
 
   std::cout << "\nClient done\n";

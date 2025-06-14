@@ -21,7 +21,7 @@ public:
     // Log a message with timestamp. Thread-safe.
     void log(const std::string &message) {
         std::lock_guard<std::mutex> lock(mtx_);
-        logFile_ << currentDateTime() << " - " << message;
+        logFile_ << message;
         logFile_.flush();
     }
 
@@ -39,7 +39,6 @@ public:
 
     void logCpuState(const std::string& context = "") {
         std::lock_guard<std::mutex> lock(mtx_);
-        std::cout << "Logging CPU state" << std::endl;
         double cpuUtil = cpuProfiler_.getTotalCpuUtil();
         std::string message = "CPU Utilization";
         if (!context.empty()) {
