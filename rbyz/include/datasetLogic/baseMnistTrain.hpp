@@ -50,7 +50,6 @@ protected:
   torch::Device device;
   Net model;
   size_t test_dataset_size;
-  torch::Tensor output;
   float loss;
   float test_loss;
   float error_rate;
@@ -104,7 +103,6 @@ public:
   // Getters and setters
   Net getModel() { return model; }
   torch::Device getDevice() { return device; }
-  torch::Tensor getOutput() { return output; }
   float getTestLoss() { return test_loss; }
   void setTestLoss(float new_test_loss) { test_loss = new_test_loss; }
   float getLoss() { return loss; }

@@ -87,7 +87,7 @@ void RegularMnistTrain::train(size_t epoch,
     }
 
     optimizer.zero_grad();
-    output = model.forward(data_device);
+    auto output = model.forward(data_device);
     auto nll_loss = torch::nll_loss(output, targets_device);
     AT_ASSERT(!std::isnan(nll_loss.template item<float>()));
     
@@ -185,7 +185,7 @@ void RegularMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   for (auto& batch : *train_loader) {
     // Copy to GPU if needed for faster performance
     auto data = batch.data.to(device), targets = batch.target.to(device);
-    output = model.forward(data);
+    auto output = model.forward(data);
 
     auto nll_loss = torch::nll_loss(output, targets);
     total_loss += nll_loss.template item<float>() * targets.size(0);

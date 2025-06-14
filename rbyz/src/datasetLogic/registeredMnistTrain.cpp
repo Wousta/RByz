@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cassert>
 
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
@@ -17,27 +18,31 @@
 
 RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64_t subset_size)
     : BaseMnistTrain(worker_id, num_workers, subset_size) {
-  // Plain mnist to read the images from
-  auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
 
+  auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
   SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE, subset_size);
   auto& indices = train_sampler.indices();
+
+  // Initialize data info
   num_samples = indices.size();
   reg_data_size = indices.size() * sample_size;
+  forward_pass_mem_size = num_samples * forward_pass_info.values_per_sample * forward_pass_info.bytes_per_value;
+  forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
+  forward_pass_size = forward_pass_mem_size / forward_pass_info.bytes_per_value;
+  error_start = forward_pass_size / 2;
 
-  // Server will check full forward pass against the clients' first batch of forward pass
-  if (worker_id == 0) {
-    forward_pass_mem_size = num_samples * forward_pass_info.values_per_sample * forward_pass_info.bytes_per_value;
-    forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
-  } else {
-    forward_pass_mem_size = kTrainBatchSize * forward_pass_info.values_per_sample * forward_pass_info.bytes_per_value;
-    forward_pass_indices_mem_size = kTrainBatchSize * sizeof(uint32_t);
-  }
-  
-  // Init structs
   cudaHostAlloc((void**)&reg_data, reg_data_size, cudaHostAllocDefault);
   cudaHostAlloc((void**)&forward_pass, forward_pass_mem_size, cudaHostAllocDefault);
   cudaHostAlloc((void**)&forward_pass_indices, forward_pass_indices_mem_size, cudaHostAllocDefault);
+
+  // Reserve capacity for buffers to avoid reallocations
+  uint32_t num_batches = ceil(num_samples / kTrainBatchSize);
+  current_buffer.outputs.reserve(num_batches);
+  current_buffer.targets.reserve(num_batches);
+  current_buffer.losses.reserve(num_batches);
+  pending_buffer.outputs.reserve(num_batches);
+  pending_buffer.targets.reserve(num_batches);
+  pending_buffer.losses.reserve(num_batches);
 
   Logger::instance().log("registered_samples: " + std::to_string(indices.size()) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " +
@@ -80,30 +85,47 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
 }
 
 RegisteredMnistTrain::~RegisteredMnistTrain() {
+  if (pending_forward_pass.load()) {
+    Logger::instance().log("Waiting for pending forward pass processing in destructor\n");
+    forward_pass_future.wait();
+  }
+
   cudaFreeHost(reg_data);
   cudaFreeHost(forward_pass);
   cudaFreeHost(forward_pass_indices);
   Logger::instance().log("Freed Cuda registered memory for dataset\n");
 }
 
+void RegisteredMnistTrain::processForwardPassConcurrent(ForwardPassBuffer buffer) {
+  assert(buffer.outputs.size() == buffer.losses.size() && 
+         "Outputs and losses vectors must have the same size");
+  
+  Logger::instance().log("Processing forward pass concurrently with " + 
+                        std::to_string(buffer.outputs.size()) + " batches\n");
+
+  // Process the batch results and store them in the forward_pass buffer
+  size_t curr_idx = 0;
+  for (size_t i = 0; i < buffer.outputs.size(); ++i) {
+    processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i], curr_idx);
+  }
+  
+  Logger::instance().log("Concurrent forward pass processing completed\n");
+}
+
 /**
  * Processes batch output and stores per-sample loss and error values efficiently.
  * 
- * @param output Model output tensor (logits)
- * @param targets Ground truth labels
- * @param device Device where tensors reside (CPU/CUDA)
- * @param forward_pass Buffer to store loss and error values
- * @param curr_idx Current index in the forward_pass buffer
+ * @param output The model's output tensor for the batch.
+ * @param individual_losses The tensor containing individual losses for each sample in the batch.
+ * @param curr_idx Reference to the current index in the forward_pass buffer.
  */
 void RegisteredMnistTrain::processBatchResults(
     const torch::Tensor& output, 
-    const torch::Tensor& targets, 
-    torch::Device device,
-    float* forward_pass,
+    const torch::Tensor& targets,
+    const torch::Tensor& individual_losses,
     size_t& curr_idx) {
     
   // Calculate loss for each example in the batch at once
-  auto individual_losses = torch::nll_loss(output, targets, {}, torch::Reduction::None);
   auto predictions = output.argmax(1);
   auto correct_predictions = predictions.eq(targets);
 
@@ -138,9 +160,6 @@ void RegisteredMnistTrain::processBatchResults(
   // Copy values to forward_pass buffer
   auto losses_accessor = cpu_losses.accessor<float, 1>();
   auto correct_accessor = cpu_correct.accessor<bool, 1>();
-
-  const size_t forward_pass_size = forward_pass_mem_size / forward_pass_info.bytes_per_value;
-  const size_t error_start = forward_pass_size / 2;
   
   for (size_t i = 0; i < cpu_losses.size(0); ++i) {
     if (curr_idx < forward_pass_size / 2) {
@@ -164,6 +183,18 @@ void RegisteredMnistTrain::processBatchResults(
   }
 }
 
+void RegisteredMnistTrain::processForwardPass(const std::vector<torch::Tensor>& outputs,
+                                              const std::vector<torch::Tensor>& targets,
+                                              const std::vector<torch::Tensor>& losses) {
+ assert(outputs.size() == losses.size() && "Outputs and losses vectors must have the same size");
+
+  // Process the batch results and store them in the forward_pass buffer
+  size_t curr_idx = 0;
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    processBatchResults(outputs[i], targets[i], losses[i], curr_idx);
+  }
+}
+
 void RegisteredMnistTrain::train(size_t epoch, 
                            Net& model, 
                            torch::Device device, 
@@ -171,6 +202,13 @@ void RegisteredMnistTrain::train(size_t epoch,
                            size_t dataset_size) {
 
   Logger::instance().log("  RegTraining model for epoch " + std::to_string(epoch) + "\n");
+
+  if (pending_forward_pass.load()) {
+    Logger::instance().log("Waiting for previous forward pass processing to complete\n");
+    forward_pass_future.wait();
+    pending_forward_pass.store(false);
+  }
+
   model.train();
 
   size_t batch_idx = 0;
@@ -186,6 +224,10 @@ void RegisteredMnistTrain::train(size_t epoch,
   int32_t correct = 0;
 
   auto start = std::chrono::high_resolution_clock::now();
+
+  current_buffer.outputs.clear();
+  current_buffer.targets.clear(); 
+  current_buffer.losses.clear();
   
   for (const auto& batch : *registered_loader) { 
     size_t batch_size = batch.size();
@@ -229,36 +271,34 @@ void RegisteredMnistTrain::train(size_t epoch,
     }
 
     // Switch to evaluation mode for writing forward pass results
-    if (batch_idx == 0 && epoch == 1) {
-      model.eval();
-      torch::NoGradGuard no_grad;
-      auto inference_output = model.forward(data);
-      Logger::instance().log("  Going to proc batch results in batch " + std::to_string(batch_idx) + "and epoch " + std::to_string(epoch) + "\n");
-      processBatchResults(inference_output, targets, device, forward_pass, curr_idx);
-      model.train();  // Switch back to training mode
-    }
+    // if (batch_idx == 0 && epoch == 1) {
+    //   model.eval();
+    //   torch::NoGradGuard no_grad;
+    //   auto inference_output = model.forward(data);
+    //   Logger::instance().log("  Going to proc batch results in batch " + std::to_string(batch_idx) + "and epoch " + std::to_string(epoch) + "\n");
+    //   processBatchResults(inference_output, targets, curr_idx);
+    //   model.train();  // Switch back to training mode
+    // }
 
     // Clear gradients from previous iteration
     optimizer.zero_grad();
-    output = model.forward(data);
+    auto output = model.forward(data);
+    auto individual_losses = torch::nll_loss(output, targets, {}, torch::Reduction::None);
 
-    // Calculate mean loss for this batch
-    auto nll_loss_mean = torch::nll_loss(output, targets);
-    AT_ASSERT(!std::isnan(nll_loss_mean.template item<float>()));
-
-    // Add to total loss (convert mean to sum, then accumulate)
-    // float batch_loss_mean = nll_loss_mean.template item<float>();
-    // total_loss += batch_loss_mean * targets.size(0);  // Convert mean to sum
-    // total_samples += targets.size(0);
-
-    // // Calculate accuracy and error rate for this batch
-    // auto pred = output.argmax(1);
-    // int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
-    // correct += batch_correct;
-    // total += targets.size(0);
+    current_buffer.outputs.push_back(output);
+    current_buffer.targets.push_back(targets);
+    current_buffer.losses.push_back(individual_losses);
 
     // Backpropagation
-    nll_loss_mean.backward();
+    /**
+     * Using sum instead of mean for the following reasons:
+     * It's the most efficient (no division)
+     * SGD optimizers typically handle the averaging internally
+     * You still get the same training behavior
+     * You keep your individual losses for analysis
+     */
+    auto loss_mean = individual_losses.mean();
+    loss_mean.backward();
     optimizer.step();
     
     if (batch_idx % kLogInterval == 0 && worker_id % 2 == 0) {
@@ -266,30 +306,27 @@ void RegisteredMnistTrain::train(size_t epoch,
                  epoch,
                  batch_idx * data.size(0),
                  dataset_size,
-                 nll_loss_mean.template item<float>());
+                 loss_mean.template item<float>());
     }
     
     batch_idx++;
   }
 
-  // // Update the loss member to be the average loss across all batches
-  // loss = static_cast<float>(total_loss / total_samples);
-
-  // // Update the train accuracy member
-  // setTrainAccuracy(static_cast<float>(correct) / total);
-
-  // // Calculate final error rate for the entire epoch (should match 1 - train_accuracy)
-  // error_rate = 1.0 - (static_cast<double>(correct) / total);
-
-  testModel();
-  loss = getTestLoss();
-  setTrainAccuracy(getTestAccuracy());
-  error_rate = 1.0 - getTestAccuracy();
-
   // Wait for any remaining async operations
   if (device.is_cuda()) {
     cudaDeviceSynchronize();
   }
+
+  Logger::instance().log("\nStarting concurrent forward pass processing for epoch " + 
+                        std::to_string(epoch) + "\n");
+
+  // Move current buffer to pending and start concurrent processing
+  pending_buffer = std::move(current_buffer);
+  forward_pass_future = std::async(std::launch::async, 
+                                   &RegisteredMnistTrain::processForwardPassConcurrent, 
+                                   this, 
+                                   std::move(pending_buffer));
+  pending_forward_pass.store(true);
 
   auto end = std::chrono::high_resolution_clock::now();
     Logger::instance().log("Total time taken server side step: " +
@@ -352,6 +389,13 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
 }
 
 void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
+  // Wait for any pending forward pass processing
+  if (pending_forward_pass.load()) {
+    Logger::instance().log("Waiting for pending forward pass processing before inference\n");
+    forward_pass_future.wait();
+    pending_forward_pass.store(false);
+  }
+
   torch::NoGradGuard no_grad;  // Prevent gradient calculation
   model.eval();                // Set model to evaluation mode
   updateModelParameters(w);
@@ -365,9 +409,14 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   size_t curr_idx = 0;
   size_t global_sample_idx = 0;  // Track global sample position
   
-  // Track total loss for averaging
-  double total_loss = 0.0;
-  size_t total_samples = 0;
+  std::vector<torch::Tensor> outputs_vec;
+  std::vector<torch::Tensor> targets_vec;
+  std::vector<torch::Tensor> losses_vec;
+
+  uint32_t num_batches = ceil(num_samples / kTrainBatchSize);
+  outputs_vec.reserve(num_batches);
+  targets_vec.reserve(num_batches);
+  losses_vec.reserve(num_batches);
 
   for (const auto& batch : *registered_loader) {
     // Combine all data and targets in the batch into single tensors
@@ -414,33 +463,21 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
 
     // Run forward pass
     auto output = model.forward(data);
-    
-    // Process batch results
-    processBatchResults(output, targets, device, forward_pass, curr_idx);
-    
-    // Calculate sum of losses (not mean) for this batch
-    auto nll_loss_sum = torch::nll_loss(output, targets, {}, torch::Reduction::Sum);
-    float batch_loss_sum = nll_loss_sum.template item<float>();
-    total_loss += batch_loss_sum;
-    total_samples += targets.size(0);  // Add number of samples in this batch
-    
-    // Calculate accuracy for this batch
-    auto pred = output.argmax(1);
-    int32_t batch_correct = pred.eq(targets).sum().template item<int32_t>();
-    correct += batch_correct;
-    total += targets.size(0);
+    auto individual_losses = torch::nll_loss(output, targets, {}, torch::Reduction::None);
+
+    outputs_vec.push_back(output);
+    targets_vec.push_back(targets);
+    losses_vec.push_back(individual_losses);
   }
 
-  // Calculate true mean loss across all samples
-  loss = static_cast<float>(total_loss / total_samples);
-  
-  // Calculate final error rate for the entire inference (should match 1 - accuracy)
-  error_rate = 1.0 - (static_cast<double>(correct) / total);
-  
   // Wait for any remaining async operations
   if (device.is_cuda()) {
     cudaDeviceSynchronize();
   }
+
+  // For inference, process synchronously since we need immediate results
+  Logger::instance().log("Processing inference results\n");
+  processForwardPass(outputs_vec, targets_vec, losses_vec);
   
   Logger::instance().log("Inference completed - Loss: " + std::to_string(loss) + 
                         ", Error rate: " + std::to_string(error_rate) + 
