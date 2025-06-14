@@ -40,6 +40,7 @@ public:
  * @brief Holds the client's registered data.
  */
 struct RegMemClnt {
+  const int id; // For identification purposes, not used in RByz
   int srvr_ready_flag;
   float* srvr_w;
   int clnt_ready_flag;
@@ -49,7 +50,10 @@ struct RegMemClnt {
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
 
-  RegMemClnt() : srvr_ready_flag(0), clnt_ready_flag(0), clnt_CAS(MEM_FREE), local_step(0), round(0) {
+  RegMemClnt(int id) : 
+      id(id), srvr_ready_flag(0), 
+      clnt_ready_flag(0), clnt_CAS(MEM_FREE), 
+      local_step(0), round(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));

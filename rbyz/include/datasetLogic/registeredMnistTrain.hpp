@@ -6,6 +6,9 @@
 #include <memory>
 #include <future>
 #include <atomic>
+#include <unordered_set>
+#include <random>
+#include <algorithm>
 
 /**
  * @brief RegisteredMnistTrain class for handling registered MNIST dataset training.
@@ -100,4 +103,12 @@ public:
   uint32_t* getOriginalIndex(size_t image_idx);
   int64_t* getLabel(size_t image_idx);
   float* getImage(size_t image_idx);
+
+  // Label flipping attacks
+  void flipLabelsRandom(float flip_ratio, std::mt19937& rng);
+  void flipLabelsTargeted(int source_label, int target_label, float flip_ratio, std::mt19937& rng);
+
+  // Utility method
+  std::vector<size_t> findSamplesWithLabel(int label);
+
 };

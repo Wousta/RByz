@@ -498,3 +498,89 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
                         ", Error rate: " + std::to_string(error_rate) + 
                         ", Total samples: " + std::to_string(total) + "\n");
 }
+
+/////////// LABEL FLIPPING ATTACKS ///////////
+void RegisteredMnistTrain::flipLabelsRandom(float flip_ratio, std::mt19937& rng) {
+    if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
+        throw std::invalid_argument("Flip ratio must be between 0 and 1");
+    }
+    
+    size_t num_to_flip = static_cast<size_t>(num_samples * flip_ratio);
+    std::uniform_int_distribution<size_t> sample_dist(0, num_samples - 1);
+    std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+    
+    std::unordered_set<size_t> flipped_indices;
+    
+    Logger::instance().log("Starting random label flipping attack: " + 
+                          std::to_string(num_to_flip) + " samples (" + 
+                          std::to_string(flip_ratio * 100) + "%)\n");
+    
+    while (flipped_indices.size() < num_to_flip) {
+        size_t idx = sample_dist(rng);
+        if (flipped_indices.find(idx) == flipped_indices.end()) {
+            int64_t* label_ptr = getLabel(idx);
+            int64_t original_label = *label_ptr;
+            
+            // Generate a different label
+            int64_t new_label;
+            do {
+                new_label = label_dist(rng);
+            } while (new_label == original_label);
+            
+            *label_ptr = new_label;
+            flipped_indices.insert(idx);
+        }
+    }
+    
+    Logger::instance().log("Random label flipping completed\n");
+}
+
+void RegisteredMnistTrain::flipLabelsTargeted(int source_label, int target_label, 
+                                            float flip_ratio, std::mt19937& rng) {
+    if (source_label < 0 || source_label > 9 || target_label < 0 || target_label > 9) {
+        throw std::invalid_argument("Labels must be between 0 and 9 for MNIST");
+    }
+    
+    if (source_label == target_label) {
+        throw std::invalid_argument("Source and target labels must be different");
+    }
+    
+    // Find all samples with the source label
+    std::vector<size_t> source_indices = findSamplesWithLabel(source_label);
+    
+    if (source_indices.empty()) {
+        Logger::instance().log("No samples found with source label " + 
+                              std::to_string(source_label) + "\n");
+        return;
+    }
+    
+    size_t num_to_flip = static_cast<size_t>(source_indices.size() * flip_ratio);
+    
+    Logger::instance().log("Starting targeted label flipping attack: " + 
+                          std::to_string(source_label) + " -> " + 
+                          std::to_string(target_label) + " (" + 
+                          std::to_string(num_to_flip) + " samples)\n");
+    
+    // Randomly select which source samples to flip
+    std::shuffle(source_indices.begin(), source_indices.end(), rng);
+    
+    for (size_t i = 0; i < num_to_flip && i < source_indices.size(); ++i) {
+        size_t idx = source_indices[i];
+        *getLabel(idx) = target_label;
+    }
+    
+    Logger::instance().log("Targeted label flipping completed\n");
+}
+
+std::vector<size_t> RegisteredMnistTrain::findSamplesWithLabel(int label) {
+    std::vector<size_t> indices;
+    indices.reserve(num_samples / 10); // Rough estimate for MNIST
+    
+    for (size_t i = 0; i < num_samples; ++i) {
+        if (*getLabel(i) == label) {
+            indices.push_back(i);
+        }
+    }
+    
+    return indices;
+}

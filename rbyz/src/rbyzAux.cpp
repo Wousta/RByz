@@ -376,6 +376,15 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   Logger::instance().log("Srvr ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
 
   while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
+
+    // Perform label  flipping attack
+    if (regMem.id <= N_BYZ_CLNTS && regMem.round.load() == 3) {
+      Logger::instance().log("Client " + std::to_string(regMem.id) + " is Byzantine, flipping labels\n");
+      std::mt19937 rng(42);
+      mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
+      mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
+    }
+
     regMem.local_step.store(0);
     
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " started ////////////////\n");

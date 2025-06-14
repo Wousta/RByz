@@ -136,7 +136,7 @@ int main(int argc, char* argv[]) {
     std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
 
   // Struct to hold the registered data
-  RegMemClnt regMem;
+  RegMemClnt regMem(id);
   registerClntMemory(reg_info, regMem, *registered_mnist);
 
   // connect to server
@@ -172,6 +172,14 @@ int main(int argc, char* argv[]) {
   if (!load_model) {
     w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *registered_mnist, regMem);
   }
+
+  // Label flipping for Byzantine clients
+  // if (id <= N_BYZ_CLNTS) {
+  //   Logger::instance().log("Client " + std::to_string(id) + " is Byzantine, flipping labels\n");
+  //   std::mt19937 rng(42);
+  //   registered_mnist->flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
+  //   registered_mnist->flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
+  // } 
 
   // Run the RByz client
   // registered_mnist->copyModelParameters(regular_mnist->getModel());
