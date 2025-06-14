@@ -43,6 +43,9 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
   pending_buffer.outputs.reserve(num_batches);
   pending_buffer.targets.reserve(num_batches);
   pending_buffer.losses.reserve(num_batches);
+  inference_buffer.outputs.reserve(num_batches);
+  inference_buffer.targets.reserve(num_batches);
+  inference_buffer.losses.reserve(num_batches);
 
   Logger::instance().log("registered_samples: " + std::to_string(indices.size()) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " +
@@ -94,6 +97,33 @@ RegisteredMnistTrain::~RegisteredMnistTrain() {
   cudaFreeHost(forward_pass);
   cudaFreeHost(forward_pass_indices);
   Logger::instance().log("Freed Cuda registered memory for dataset\n");
+}
+
+uint64_t RegisteredMnistTrain::getSampleOffset(size_t image_idx) {
+  if (image_idx >= num_samples) {
+    throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSampleOffset()");
+  }
+  return image_idx * sample_size;
+}
+
+void* RegisteredMnistTrain::getSample(size_t image_idx) {
+  if (image_idx >= num_samples) {
+    throw std::out_of_range("Image index " + std::to_string(image_idx) + " out of range in RegisteredMnistTrain::getSample()");
+  }
+
+  return getBasePointerForIndex(image_idx);
+}
+
+uint32_t* RegisteredMnistTrain::getOriginalIndex(size_t image_idx) {
+  return reinterpret_cast<uint32_t*>(getBasePointerForIndex(image_idx));
+}
+
+int64_t* RegisteredMnistTrain::getLabel(size_t image_idx) {
+  return reinterpret_cast<int64_t*>(getBasePointerForIndex(image_idx) + index_size);
+}
+
+float* RegisteredMnistTrain::getImage(size_t image_idx) {
+  return reinterpret_cast<float*>(getBasePointerForIndex(image_idx) + index_size + label_size);
 }
 
 void RegisteredMnistTrain::processForwardPassConcurrent(ForwardPassBuffer buffer) {
@@ -183,21 +213,18 @@ void RegisteredMnistTrain::processBatchResults(
   }
 }
 
-void RegisteredMnistTrain::processForwardPass(const std::vector<torch::Tensor>& outputs,
-                                              const std::vector<torch::Tensor>& targets,
-                                              const std::vector<torch::Tensor>& losses) {
- assert(outputs.size() == losses.size() && "Outputs and losses vectors must have the same size");
+void RegisteredMnistTrain::processForwardPass(ForwardPassBuffer buffer) {
+ assert(buffer.outputs.size() == buffer.losses.size() 
+        && "Outputs and losses vectors must have the same size");
 
   // Process the batch results and store them in the forward_pass buffer
   size_t curr_idx = 0;
-  for (size_t i = 0; i < outputs.size(); ++i) {
-    processBatchResults(outputs[i], targets[i], losses[i], curr_idx);
+  for (size_t i = 0; i < buffer.outputs.size(); ++i) {
+    processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i], curr_idx);
   }
 }
 
-void RegisteredMnistTrain::train(size_t epoch, 
-                           Net& model, 
-                           torch::Device device, 
+void RegisteredMnistTrain::train(size_t epoch,
                            torch::optim::Optimizer& optimizer, 
                            size_t dataset_size) {
 
@@ -222,8 +249,6 @@ void RegisteredMnistTrain::train(size_t epoch,
   size_t total_samples = 0;
   size_t total = 0;
   int32_t correct = 0;
-
-  auto start = std::chrono::high_resolution_clock::now();
 
   current_buffer.outputs.clear();
   current_buffer.targets.clear(); 
@@ -327,11 +352,6 @@ void RegisteredMnistTrain::train(size_t epoch,
                                    this, 
                                    std::move(pending_buffer));
   pending_forward_pass.store(true);
-
-  auto end = std::chrono::high_resolution_clock::now();
-    Logger::instance().log("Total time taken server side step: " +
-                          std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) +
-                          " ms\n");
 }
 
 std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const std::vector<torch::Tensor>& w) {
@@ -347,7 +367,7 @@ std::vector<torch::Tensor> RegisteredMnistTrain::runMnistTrain(int round, const 
   Logger::instance().log("Training model for step " + std::to_string(round) + " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, model, device, optimizer, subset_size);
+    train(epoch, optimizer, subset_size);
   }
 
   // if (round % 2 == 0) {
@@ -409,14 +429,9 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
   size_t curr_idx = 0;
   size_t global_sample_idx = 0;  // Track global sample position
   
-  std::vector<torch::Tensor> outputs_vec;
-  std::vector<torch::Tensor> targets_vec;
-  std::vector<torch::Tensor> losses_vec;
-
-  uint32_t num_batches = ceil(num_samples / kTrainBatchSize);
-  outputs_vec.reserve(num_batches);
-  targets_vec.reserve(num_batches);
-  losses_vec.reserve(num_batches);
+  inference_buffer.outputs.clear();
+  inference_buffer.targets.clear();
+  inference_buffer.losses.clear();
 
   for (const auto& batch : *registered_loader) {
     // Combine all data and targets in the batch into single tensors
@@ -465,9 +480,9 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
     auto output = model.forward(data);
     auto individual_losses = torch::nll_loss(output, targets, {}, torch::Reduction::None);
 
-    outputs_vec.push_back(output);
-    targets_vec.push_back(targets);
-    losses_vec.push_back(individual_losses);
+    inference_buffer.outputs.push_back(output);
+    inference_buffer.targets.push_back(targets);
+    inference_buffer.losses.push_back(individual_losses);
   }
 
   // Wait for any remaining async operations
@@ -477,7 +492,7 @@ void RegisteredMnistTrain::runInference(const std::vector<torch::Tensor>& w) {
 
   // For inference, process synchronously since we need immediate results
   Logger::instance().log("Processing inference results\n");
-  processForwardPass(outputs_vec, targets_vec, losses_vec);
+  processForwardPass(inference_buffer);
   
   Logger::instance().log("Inference completed - Loss: " + std::to_string(loss) + 
                         ", Error rate: " + std::to_string(error_rate) + 

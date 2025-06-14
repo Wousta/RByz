@@ -44,8 +44,12 @@ private:
     std::vector<torch::Tensor> losses;
   };
 
+  // Buffers for concurrent forward pass processing
   ForwardPassBuffer current_buffer;
   ForwardPassBuffer pending_buffer;
+
+  // Buffer for runInference, which is not concurrent
+  ForwardPassBuffer inference_buffer;
 
   void processForwardPassConcurrent(ForwardPassBuffer buffer);
 
@@ -58,20 +62,15 @@ private:
     const torch::Tensor& individual_losses,
     size_t& curr_idx);
 
-  void processForwardPass(
-      const std::vector<torch::Tensor>& outputs,
-      const std::vector<torch::Tensor>& targets,
-      const std::vector<torch::Tensor>& losses);
+  void processForwardPass(ForwardPassBuffer buffer);
       
   void train(
-      size_t epoch, 
-      Net& model, 
-      torch::Device device, 
+      size_t epoch,
       torch::optim::Optimizer& optimizer, 
       size_t dataset_size);
 
   // Helper method to get properly cast base pointer for a given image index
-  char* getBasePointerForIndex(size_t image_idx) const {
+  inline char* getBasePointerForIndex(size_t image_idx) const {
     return static_cast<char*>(reg_data) + (image_idx * sample_size);
   }
 
@@ -95,31 +94,10 @@ public:
   size_t getValuesPerSample() { return forward_pass_info.values_per_sample; }
   size_t getBytesPerValue() { return forward_pass_info.bytes_per_value; }
 
-  uint64_t getSampleOffset(size_t image_idx) {
-    if (image_idx >= num_samples) {
-      throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSampleOffset()");
-    }
-    return image_idx * sample_size;
-  }
-
-  void* getSample(size_t image_idx) {
-    if (image_idx >= num_samples) {
-      throw std::out_of_range("Image index " + std::to_string(image_idx) + " out of range in RegisteredMnistTrain::getSample()");
-    }
-
-    return getBasePointerForIndex(image_idx);
-  }
-
-  uint32_t* getOriginalIndex(size_t image_idx) {
-    return reinterpret_cast<uint32_t*>(getBasePointerForIndex(image_idx));
-  }
-
-  int64_t* getLabel(size_t image_idx) {
-    return reinterpret_cast<int64_t*>(getBasePointerForIndex(image_idx) + index_size);
-  }
-
-  float* getImage(size_t image_idx) {
-    return reinterpret_cast<float*>(getBasePointerForIndex(image_idx) + index_size + label_size);
-  }
-
+  // Getters for specific sample data
+  uint64_t getSampleOffset(size_t image_idx);
+  void* getSample(size_t image_idx);
+  uint32_t* getOriginalIndex(size_t image_idx);
+  int64_t* getLabel(size_t image_idx);
+  float* getImage(size_t image_idx);
 };

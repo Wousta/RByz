@@ -16,7 +16,7 @@
  */
 class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
     private:
-    RegMnistTrainData* data_info; // Registered MNIST dataset
+    RegMnistTrainData* data_info;                   // Registered MNIST dataset
     std::unordered_map<size_t, size_t> index_map;   // Map original indices to registered indices                            // Size of each flattened image (784 for MNIST)
     torch::TensorOptions options;                   // Options for creating tensors
     size_t num_samples = 0;                         // Number of samples in the dataset
