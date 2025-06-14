@@ -4,6 +4,8 @@
 #include "registeredMNIST.hpp"
 #include "structs.hpp"
 #include <memory>
+#include <future>
+#include <atomic>
 
 /**
  * @brief RegisteredMnistTrain class for handling registered MNIST dataset training.
@@ -29,15 +31,37 @@ private:
   size_t & forward_pass_mem_size = forward_pass_info.forward_pass_mem_size;
   size_t & forward_pass_indices_mem_size = forward_pass_info.forward_pass_indices_mem_size;
 
+  size_t forward_pass_size;
+  size_t error_start;
+
+  std::future<void> forward_pass_future;
+  std::atomic<bool> pending_forward_pass{false};
+
+  // Double buffer for forward pass data to avoid race conditions
+  struct ForwardPassBuffer {
+    std::vector<torch::Tensor> outputs;
+    std::vector<torch::Tensor> targets; 
+    std::vector<torch::Tensor> losses;
+  };
+
+  ForwardPassBuffer current_buffer;
+  ForwardPassBuffer pending_buffer;
+
+  void processForwardPassConcurrent(ForwardPassBuffer buffer);
+
   using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> registered_loader;
 
   void processBatchResults(
     const torch::Tensor& output, 
-    const torch::Tensor& targets, 
-    torch::Device device,
-    float* forward_pass,
+    const torch::Tensor& targets,
+    const torch::Tensor& individual_losses,
     size_t& curr_idx);
+
+  void processForwardPass(
+      const std::vector<torch::Tensor>& outputs,
+      const std::vector<torch::Tensor>& targets,
+      const std::vector<torch::Tensor>& losses);
       
   void train(
       size_t epoch, 

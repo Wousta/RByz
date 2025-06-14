@@ -192,11 +192,25 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     clnt_updates.reserve(polled_clients.size());
     Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
 
+    std::chrono::milliseconds limit_step_time(50000);
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
       Logger::instance().log("reading flags from client: " + std::to_string(client) + "\n");
-      while(clnt_ready_flags[client] != round) { 
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+      std::chrono::milliseconds initial_time(1);
+      bool do_skip = false;
+      while(clnt_ready_flags[client] != round && !do_skip) { 
+        std::this_thread::sleep_for(initial_time);
+        initial_time *= 2; // Exponential backoff
+        if (initial_time > limit_step_time) {
+          do_skip = true;
+          Logger::instance().log("    -> Server waiting: Client " + std::to_string(client) + " is Byzantine\n");
+        }
+      }
+
+      if (do_skip) {
+        Logger::instance().log("Skipping client " + std::to_string(client) + " due to timeout\n");
+        continue;
       }
 
       size_t numel_server = REG_SZ_DATA / sizeof(float);
@@ -229,11 +243,11 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
-
-    // Print the first few updated weights
-    Logger::instance().log("\nUpdated weights at end of iteration\n");
-    printTensorSlices(w, 0, 5);
   }
+
+  Logger::instance().log("FINAL FLTRUST?\n");
+  mnist.updateModelParameters(w);
+  mnist.testModel();
 
   return w;
 }

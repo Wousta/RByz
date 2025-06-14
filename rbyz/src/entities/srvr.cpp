@@ -97,6 +97,11 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 
 torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
                                 const torch::Tensor &server_update) {
+
+  if (client_updates.empty()) {
+    Logger::instance().log("No client updates provided, returning server update.\n");
+    return server_update.clone(); // Return server update if no client updates
+  }
   
   // Compute cosine similarity between each client update and server update
   std::vector<float> trust_scores;
@@ -137,16 +142,16 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
   }
   Logger::instance().log("================================\n");
 
-  {
-    std::ostringstream oss;
-    oss << "\nTRUST SCORES:\n";
-    for (int i = 0; i < trust_scores.size(); i++) {
-      if (i % 1 == 0) {
-        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
-      }
-    }
-    Logger::instance().log(oss.str());
-  }
+  // {
+  //   std::ostringstream oss;
+  //   oss << "\nTRUST SCORES:\n";
+  //   for (int i = 0; i < trust_scores.size(); i++) {
+  //     if (i % 1 == 0) {
+  //       oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
+  //     }
+  //   }
+  //   Logger::instance().log(oss.str());
+  // }
 
   // Normalize trust scores
   float sum_trust = 0.0f;
@@ -238,6 +243,10 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     }
   }
 
+  Logger::instance().log("FINAL FLTRUST\n");
+  mnist.updateModelParameters(w);
+  mnist.testModel();
+
   return w;
 }
 
@@ -271,8 +280,8 @@ void allocateServerMemory(
     size_t batch_size = registered_mnist.getKTrainBatchSize();
     const size_t values_per_sample = registered_mnist.getValuesPerSample();
     const size_t bytes_per_value = registered_mnist.getBytesPerValue();
-    size_t forward_pass_mem_size = batch_size * values_per_sample * bytes_per_value;
-    size_t forward_pass_indices_mem_size = batch_size * sizeof(uint32_t);
+    size_t forward_pass_mem_size = num_samples * values_per_sample * bytes_per_value;
+    size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
     
     // Set memory size information
     clnt_data_vec[i].dataset_size = num_samples * sample_size;
@@ -353,7 +362,7 @@ int main(int argc, char *argv[]) {
 
       // Do one iteration of fltrust with ALL clients to initialize trust scores
       std::cout << "SRVR Running FLTrust with loaded model\n";
-      w = run_fltrust_srvr(1, n_clients, *regular_mnist, regMem, clnt_data_vec);
+      w = run_fltrust_srvr(1, n_clients, *registered_mnist, regMem, clnt_data_vec);
       Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
   }
@@ -364,6 +373,11 @@ int main(int argc, char *argv[]) {
 
     // regular_mnist.saveModelState(w, model_file);
   }
+
+  // auto end = std::chrono::high_resolution_clock::now();
+  // Logger::instance().log("Total time taken: " +
+  //                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +
+  //                        " seconds\n");
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);

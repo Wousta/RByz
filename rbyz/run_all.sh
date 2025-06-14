@@ -60,6 +60,8 @@ redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
+rm -rf $results_path/logs/*
+rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
@@ -67,6 +69,7 @@ taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
+#sleep 10
 client_id=1
 
 for i in "${!remote_hosts[@]}"; do
@@ -108,4 +111,6 @@ done
 
 # Wait for the local server process
 wait $SRVR_PID
+
+#sleep 999999
 

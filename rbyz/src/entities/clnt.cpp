@@ -75,7 +75,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     torch::Tensor all_tensors = flatten_tensor_vector(g);
     size_t total_bytes_g = all_tensors.numel() * sizeof(float);
     if(total_bytes_g != (size_t)REG_SZ_DATA) {
-      Logger::instance().log("REG_SZ_DATA and total_bytes sent do not match!!\n");
+      throw std::runtime_error("REG_SZ_DATA and total_bytes sent do not match!!");
     }
     float* all_tensors_float = all_tensors.data_ptr<float>();
     std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
@@ -164,19 +164,19 @@ int main(int argc, char* argv[]) {
 
       // Do one iteration of fltrust with one iteration to initialize trust scores
       std::cout << "CLNT Running FLTrust with loaded model\n";
-      w = run_fltrust_clnt(1, rdma_ops, *regular_mnist, regMem);
+      w = run_fltrust_clnt(1, rdma_ops, *registered_mnist, regMem);
       std::cout << "\nCLNT FLTrust with loaded model done\n";
     }
   }
   
   if (!load_model) {
-    w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *regular_mnist, regMem);
+    w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *registered_mnist, regMem);
   }
 
   // Run the RByz client
-  registered_mnist->copyModelParameters(regular_mnist->getModel());
-  registered_mnist->setLoss(regular_mnist->getLoss());
-  registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+  // registered_mnist->copyModelParameters(regular_mnist->getModel());
+  // registered_mnist->setLoss(regular_mnist->getLoss());
+  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   runRByzClient(w, *registered_mnist, regMem, rdma_ops);
 
   std::cout << "\nClient done\n";

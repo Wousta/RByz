@@ -36,7 +36,8 @@ void updateTS(
 torch::Tensor aggregate_updates(
     const std::vector<torch::Tensor>& client_updates,
     const torch::Tensor& w,
-    std::vector<ClientDataRbyz> &clnt_data_vec);
+    const std::vector<ClientDataRbyz> &clnt_data_vec,
+    const std::vector<uint32_t>& clnt_indices);
 
 void writeErrorAndLoss(
   BaseMnistTrain& mnist,
@@ -49,7 +50,7 @@ void writeServerVD(
     RdmaOps& rdma_ops,
     std::vector<ClientDataRbyz>& clnt_data);
 
-bool compareVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data);
+bool processVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data, bool check_byz);
 
 void runRByzClient(
     std::vector<torch::Tensor>& w,

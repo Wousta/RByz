@@ -146,6 +146,7 @@ void BaseMnistTrain::test(Net& model,
   }
 
   test_loss /= total_samples;  // Use actual samples processed
+  setTestLoss(test_loss);  // Set the test loss
   setTestAccuracy(static_cast<double>(correct) / total_samples);  // Use actual samples
   
   std::ostringstream oss;
