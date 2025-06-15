@@ -1,6 +1,6 @@
 #pragma once
 
-inline constexpr int N_BYZ_CLNTS = 3;
+inline constexpr int N_BYZ_CLNTS = 2;
 inline constexpr int GLOBAL_ITERS = 64;
 inline constexpr int DATASET_SIZE = 60000;
 inline constexpr int CLNT_SUBSET_SIZE = 5950;   

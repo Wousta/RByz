@@ -49,6 +49,7 @@ add_library(mnistTrain STATIC src/mnistTrain.cpp)
 add_library(rdmaOps STATIC src/rdmaOps.cpp)
 add_library(tensorOps STATIC src/tensorOps.cpp)
 add_library(attacks STATIC src/attacks.cpp)
+add_library(FlippableMNIST STATIC src/FlippableMNIST.cpp)
 add_executable(srvr src/srvr.cpp)
 add_executable(clnt src/clnt.cpp)
 
@@ -79,6 +80,11 @@ target_include_directories(attacks PUBLIC
   ${TORCH_INCLUDE_DIRS}
 )
 
+target_include_directories(FlippableMNIST PUBLIC 
+  ${CMAKE_CURRENT_SOURCE_DIR}/include 
+  ${TORCH_INCLUDE_DIRS}
+)
+
 target_include_directories(srvr PUBLIC 
   ${lyra_INCLUDE_DIRS}
 )
@@ -95,7 +101,7 @@ target_link_libraries(rdmaOps PUBLIC libnorm)
 
 target_link_libraries(mnistTrain PUBLIC 
   ${TORCH_LIBRARIES}
-  
+  FlippableMNIST
   subsetSampler
 )
 

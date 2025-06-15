@@ -18,6 +18,7 @@
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
 std::vector<torch::Tensor> run_fltrust_clnt(
+  int clnt_id,
   int rounds,
   RdmaOps& rdma_ops,
   MnistTrain& mnist,
@@ -111,6 +112,7 @@ int main(int argc, char* argv[]) {
 
   MnistTrain mnist(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::vector<torch::Tensor> w = run_fltrust_clnt(
+    id,
     GLOBAL_ITERS,
     rdma_ops,
     mnist,
@@ -135,6 +137,7 @@ int main(int argc, char* argv[]) {
 }
 
 std::vector<torch::Tensor> run_fltrust_clnt(
+  int clnt_id,
   int rounds,
   RdmaOps& rdma_ops,
   MnistTrain& mnist,
@@ -143,10 +146,39 @@ std::vector<torch::Tensor> run_fltrust_clnt(
   float* srvr_w,
   float* clnt_w) {
 
+  std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
+  Logger::instance().log("Client: Starting execution\n");
   std::vector<torch::Tensor> w = mnist.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= GLOBAL_ITERS; round++) {
+
+    // Label flipping attack
+    if (round == 3 && clnt_id <= N_BYZ_CLNTS) {
+      Logger::instance().log("=== APPLYING LABEL FLIPPING ATTACK AT ROUND 3 ===\n");
+      
+      // Print original label distribution
+      Logger::instance().log("Original label distribution:\n");
+      mnist.printLabelDistribution();
+      
+      // Example 1: Random label flipping (flip 15% of labels randomly)
+      mnist.flipLabelsRandom(0.15f, rng);
+      
+      // Example 2: Targeted label flipping (flip 80% of 7s to 1s)
+      // mnist.flipLabelsTargeted(7, 1, 0.8f, rng);
+      
+      // Example 3: Multiple targeted attacks
+      mnist.flipLabelsTargeted(7, 1, 0.5f, rng);
+      // mnist.flipLabelsTargeted(2, 8, 0.3f, rng);
+      
+      // Print final label distribution after flipping
+      Logger::instance().log("Label distribution after flipping:\n");
+      mnist.printLabelDistribution();
+      
+      Logger::instance().log("Total flipped labels: " + std::to_string(mnist.getFlippedLabelsCount()) + "\n");
+      Logger::instance().log("=== LABEL FLIPPING ATTACK APPLIED ===\n");
+    }
+
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));

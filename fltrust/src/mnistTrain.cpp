@@ -18,11 +18,12 @@ MnistTrain::MnistTrain(int worker_id, int num_workers, int64_t subset_size)
       worker_id(worker_id),
       num_workers(num_workers),
       subset_size(subset_size),
-      train_dataset(torch::data::datasets::MNIST(kDataRoot)
+      raw_train_dataset(kDataRoot),
+      // Initialize train_dataset separately after raw_train_dataset is constructed
+      train_dataset(FlippableMNIST(kDataRoot)
                         .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                         .map(torch::data::transforms::Stack<>())),
-      test_dataset(torch::data::datasets::MNIST(
-                       kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
+      test_dataset(FlippableMNIST(kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
                        .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                        .map(torch::data::transforms::Stack<>()))
 {
@@ -39,7 +40,6 @@ MnistTrain::MnistTrain(int worker_id, int num_workers, int64_t subset_size)
       torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
   train_loader = std::move(train_loader_temp);
 
-  // Create test_loader with std::make_unique
   auto test_loader_temp = torch::data::make_data_loader(
       test_dataset,
       torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
@@ -406,6 +406,7 @@ std::vector<torch::Tensor> MnistTrain::getInitialWeights()
   std::vector<torch::Tensor> initialWeights;
   for (const auto &param : model.parameters())
   {
+    Logger::instance().log("HELLO\n");
     // Clone and detach parameters to CPU tensors
     initialWeights.push_back(param.clone().detach().to(torch::kCPU));
   }
@@ -419,4 +420,61 @@ std::vector<torch::Tensor> MnistTrain::getInitialWeights()
 void MnistTrain::testModel()
 {
   test(model, device, *test_loader, test_dataset_size);
+}
+
+//////////////// Label Flipping Methods ////////////////
+void MnistTrain::flipLabelsRandom(float flip_ratio, std::mt19937& rng) {
+    raw_train_dataset.flipLabelsRandom(flip_ratio, rng);
+    
+    // Rebuild the train_dataset and train_loader after flipping labels
+    train_dataset = raw_train_dataset
+                        .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+                        .map(torch::data::transforms::Stack<>());
+    
+    SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
+    auto train_loader_temp = torch::data::make_data_loader(
+        train_dataset,
+        train_sampler,
+        torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+    train_loader = std::move(train_loader_temp);
+}
+
+void MnistTrain::flipLabelsTargeted(int source_label, int target_label, float flip_ratio, std::mt19937& rng) {
+    raw_train_dataset.flipLabelsTargeted(source_label, target_label, flip_ratio, rng);
+    
+    // Rebuild the train_dataset and train_loader after flipping labels
+    train_dataset = raw_train_dataset
+                        .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+                        .map(torch::data::transforms::Stack<>());
+    
+    SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
+    auto train_loader_temp = torch::data::make_data_loader(
+        train_dataset,
+        train_sampler,
+        torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+    train_loader = std::move(train_loader_temp);
+}
+
+void MnistTrain::clearFlippedLabels() {
+    raw_train_dataset.clearFlippedLabels();
+    
+    // Rebuild the train_dataset and train_loader after clearing flipped labels
+    train_dataset = raw_train_dataset
+                        .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+                        .map(torch::data::transforms::Stack<>());
+    
+    SubsetSampler train_sampler = get_subset_sampler(worker_id, train_dataset_size, subset_size);
+    auto train_loader_temp = torch::data::make_data_loader(
+        train_dataset,
+        train_sampler,
+        torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
+    train_loader = std::move(train_loader_temp);
+}
+
+size_t MnistTrain::getFlippedLabelsCount() const {
+    return raw_train_dataset.getFlippedCount();
+}
+
+void MnistTrain::printLabelDistribution() const {
+    raw_train_dataset.printLabelDistribution();
 }

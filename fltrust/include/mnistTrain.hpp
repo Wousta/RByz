@@ -2,9 +2,10 @@
 
 #include "subsetSampler.hpp"
 #include "globalConstants.hpp"
+#include "FlippableMNIST.hpp"
 
 #include <vector>
-
+#include <random>
 
 struct Net : torch::nn::Module {
   Net()
@@ -58,23 +59,23 @@ private:
   float accuracy = 0.0; // Initialize accuracy
   
   using DatasetType = decltype(
-    torch::data::datasets::MNIST(kDataRoot)
+    FlippableMNIST(kDataRoot)
     .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
     .map(torch::data::transforms::Stack<>())
   );
 
-  using SubsetSamplerType = SubsetSampler;
 
-  // Define the DataLoader type with sampler (for train_loader)
+  using SubsetSamplerType = SubsetSampler;
   using TrainDataLoaderType = torch::data::StatelessDataLoader<DatasetType, SubsetSamplerType>;
-  
-  // Define the DataLoader type without sampler (for test_loader)
   using TestDataLoaderType = torch::data::StatelessDataLoader<DatasetType, torch::data::samplers::RandomSampler>;
 
   DatasetType train_dataset;
   DatasetType test_dataset;
   std::unique_ptr<TrainDataLoaderType> train_loader;
   std::unique_ptr<TestDataLoaderType> test_loader;
+
+  // Keep reference to raw FlippableMNIST for label manipulation
+  FlippableMNIST raw_train_dataset;
 
   torch::Device init_device();
   SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size);
@@ -115,4 +116,11 @@ public:
   float getLoss() { return loss; }
   float getErrorRate() { return error_rate; }
   float getAccuracy() { return accuracy; }
+
+  // Label flipping methods
+  void flipLabelsRandom(float flip_ratio, std::mt19937& rng);
+  void flipLabelsTargeted(int source_label, int target_label, float flip_ratio, std::mt19937& rng);
+  void clearFlippedLabels();
+  size_t getFlippedLabelsCount() const;
+  void printLabelDistribution() const;
 };
