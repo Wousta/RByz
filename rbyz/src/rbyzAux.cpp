@@ -378,12 +378,12 @@ void runRByzClient(std::vector<torch::Tensor> &w,
   while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
 
     // Perform label  flipping attack
-    if (regMem.id <= N_BYZ_CLNTS && regMem.round.load() == 3) {
-      Logger::instance().log("Client " + std::to_string(regMem.id) + " is Byzantine, flipping labels\n");
-      std::mt19937 rng(42);
-      mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
-      mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
-    }
+    // if (regMem.id <= N_BYZ_CLNTS && regMem.round.load() == 3) {
+    //   Logger::instance().log("Client " + std::to_string(regMem.id) + " is Byzantine, flipping labels\n");
+    //   std::mt19937 rng(42);
+    //   mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
+    //   mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
+    // }
 
     regMem.local_step.store(0);
     
@@ -457,14 +457,13 @@ void runRByzServer(int n_clients,
                     std::vector<ClientDataRbyz>& clnt_data_vec) {
   
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  Logger::instance().openRByzAccLog();
-
   int vd_insert_rounds = n_clients;
 
   // Create VD splits and do first write of VD to the clients
   RegMnistSplitter splitter(n_clients, mnist, clnt_data_vec);
   
   // RBYZ training loop
+  int total_steps = 4;
   for (int round = 0; round < GLOBAL_ITERS_RBYZ; round++) {
     Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
 
@@ -474,9 +473,6 @@ void runRByzServer(int n_clients,
     //   Logger::instance().log("Server: Target accuracy reached, stopping RByz\n");
     //   break;
     // }
-
-    // Log accuracy and round to Results
-    Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
 
     auto flat_w = flatten_tensor_vector(w);
     size_t total_bytes = flat_w.numel() * sizeof(float);
@@ -496,6 +492,10 @@ void runRByzServer(int n_clients,
     // For each client run N rounds of RByz
     for (int srvr_step = 0; srvr_step < LOCAL_STEPS_RBYZ; srvr_step++) {
       Logger::instance().log("  Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
+
+      // Log accuracy and round to Results
+      Logger::instance().logRByzAcc(std::to_string(total_steps) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
+      total_steps++;
 
       // Read clients loss and error rates
       //readClntsRByz(n_clients, rdma_ops, clnt_data_vec);

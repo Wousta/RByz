@@ -8,6 +8,7 @@ remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/fltrust"
+results_path="/home/bustaman/rbyz/Results"
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
@@ -29,6 +30,7 @@ cleanup() {
   echo "Killing remote client processes..."
   for host in "${remote_hosts[@]}"; do
     ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs kill -9 2>/dev/null || true" &
+    ssh $remote_user@$host "ps aux | grep cpuTracker | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true" &
   done
   
   exit 0
@@ -86,6 +88,11 @@ for i in "${!remote_hosts[@]}"; do
     #     echo \$! >> $remote_script_path/clients_${host}.pid; \
     #     sleep 0.5; \
     #   done" &
+
+    # Start profiling CPU
+    ssh $remote_user@$host "cd $results_path && \
+      echo \"Starting CPU profiling on $host\" && \
+      build/cpuTracker" &
 
     ssh $remote_user@$host "cd $remote_script_path && rm -f $remote_script_path/clients_${host}.pid && \
       core_id=0; \

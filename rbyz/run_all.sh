@@ -60,8 +60,8 @@ redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
-rm -rf $results_path/logs/*
-rm -rf $results_path/accLogs/*
+#rm -rf $results_path/logs/*
+#rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
@@ -92,6 +92,11 @@ for i in "${!remote_hosts[@]}"; do
       client_id=$((client_id + 1))
     done
 
+    # Start profiling CPU
+    ssh $remote_user@$host "cd $results_path && \
+      echo \"Starting CPU profiling on $host\" && \
+      build/cpuTracker" &
+
     ssh $remote_user@$host "cd $remote_script_path && \
       core_id=0; \
       for id in ${client_ids[@]}; do \
@@ -101,11 +106,6 @@ for i in "${!remote_hosts[@]}"; do
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.5; \
       done" &
-
-    # Start profiling CPU
-    ssh $remote_user@$host "cd $results_path && \
-      echo \"Starting CPU profiling on $host\" && \
-      build/cpuTracker" &
   fi
 done
 

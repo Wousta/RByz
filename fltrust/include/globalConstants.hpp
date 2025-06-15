@@ -1,11 +1,11 @@
 #pragma once
 
 inline constexpr int N_BYZ_CLNTS = 3;
-inline constexpr int GLOBAL_ITERS = 15;
+inline constexpr int GLOBAL_ITERS = 64;
 inline constexpr int DATASET_SIZE = 60000;
 inline constexpr int CLNT_SUBSET_SIZE = 5950;   
 inline constexpr int SRVR_SUBSET_SIZE = 500;  
-inline constexpr float GLOBAL_LEARN_RATE = 0.06f;
+inline constexpr float GLOBAL_LEARN_RATE = 0.05f;
 inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);

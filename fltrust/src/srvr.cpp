@@ -243,6 +243,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
+    mnist.updateModelParameters(w);
   }
 
   Logger::instance().log("FINAL FLTRUST?\n");

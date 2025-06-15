@@ -182,6 +182,9 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
   Logger::instance().log("\nInitial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
+    mnist.testModel();
+    Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
+
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
 
@@ -241,6 +244,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
+    mnist.updateModelParameters(w);
   }
 
   Logger::instance().log("FINAL FLTRUST\n");
@@ -347,6 +351,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
+  Logger::instance().openRByzAccLog();
   auto start = std::chrono::high_resolution_clock::now();
   
   std::vector<torch::Tensor> w;
