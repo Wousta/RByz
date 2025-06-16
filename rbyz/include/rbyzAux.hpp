@@ -12,56 +12,45 @@
 #include <thread>
 #include <float.h>
 
-void aquireClntCASLock(
-    int clnt_idx, 
-    RdmaOps& rdma_ops,
-    std::atomic<int> &clnt_CAS);
+class RByzAux {
+private:
+    RdmaOps& rdma_ops;
+    RegisteredMnistTrain& mnist;
 
-void releaseClntCASLock(
-    int clnt_idx, 
-    RdmaOps& rdma_ops,
-    std::atomic<int> &clnt_CAS);
+    void updateTS(
+        std::vector<ClientDataRbyz>& clnt_data_vec,
+        ClientDataRbyz& clnt_data, 
+        float srvr_loss, 
+        float srvr_error_rate);
 
-void readClntsRByz(
-    int n_clients,
-    RdmaOps& rdma_ops,
-    std::vector<ClientDataRbyz> &clnt_data_vec);
+    torch::Tensor aggregate_updates(
+        const std::vector<torch::Tensor>& client_updates,
+        const torch::Tensor& w,
+        const std::vector<ClientDataRbyz>& clnt_data_vec,
+        const std::vector<uint32_t>& clnt_indices);
 
-void updateTS(
-    std::vector<ClientDataRbyz>& clnt_data_vec,
-    ClientDataRbyz& clnt_data, 
-    float srvr_loss, 
-    float srvr_error_rate);
+    void writeServerVD(
+        void* vd_sample,
+        RegMnistSplitter& splitter, 
+        std::vector<ClientDataRbyz>& clnt_data);
 
-torch::Tensor aggregate_updates(
-    const std::vector<torch::Tensor>& client_updates,
-    const torch::Tensor& w,
-    const std::vector<ClientDataRbyz> &clnt_data_vec,
-    const std::vector<uint32_t>& clnt_indices);
+    bool processVDOut(ClientDataRbyz& clnt_data, bool check_byz);
 
-void writeErrorAndLoss(
-  BaseMnistTrain& mnist,
-  float* clnt_w);
+public:
+    RByzAux(RdmaOps& rdma_ops, RegisteredMnistTrain& mnist)
+        : rdma_ops(rdma_ops), mnist(mnist) {}
 
-void writeServerVD(
-    void* vd_sample,
-    RegMnistSplitter& splitter, 
-    RegisteredMnistTrain& mnist,
-    RdmaOps& rdma_ops,
-    std::vector<ClientDataRbyz>& clnt_data);
+    RByzAux() = delete;
+    
+    void runRByzClient(
+        std::vector<torch::Tensor>& w,
+        RegMemClnt& regMem);
 
-bool processVDOut(RegisteredMnistTrain& mnist, ClientDataRbyz& clnt_data, bool check_byz);
+    void runRByzServer(
+        int n_clients,
+        std::vector<torch::Tensor>& w,
+        RegMemSrvr& regMem,
+        std::vector<ClientDataRbyz>& clnt_data_vec);
 
-void runRByzClient(
-    std::vector<torch::Tensor>& w,
-    RegisteredMnistTrain& mnist,
-    RegMemClnt& regMem,
-    RdmaOps& rdma_ops);
 
-void runRByzServer(
-    int n_clients,
-    std::vector<torch::Tensor>& w,
-    RegisteredMnistTrain& mnist,
-    RdmaOps& rdma_ops,
-    RegMemSrvr& regMem,
-    std::vector<ClientDataRbyz>& clnt_data_vec);
+};

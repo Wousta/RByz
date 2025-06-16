@@ -89,6 +89,8 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
   }
 
+  mnist.updateModelParameters(w);
+
   return w;
 }
 
@@ -170,7 +172,7 @@ int main(int argc, char* argv[]) {
   }
   
   if (!load_model) {
-    w = run_fltrust_clnt(GLOBAL_ITERS, rdma_ops, *registered_mnist, regMem);
+    w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *registered_mnist, regMem);
   }
 
   // Label flipping for Byzantine clients
@@ -185,7 +187,8 @@ int main(int argc, char* argv[]) {
   // registered_mnist->copyModelParameters(regular_mnist->getModel());
   // registered_mnist->setLoss(regular_mnist->getLoss());
   // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
-  runRByzClient(w, *registered_mnist, regMem, rdma_ops);
+  RByzAux rbyz_aux(rdma_ops, *registered_mnist);
+  rbyz_aux.runRByzClient(w, regMem);
 
   std::cout << "\nClient done\n";
   std::this_thread::sleep_for(std::chrono::minutes(1));

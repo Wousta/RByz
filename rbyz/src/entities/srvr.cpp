@@ -372,7 +372,7 @@ int main(int argc, char *argv[]) {
 
   if (!load_model) {
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS, n_clients, *registered_mnist, regMem, clnt_data_vec);
+    w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *registered_mnist, regMem, clnt_data_vec);
 
     // regular_mnist.saveModelState(w, model_file);
   }
@@ -391,7 +391,8 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Initial test of the model before RByz\n");
   registered_mnist->testModel();
 
-  runRByzServer(n_clients, w, *registered_mnist, rdma_ops, regMem, clnt_data_vec);
+  RByzAux rbyz_aux(rdma_ops, *registered_mnist);
+  rbyz_aux.runRByzServer(n_clients, w, regMem, clnt_data_vec);
 
   auto end = std::chrono::high_resolution_clock::now();
   Logger::instance().log("Total time taken: " +

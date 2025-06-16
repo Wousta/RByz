@@ -72,6 +72,7 @@ struct RegMemClnt {
  */
 struct ClientDataRbyz {
     int index;
+    int timeouts = 0;
     bool is_byzantine = false;
     float trust_score;
     float* updates;
