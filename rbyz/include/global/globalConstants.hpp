@@ -1,7 +1,7 @@
 #pragma once
 
-inline constexpr int N_BYZ_CLNTS = 2;
-inline constexpr int GLOBAL_ITERS = 4;
+inline constexpr int N_BYZ_CLNTS = 3;
+inline constexpr int GLOBAL_ITERS = 10;
 inline constexpr int DATASET_SIZE = 60000;
 inline constexpr int CLNT_SUBSET_SIZE = 5950;   
 inline constexpr int SRVR_SUBSET_SIZE = 500;  
@@ -14,7 +14,7 @@ inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 inline constexpr int FLTRUST_END = -3;  
 
 // RBYZ
-inline constexpr int GLOBAL_ITERS_RBYZ = 20;
+inline constexpr int GLOBAL_ITERS_RBYZ = 10;
 inline constexpr int LOCAL_STEPS_RBYZ = 3;
 inline constexpr int VD_SPLIT = 100;  // will divide the VD per client, to determine how many samples to use per VD for each client.
 constexpr int MEM_FREE = 0; 

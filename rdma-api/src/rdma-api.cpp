@@ -138,7 +138,7 @@ int post_send(ibv_wr_opcode opcode, RcConn &conn, const std::deque<comm_info> &s
     conn.addPosted(send_info[0].wqe_depth);
   }
   if (ret) {
-    std::cerr << "post send failed " << strerror(errno) << "\n";
+    std::cerr << "post send failed " << strerror(errno) << "\n" << std::flush;
     ret = -1;
     delete[] send_wr;
     exit(-1);
@@ -236,7 +236,7 @@ int poll_cq(ibv_cq *cq, unsigned int poll_no) {
   }
 
   if (wc->status != IBV_WC_SUCCESS) {
-    std::cerr << "wc status = " << wc->status << std::endl;
+    std::cerr << "wc status = " << wc->status << std::endl << std::flush;
     ret = -1;
   }
 

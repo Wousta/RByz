@@ -113,9 +113,6 @@ torch::Tensor aggregate_updates_rbyz(const std::vector<torch::Tensor>& client_up
     float client_norm = torch::norm(client_update, 2).item<float>();
     torch::Tensor normalized_update = client_update * (server_norm / client_norm);
     normalized_updates.push_back(normalized_update);
-
-    Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
-    Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
   }
 
   float trust_scores[client_updates.size()];
@@ -597,6 +594,7 @@ void runRByzServer(int n_clients,
     }
 
     // Use attacks to simulate Byzantine clients
+    //clnt_updates = trim_attack(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
     clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
 
     // Aggregation

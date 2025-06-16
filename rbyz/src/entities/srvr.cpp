@@ -134,24 +134,22 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
         Logger::instance().log(oss.str());
       }
       Logger::instance().log("  \ndot product: " + std::to_string(dot_product.item<float>()) + "\n");
-      Logger::instance().log("  Client norm: " + std::to_string(client_norm) + "\n");
-      Logger::instance().log("  Server norm: " + std::to_string(server_norm) + "\n");
       Logger::instance().log("  Cosine similarity: " + std::to_string(cosine_sim) + "\n");
       Logger::instance().log("  Trust score: " + std::to_string(trust_score) + "\n");
       Logger::instance().log("  Normalized update: " + normalized_update.slice(0, 0, std::min<size_t>(normalized_update.numel(), 5)).toString() + "\n");
   }
   Logger::instance().log("================================\n");
 
-  // {
-  //   std::ostringstream oss;
-  //   oss << "\nTRUST SCORES:\n";
-  //   for (int i = 0; i < trust_scores.size(); i++) {
-  //     if (i % 1 == 0) {
-  //       oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
-  //     }
-  //   }
-  //   Logger::instance().log(oss.str());
-  // }
+  {
+    std::ostringstream oss;
+    oss << "\nTRUST SCORES FLtrust:\n";
+    for (int i = 0; i < trust_scores.size(); i++) {
+      if (i % 1 == 0) {
+        oss << "  Client " << i << " score: " << trust_scores[i] << "\n";
+      }
+    }
+    Logger::instance().log(oss.str());
+  }
 
   // Normalize trust scores
   float sum_trust = 0.0f;
@@ -225,13 +223,13 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
 
     // Use attacks to simulate Byzantine clients
     clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    // clnt_updates = trim_attack(
-    //   clnt_updates,
-    //   mnist.getModel(),
-    //   GLOBAL_LEARN_RATE,
-    //   N_BYZ_CLNTS,
-    //   mnist.getDevice()
-    // );
+    clnt_updates = trim_attack(
+      clnt_updates,
+      mnist.getModel(),
+      GLOBAL_LEARN_RATE,
+      N_BYZ_CLNTS,
+      mnist.getDevice()
+    );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
 
