@@ -18,13 +18,14 @@
  */
 class RegMnistSplitter {
     private:
+    int chunk_size;
     int n_clients;
     int vd_split_size;
     RegisteredMnistTrain& mnist;
     std::vector<ClientDataRbyz>& clnt_data_vec;
     std::vector<std::vector<size_t>> vd_indexes;              // Vector of indices for the start of each VD
     std::vector<size_t> clnt_offsets;                         // Vector of offsets for the clients till n-1
-    std::vector<size_t> last_clnt_offsets;                         // Vector of offsets for the clients till n-1
+    std::vector<size_t> last_clnt_offsets;                    // Vector of offsets for the LAST CLIENT
 
     // Vector of integers corresponding to the indices in vd_indexes and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
@@ -63,33 +64,23 @@ class RegMnistSplitter {
             Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + " size: " + std::to_string(vd_indexes[i].size()) + "\n");
         }
 
-        size_t sample_size = mnist.getSampleSize();
+        size_t chunk_size = mnist.getSampleSize();
 
-        // Initialize the offsets for the normal clients and the last client
-        int count = 2;
-        for (size_t i = clnt_data_vec.size() - 1; i >= 0 && count > 0; i--) {
-            size_t dataset_size = clnt_data_vec[i].dataset_size;
-            size_t num_possible_positions = dataset_size / sample_size;
+        size_t num_possible_positions = clnt_data_vec[0].dataset_size / chunk_size;
+        size_t num_possible_positions_last = clnt_data_vec.back().dataset_size / chunk_size;
 
-            Logger::instance().log("Client " + std::to_string(i) + " dataset size: " + std::to_string(dataset_size) + 
-                        ", num_possible_positions: " + std::to_string(num_possible_positions) + "\n");
-
-            // Last client may have different dataset size, so separate vector for its offsets
-            if (i == clnt_data_vec.size() - 1) {
-                for (size_t j = 0; j < num_possible_positions; ++j) {
-                    last_clnt_offsets.push_back(j * sample_size);
-                }
-                Logger::instance().log("Client " + std::to_string(i) + " last offsets size: " + std::to_string(last_clnt_offsets.size()) + "\n");
-            } else {
-                // Fill with multiples of sample_size: 0, sample_size, sample_size*2, etc.
-                for (size_t j = 0; j < num_possible_positions; ++j) {
-                    clnt_offsets.push_back(j * sample_size);
-                }
-                Logger::instance().log("Client " + std::to_string(i) + " offsets size: " + std::to_string(clnt_offsets.size()) + "\n");
-            }
-
-            count--;
+        // Initialize the offsets for the first n-1 clients
+        for (size_t i = 0; i < num_possible_positions; ++i) {
+            clnt_offsets.push_back(i * chunk_size);
         }
+
+        for (size_t i = 0; i < num_possible_positions_last; ++i) {
+            last_clnt_offsets.push_back(i * chunk_size);
+        }
+
+        Logger::instance().log("Client offsets initialized with " + std::to_string(clnt_offsets.size()) + 
+                               " offsets for first " + std::to_string(n_clients - 1) + " clients and " +
+                               std::to_string(last_clnt_offsets.size()) + " offsets for last client\n");
 
         // For each VD, only a part of the data will be used
         vd_split_size = mnist.getKTrainBatchSize();

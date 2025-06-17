@@ -279,17 +279,20 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
     }
   }
 
-  if (processed_samples != inserted_indices_set.size()) {
-    Logger::instance().log("WARNING processVDOut: Client " + std::to_string(clnt_data.index) + 
-                             " Processed samples count does not match inserted indices set size: " +
-                             std::to_string(processed_samples) + " vs " + 
-                             std::to_string(inserted_indices_set.size()) + "\n");
-  }
-
   clnt_data.loss_clnt = clnt_loss_total / inserted_indices_set.size();
   clnt_data.error_rate_clnt = clnt_error_total / inserted_indices_set.size();
   clnt_data.loss_srvr = srvr_loss_total / inserted_indices_set.size();
   clnt_data.error_rate_srvr = srvr_error_total / inserted_indices_set.size();
+
+  float processed_samples_proportion = static_cast<float>(processed_samples) / inserted_indices_set.size();
+  if (processed_samples_proportion < 0.5) {
+    Logger::instance().log("WARNING processVDOut: Client " + std::to_string(clnt_data.index) + 
+                             " Processed samples below 50%: " +
+                             std::to_string(processed_samples) + " vs " + 
+                             std::to_string(inserted_indices_set.size()) + "\n");
+
+    validation_passed = false;
+  }
 
   Logger::instance().log(" Client " + std::to_string(clnt_data.index) + 
                          " VD proc results - Loss: " + std::to_string(clnt_data.loss_clnt) + 
@@ -443,10 +446,11 @@ void RByzAux::runRByzServer(int n_clients,
       clnt_data.next_step = 1;
       rdma_ops.exec_rdma_read(clnt_data.forward_pass_mem_size, CLNT_FORWARD_PASS_IDX, clnt_data.index);
       rdma_ops.exec_rdma_read(clnt_data.forward_pass_indices_mem_size, CLNT_FORWARD_PASS_INDICES_IDX, clnt_data.index);
-      processVDOut(clnt_data, false);
-      ///// ONLY UPDATE TS IF READ AT LEAST %= OF TEST SAMPLES; IF NOT TAKEN INTO ACCOUNT; DO NOT USE THIS CLIENT'S
-      ///// UPDATES IN THIS ROUND
-      updateTS(clnt_data_vec, clnt_data, clnt_data.loss_srvr, clnt_data.error_rate_srvr);
+
+      // Only update TS if at least 50% of the server's VD samples were processed
+      if (processVDOut(clnt_data, false)) {
+        updateTS(clnt_data_vec, clnt_data, clnt_data.loss_srvr, clnt_data.error_rate_srvr);
+      }
     }
 
     Logger::instance().log("    Trust Scores after last step of round " + std::to_string(round) + ":\n");
@@ -484,7 +488,9 @@ void RByzAux::runRByzServer(int n_clients,
                                  " for round " + std::to_string(round) + "\n");
         }
       }
-      
+      Logger::instance().log("    -> Server waited: " + std::to_string(initial_time.count()) + " us for client " + 
+                             std::to_string(client.index) + "\n");
+
       if (!timed_out) {
         size_t numel_server = REG_SZ_DATA / sizeof(float);
         torch::Tensor flat_tensor =
