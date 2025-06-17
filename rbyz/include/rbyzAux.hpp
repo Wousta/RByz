@@ -35,6 +35,8 @@ private:
         std::vector<ClientDataRbyz>& clnt_data);
 
     bool processVDOut(ClientDataRbyz& clnt_data, bool check_byz);
+    void initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec);
+    void awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec);
 
 public:
     RByzAux(RdmaOps& rdma_ops, RegisteredMnistTrain& mnist)

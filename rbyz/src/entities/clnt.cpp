@@ -25,7 +25,7 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(regMem.clnt_w));
   reg_info.addr_locs.push_back(castI(regMem.loss_and_err));
-  reg_info.addr_locs.push_back(castI(&regMem.clnt_CAS));
+  reg_info.addr_locs.push_back(castI(&regMem.CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
   reg_info.addr_locs.push_back(castI(mnist.getRegisteredData()));

@@ -9,6 +9,26 @@
 
 //////////////////////////////////////////////////////////////
 ////////////////////// SERVER FUNCTIONS //////////////////////
+void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec) {
+  Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");
+  for (int i = 0; i < clnt_data_vec.size(); i++) {
+    if (clnt_data_vec[i].is_byzantine) {
+      continue;
+    }
+    
+    bool client_done = false;
+    while (!client_done) {
+      // Check if client has reached final round
+      if (clnt_data_vec[i].round == GLOBAL_ITERS_RBYZ) {
+        client_done = true;
+        Logger::instance().log("Server: Client " + std::to_string(i) + " has completed all iterations\n");
+      } else {
+        std::this_thread::yield();
+      }
+    }
+  }
+}
+
 void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
               ClientDataRbyz &clnt_data,
               float srvr_loss,
@@ -98,8 +118,6 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
   return aggregated_update;
 }
 
-//////////////////////////////////////////////////////////////
-////////////////////// CLIENT FUNCTIONS //////////////////////
 void RByzAux::writeServerVD(void* vd_sample,
                    RegMnistSplitter& splitter,
                    std::vector<ClientDataRbyz>& clnt_data_vec) {
@@ -285,85 +303,32 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
 
 }
 
-//////////////////////////////////////////////////////////////
-/////////////////////// RBYZ ALGORITHM ///////////////////////
-/**
- * @brief Run the RByz client, only the clients call this function.
- */
-void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
-  Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  
-  // Before rbyz, the client has to write error and loss for the first time
-  Logger::instance().log("Client: Initial Error and loss from client: " +
-                         std::to_string(*regMem.loss_and_err) + ", " +
-                         std::to_string(*(regMem.loss_and_err + 1)) + "\n");
-                         
-  regMem.clnt_CAS.store(MEM_FREE);
+void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec) {
+  std::chrono::nanoseconds curr_time(1);
+  int quorum = static_cast<int>(std::ceil(clnt_data_vec.size() * 0.5));
+  int finished_clients = 0;
 
-  Logger::instance().log("Srvr ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
+  while (finished_clients < quorum) {
+    std::this_thread::sleep_for(curr_time);
+    curr_time *= 2; // Exponential backoff
+    for (ClientDataRbyz& clnt : clnt_data_vec) {
+      rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt.index);
 
-  while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
-
-    // Perform label  flipping attack
-    // if (regMem.id <= N_BYZ_CLNTS && regMem.round.load() == 3) {
-    //   Logger::instance().log("Client " + std::to_string(regMem.id) + " is Byzantine, flipping labels\n");
-    //   std::mt19937 rng(42);
-    //   mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
-    //   mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
-    // }
-
-    regMem.local_step.store(0);
-    
-    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " started ////////////////\n");
-    // Wait for the server to be ready
-    do {
-      rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    } while (regMem.srvr_ready_flag != regMem.round.load());
-
-    // Read the aggregated weights from the server and update the local weights
-    rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
-    // mnist.updateModelParameters(w);
-    // mnist.testModel();
-
-    // Run local training steps, all training data is sampled before training to let server insert VD samples
-    while (regMem.local_step.load() < LOCAL_STEPS_RBYZ) {
-      int step = regMem.local_step.load();
-      Logger::instance().log(" ...... Client: Running step " + std::to_string(step) + " of RByz in round " + std::to_string(regMem.round.load()) + "\n");
-
-      w = mnist.runMnistTrain(step, w);
-      Logger::instance().log("Client: Loss and error from client: " +
-                             std::to_string(*regMem.loss_and_err) + ", " +
-                             std::to_string(*(regMem.loss_and_err + 1)) + "\n");
-      regMem.local_step.store(step + 1);
-      Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
-      //std::this_thread::sleep_for(std::chrono::milliseconds(5000)); // Simulate some processing time
+      if (clnt.local_step == 1) {
+        finished_clients++;
+      }
     }
-
-    // Write the weights to the registered memory and write to the server
-    torch::Tensor flat_w = flatten_tensor_vector(w);
-    size_t total_bytes_g = flat_w.numel() * sizeof(float);
-    float* flat_w_float = flat_w.data_ptr<float>();
-    std::memcpy(regMem.clnt_w, flat_w_float, total_bytes_g);
-    unsigned int total_bytes_w_int = static_cast<unsigned int>(REG_SZ_DATA);
-    rdma_ops.exec_rdma_write(total_bytes_w_int, CLNT_W_IDX);
-
-    mnist.testModel();
-
-    Logger::instance().log("Printing client weights after round " + std::to_string(regMem.round.load()) + "\n");
-    printTensorSlices(w, 0, 3);
-
-    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " completed ////////////////\n");
-    regMem.round.store(regMem.round.load() + 1);
-    rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
   }
 
-  // Notify the server that the client is done
-  regMem.round.store(GLOBAL_ITERS_RBYZ);
-  rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
-  Logger::instance().log("Client: Finished RByz\n");
+  for (ClientDataRbyz& clnt_data : clnt_data_vec) {
+    clnt_data.limit_step_time = curr_time * 2;
+  }
+  Logger::instance().log("Server: Initialized timeout time for clients to " + 
+                         std::to_string(clnt_data_vec[0].limit_step_time.count()) + " ns\n");
 }
 
+//////////////////////////////////////////////////////////////
+/////////////////////// RBYZ ALGORITHM ///////////////////////
 void RByzAux::runRByzServer(int n_clients,
                     std::vector<torch::Tensor>& w,
                     RegMemSrvr& regMem,
@@ -372,8 +337,11 @@ void RByzAux::runRByzServer(int n_clients,
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   int vd_insert_rounds = n_clients;
   int total_steps = GLOBAL_ITERS_FL;
-  std::vector<int> client_steps(n_clients, LOCAL_STEPS_RBYZ);
-  
+  std::vector<int> test_step(n_clients, LOCAL_STEPS_RBYZ);
+  int min_steps = std::ceil(LOCAL_STEPS_RBYZ * 0.5); // Minimum steps to consider a client valid
+  int middle_steps = std::ceil(LOCAL_STEPS_RBYZ * 0.75);
+  std::uniform_int_distribution<int> step_range(middle_steps, LOCAL_STEPS_RBYZ);
+  std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
   RegMnistSplitter splitter(n_clients, mnist, clnt_data_vec);
@@ -399,6 +367,10 @@ void RByzAux::runRByzServer(int n_clients,
     regMem.srvr_ready_flag = round;
     Logger::instance().log("Server: wrote ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
 
+    if (round == 0) {
+      initTimeoutTime(clnt_data_vec);
+    }
+
     // For each client run N rounds of RByz
     for (int srvr_step = 0; srvr_step < LOCAL_STEPS_RBYZ; srvr_step++) {
       Logger::instance().log("  Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
@@ -410,11 +382,10 @@ void RByzAux::runRByzServer(int n_clients,
       for (ClientDataRbyz& clnt_data : clnt_data_vec) {
         int j = clnt_data.index;    
 
-        if (clnt_data.is_byzantine) {
+        if (clnt_data.is_byzantine || clnt_data.local_step == clnt_data.steps_to_finish) {
           continue;
         }
 
-        // Get current client's local step and round
         rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, j);
         rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
         Logger::instance().log("    -> Server: Client " + std::to_string(j) + 
@@ -423,45 +394,69 @@ void RByzAux::runRByzServer(int n_clients,
                                " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
         // Wait for client to finish the step with exponential backoff
-        std::chrono::milliseconds limit_step_time(30000);
-        std::chrono::milliseconds initial_time(1);
-
-
-        while (clnt_data.local_step != srvr_step + 1 && clnt_data.local_step != LOCAL_STEPS_RBYZ) {
+        std::chrono::nanoseconds initial_time(1);
+        bool advanced = true;
+        while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
           std::this_thread::sleep_for(initial_time);
-          initial_time += std::chrono::milliseconds(10);
-          if (initial_time > limit_step_time) {
-            clnt_data.timeouts++;
+          initial_time *= 2; // Exponential backoff
+          if (initial_time > clnt_data.limit_step_time) {
+
+            // Choose lower steps to wait for and increase the limit time
+            if(clnt_data.steps_to_finish <= min_steps) {
+              Logger::instance().log("    -> Server: Client " + std::to_string(j) + 
+                                     " is Byzantine, skipping\n");
+              clnt_data.is_byzantine = true;
+
+            } else {
+              long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.5));
+              clnt_data.limit_step_time = std::chrono::nanoseconds(new_limit);
+              clnt_data.steps_to_finish = step_range(rng);
+              middle_steps = std::max(static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75)), min_steps);
+              step_range = std::uniform_int_distribution<int>(middle_steps, clnt_data.steps_to_finish);
+              Logger::instance().log("    -> Client " + std::to_string(j) + 
+                                     " lowering steps to finish to: " + std::to_string(clnt_data.steps_to_finish) + "\n");
+
+              // Client will now do steps_to_finish local steps
+              clnt_data.clnt_CAS.store(clnt_data.steps_to_finish);
+              rdma_ops.exec_rdma_write(sizeof(int), CLNT_CAS_IDX, j);
+            }
+
             Logger::instance().log("    -> Server waiting: Client " + std::to_string(j) + " timed out\n");
+            advanced = false;
             break;
           }
-
           rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
         }
-        Logger::instance().log("    -> Server waited: " + std::to_string(initial_time.count()) + " ms\n");
+        Logger::instance().log("    -> Server waited: " + std::to_string(initial_time.count()) + " ns\n");
 
-        rdma_ops.exec_rdma_read(clnt_data.forward_pass_mem_size, CLNT_FORWARD_PASS_IDX, j);
-        rdma_ops.exec_rdma_read(clnt_data.forward_pass_indices_mem_size, CLNT_FORWARD_PASS_INDICES_IDX, j);
-
-        if (clnt_data.local_step != 1) {
-          processVDOut(clnt_data, false);
-          ///// ONLY UPDATE TS IF READ AT LEAST %= OF TEST SAMPLES; IF NOT TAKEN INTO ACCOUNT; DO NOT USE THIS CLIENT'S
-          ///// UPDATES IN THIS ROUND
-          updateTS(clnt_data_vec, clnt_data, clnt_data.loss_srvr, clnt_data.error_rate_srvr);
+        if (advanced) {
+          clnt_data.next_step = clnt_data.local_step + 1;
         }
       }
-
-      Logger::instance().log("    Trust Scores after step " + std::to_string(srvr_step) + " round " + std::to_string(round) + ":\n");
-      for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
-        if (clnt_data.is_byzantine) {
-          Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
-          continue;
-        }
-        Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
-                               " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
-      }
-
       std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
+    }
+
+    for (ClientDataRbyz& clnt_data : clnt_data_vec) {
+      if (clnt_data.is_byzantine) {
+        continue;
+      }
+      clnt_data.next_step = 1;
+      rdma_ops.exec_rdma_read(clnt_data.forward_pass_mem_size, CLNT_FORWARD_PASS_IDX, clnt_data.index);
+      rdma_ops.exec_rdma_read(clnt_data.forward_pass_indices_mem_size, CLNT_FORWARD_PASS_INDICES_IDX, clnt_data.index);
+      processVDOut(clnt_data, false);
+      ///// ONLY UPDATE TS IF READ AT LEAST %= OF TEST SAMPLES; IF NOT TAKEN INTO ACCOUNT; DO NOT USE THIS CLIENT'S
+      ///// UPDATES IN THIS ROUND
+      updateTS(clnt_data_vec, clnt_data, clnt_data.loss_srvr, clnt_data.error_rate_srvr);
+    }
+
+    Logger::instance().log("    Trust Scores after last step of round " + std::to_string(round) + ":\n");
+    for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
+      if (clnt_data.is_byzantine) {
+        Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
+        continue;
+      }
+      Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
+                              " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
     }
 
     std::vector<torch::Tensor> clnt_updates;
@@ -476,22 +471,30 @@ void RByzAux::runRByzServer(int n_clients,
         continue;
       }
 
-      Logger::instance().log("reading flags from client: " + std::to_string(i) + "\n");
-      std::chrono::milliseconds limit_step_time(30000);
-      std::chrono::milliseconds initial_time(1);
+      bool timed_out = false;
+      std::chrono::microseconds initial_time(20); // time of 10 round trips
+      std::chrono::microseconds limit_step_time(20000);
       // Wait for the client to finish the round
-      while (client.round != round + 1) {
-        std::this_thread::yield();
+      while (client.round != round + 1 && !timed_out) {
+        std::this_thread::sleep_for(initial_time);
+        initial_time *= 2; // Exponential backoff
+        if (initial_time > limit_step_time) {
+          timed_out = true;
+          Logger::instance().log("    -> Timeout in update gathering by client " + std::to_string(client.index) + 
+                                 " for round " + std::to_string(round) + "\n");
+        }
       }
+      
+      if (!timed_out) {
+        size_t numel_server = REG_SZ_DATA / sizeof(float);
+        torch::Tensor flat_tensor =
+            torch::from_blob(
+                regMem.clnt_ws[i], {static_cast<long>(numel_server)}, torch::kFloat32)
+                .clone();
 
-      size_t numel_server = REG_SZ_DATA / sizeof(float);
-      torch::Tensor flat_tensor =
-          torch::from_blob(
-              regMem.clnt_ws[i], {static_cast<long>(numel_server)}, torch::kFloat32)
-              .clone();
-
-      clnt_updates.push_back(flat_tensor);
-      clnt_indices.push_back(client.index);
+        clnt_updates.push_back(flat_tensor);
+        clnt_indices.push_back(client.index);
+      } 
     }
 
     // Use attacks to simulate Byzantine clients
@@ -512,22 +515,84 @@ void RByzAux::runRByzServer(int n_clients,
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
   }
 
-  // TODO: Wait for all clients to finish by reading their round
-  Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");
-  for (int i = 0; i < clnt_data_vec.size(); i++) {
-    if (clnt_data_vec[i].is_byzantine) {
-      continue;
-    }
+  awaitTermination(clnt_data_vec);  
+}
+
+/**
+ * @brief Run the RByz client, only the clients call this function.
+ */
+void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
+  Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
+  
+  // Before rbyz, the client has to write error and loss for the first time
+  Logger::instance().log("Client: Initial Error and loss from client: " +
+                         std::to_string(*regMem.loss_and_err) + ", " +
+                         std::to_string(*(regMem.loss_and_err + 1)) + "\n");
+
+  Logger::instance().log("Srvr ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
+
+  while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
+
+    // Perform label  flipping attack
+    // if (regMem.id <= N_BYZ_CLNTS && regMem.round.load() == 3) {
+    //   Logger::instance().log("Client " + std::to_string(regMem.id) + " is Byzantine, flipping labels\n");
+    //   std::mt19937 rng(42);
+    //   mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
+    //   mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
+    // }
+
+    regMem.local_step.store(0);
     
-    bool client_done = false;
-    while (!client_done) {
-      // Check if client has reached final round
-      if (clnt_data_vec[i].round == GLOBAL_ITERS_RBYZ) {
-        client_done = true;
-        Logger::instance().log("Server: Client " + std::to_string(i) + " has completed all iterations\n");
-      } else {
-        std::this_thread::yield();
-      }
+    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " started ////////////////\n");
+    // Wait for the server to be ready
+    do {
+      rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
+      std::this_thread::sleep_for(std::chrono::nanoseconds(10));
+    } while (regMem.srvr_ready_flag != regMem.round.load());
+
+    // Read the aggregated weights from the server and update the local weights
+    rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
+    // mnist.updateModelParameters(w);
+    // mnist.testModel();
+
+    // Run local training steps, all training data is sampled before training to let server insert VD samples
+    Logger::instance().log("Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
+    while (regMem.local_step.load() < regMem.CAS.load()) {
+      int step = regMem.local_step.load();
+      Logger::instance().log(" ...... Client: Running step " + std::to_string(step) + " of RByz in round " + std::to_string(regMem.round.load()) + "\n");
+
+      w = mnist.runMnistTrain(step, w);
+      Logger::instance().log("Client: Loss and error from client: " +
+                             std::to_string(*regMem.loss_and_err) + ", " +
+                             std::to_string(*(regMem.loss_and_err + 1)) + "\n");
+      regMem.local_step.store(step + 1);
+      Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
+      //std::this_thread::sleep_for(std::chrono::nanoseconds(5000)); // Simulate some processing time
     }
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // Write the weights to the registered memory and write to the server
+    torch::Tensor flat_w = flatten_tensor_vector(w);
+    size_t total_bytes_g = flat_w.numel() * sizeof(float);
+    float* flat_w_float = flat_w.data_ptr<float>();
+    std::memcpy(regMem.clnt_w, flat_w_float, total_bytes_g);
+    unsigned int total_bytes_w_int = static_cast<unsigned int>(REG_SZ_DATA);
+    rdma_ops.exec_rdma_write(total_bytes_w_int, CLNT_W_IDX);
+
+    regMem.round.store(regMem.round.load() + 1);
+    rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
+    mnist.testModel();
+
+    auto end = std::chrono::high_resolution_clock::now();
+    Logger::instance().log("Total time taken PART: " +
+                         std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()) +
+                         " ns\n");
+    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load() - 1) + " completed ////////////////\n");
   }
+
+  // Notify the server that the client is done
+  regMem.round.store(GLOBAL_ITERS_RBYZ);
+  rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
+  Logger::instance().log("Client: Finished RByz\n");
 }

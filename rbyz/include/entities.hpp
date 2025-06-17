@@ -46,13 +46,13 @@ struct RegMemClnt {
   int clnt_ready_flag;
   float* clnt_w;
   float* loss_and_err;
-  alignas(8) std::atomic<int> clnt_CAS;
+  alignas(8) std::atomic<int> CAS;
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
 
   RegMemClnt(int id) : 
       id(id), srvr_ready_flag(0), 
-      clnt_ready_flag(0), clnt_CAS(MEM_FREE), 
+      clnt_ready_flag(0), CAS(LOCAL_STEPS_RBYZ), 
       local_step(0), round(0) {
     srvr_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
     clnt_w = reinterpret_cast<float*> (malloc(REG_SZ_DATA));
@@ -72,12 +72,19 @@ struct RegMemClnt {
  */
 struct ClientDataRbyz {
     int index;
-    int timeouts = 0;
     bool is_byzantine = false;
     float trust_score;
     float* updates;
     float* loss;        // Unused in RByz, but kept for compatibility
     float* error_rate;  // Unused in RByz, but kept for compatibility
+
+    // Handling of slow clients
+    bool is_slow = false;
+    int next_step = 1; 
+    int max_step = LOCAL_STEPS_RBYZ;
+    int min_step = LOCAL_STEPS_RBYZ;
+    int steps_to_finish = LOCAL_STEPS_RBYZ;
+    std::chrono::nanoseconds limit_step_time;
     
     // Dataset data
     alignas(8) size_t dataset_size;
@@ -99,7 +106,7 @@ struct ClientDataRbyz {
     alignas(8) int local_step = 0;           
     alignas(8) int round = 0;               
 
-    ClientDataRbyz() : clnt_CAS(MEM_FREE), trust_score(0) {}
+    ClientDataRbyz() : clnt_CAS(LOCAL_STEPS_RBYZ), trust_score(0) {}
 
     ~ClientDataRbyz() {
         // Only free memory that was allocated with malloc/new
