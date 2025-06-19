@@ -60,8 +60,8 @@ redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
-#rm -rf $results_path/logs/*
-#rm -rf $results_path/accLogs/*
+rm -rf $results_path/logs/*
+rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
