@@ -7,6 +7,7 @@
 #include <ctime>
 #include <unistd.h>
 #include <sched.h>
+#include <unordered_map>
 
 #include "CpuProfiler.hpp"
 
@@ -67,8 +68,7 @@ public:
         std::lock_guard<std::mutex> lock(mtx_);
         if (!rbyzAccLogFile_.is_open()) {
             std::string accLogsDir = "/home/bustaman/rbyz/Results/accLogs";
-            int pid = getpid();
-            std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid) + ".log";
+            std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid_) + ".log";
             rbyzAccLogFile_.open(rbyzAccFilename, std::ios::app);
             if (!rbyzAccLogFile_.is_open()) {
                 std::cerr << "Failed to open RByz accuracy log file: " << rbyzAccFilename << std::endl;
@@ -80,8 +80,7 @@ public:
         std::lock_guard<std::mutex> lock(mtx_);
         if (!flAccLogFile_.is_open()) {
             std::string accLogsDir = "/home/bustaman/rbyz/Results/accLogs";
-            int pid = getpid();
-            std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid) + ".log";
+            std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid_) + ".log";
             flAccLogFile_.open(flAccFilename, std::ios::app);
             if (!flAccLogFile_.is_open()) {
                 std::cerr << "Failed to open FL accuracy log file: " << flAccFilename << std::endl;
@@ -101,6 +100,24 @@ public:
         flAccLogFile_.flush();
     }
 
+    void logCustom(const std::string &dir,  std::string &filename, const std::string &message) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        std::string dirPath = resultsDir_ + dir;
+        std::string fullPath = dirPath + "/" + filename;
+
+        if (accLogFiles_.find(fullPath) == accLogFiles_.end()) {
+            int ret = system(("mkdir -p " + dirPath).c_str());
+            if (ret != 0) {
+                std::cerr << "Failed to create directory: " << dirPath << std::endl;
+            }
+            accLogFiles_[fullPath] = std::ofstream(fullPath, std::ios::app);
+        }
+
+        std::ofstream &file = accLogFiles_[fullPath];
+        file << message;
+        file.flush();
+    }
+
     // Delete copying to enforce singleton behavior.
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
@@ -113,10 +130,10 @@ private:
         ret = system(("mkdir -p " + accLogsDir).c_str());
 
         // Use the process ID to create a unique log file name.
-        int pid = getpid();
-        std::string filename = "logs/execution_" + std::to_string(pid) + ".log";
-        std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid) + ".log";
-        std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid) + ".log";
+        pid_ = getpid();
+        std::string filename = "logs/execution_" + std::to_string(pid_) + ".log";
+        std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid_) + ".log";
+        std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid_) + ".log";
 
         logFile_.open(filename, std::ios::app);
     }
@@ -128,6 +145,12 @@ private:
             rbyzAccLogFile_.close();
         if (flAccLogFile_.is_open())
             flAccLogFile_.close();
+
+        for (auto &pair : accLogFiles_) {
+            if (pair.second.is_open()) {
+                pair.second.close();
+            }
+        }
     }
 
     // Helper function to get current date and time as a string.
@@ -142,5 +165,8 @@ private:
     std::ofstream rbyzAccLogFile_;
     std::ofstream flAccLogFile_;
     std::mutex mtx_;
+    std::unordered_map<std::string, std::ofstream> accLogFiles_;
+    std::string resultsDir_ = "/home/bustaman/rbyz/Results/logs/";
     CPUProfiler cpuProfiler_;  // Add CPU profiler instance
+    int pid_;
 };
