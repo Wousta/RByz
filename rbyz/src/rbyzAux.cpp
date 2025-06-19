@@ -118,12 +118,10 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
   return aggregated_update;
 }
 
-void RByzAux::writeServerVD(void* vd_sample,
-                   RegMnistSplitter& splitter,
-                   std::vector<ClientDataRbyz>& clnt_data_vec) {
+void RByzAux::writeServerVD(RegMnistSplitter& splitter,
+                            std::vector<ClientDataRbyz>& clnt_data_vec) {
 
   std::vector<int> derangement = splitter.generateDerangement();
-  Logger::instance().log("Server: Derangement generated\n");
 
   // Send the VD samples to the clients
   for (int i = 0; i < clnt_data_vec.size(); i++) {
@@ -133,50 +131,30 @@ void RByzAux::writeServerVD(void* vd_sample,
     }
 
     std::vector<size_t> srvr_indices = splitter.getServerIndices(i, derangement);
-    std::vector<size_t> clnt_offsets = splitter.getClientOffsets(clnt_data_vec[i].index);
-    //clnt_offsets[0] = 0; // Ensure the first offset is always 0 REMOVE AFTER TESTING
+    std::vector<size_t> clnt_chunks = splitter.getClientChunks(clnt_data_vec[i].index);
 
-    if (srvr_indices.size() != clnt_offsets.size()) {
-      throw std::runtime_error("Server: Server and client indices sizes do not match: " +
-                               std::to_string(srvr_indices.size()) + " vs " + std::to_string(clnt_offsets.size()));
-    }
+    size_t srvr_idx = 0;
+    for (size_t j = 0; j < clnt_chunks.size(); j++) {
 
+      size_t clnt_chunk = clnt_chunks[j];
 
-    size_t num_samples_to_send = std::min(srvr_indices.size(), clnt_offsets.size());
-    for (size_t j = 0; j < num_samples_to_send; j++) {
-      size_t srvr_idx = srvr_indices[j];
-      size_t clnt_offset = clnt_offsets[j];
-
-      // Avoid sending the same sample multiple times
-      if (clnt_data_vec[i].inserted_indices.find(srvr_idx) != clnt_data_vec[i].inserted_indices.end()) {
-        Logger::instance().log("Server: Sample " + std::to_string(srvr_idx) + 
-                               " already sent to client " + std::to_string(i) + ", skipping\n");
-        continue;
-      }
-
-      clnt_data_vec[i].inserted_indices.insert(srvr_idx);
-
-      // Copy server sample to registered memory
-      void* srvr_sample = mnist.getSample(srvr_idx);
-      std::memcpy(vd_sample, srvr_sample, mnist.getSampleSize());
-      
       LocalInfo local_info;
-      local_info.indices.push_back(SRVR_VD_SAMPLE_IDX);
       RemoteInfo remote_info;
-      remote_info.indx = CLNT_DATASET_IDX;
-      remote_info.off = clnt_offset;
-      rdma_ops.exec_rdma_write(mnist.getSampleSize(), local_info, remote_info, i, false);
-    }
+      remote_info.indx = REG_DATASET_IDX;
+      remote_info.off = clnt_chunk;
 
-    Logger::instance().log("Num samples " + std::to_string(num_samples_to_send) + 
-                           " Inserted to client " + std::to_string(i) + "\n");
-    std::ostringstream oss;
-    for (size_t srvr_idx : clnt_data_vec[i].inserted_indices) {
-      oss << srvr_idx << " ";
-      if (oss.str().length() > 64) {
-        Logger::instance().log(oss.str() + "\n");
-        oss.str(""); // Clear the stream
+      for (int k = 0; k < splitter.getSamplesPerChunk(); k++) {
+        if (srvr_idx >= srvr_indices.size()) {
+          Logger::instance().log("Warning: Not enough VD samples for client " + std::to_string(i) + "\n");
+          break;
+        }
+        size_t srvr_sample_idx = srvr_indices[srvr_idx++];
+        clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx);
+        uint64_t sample_offset = mnist.getSampleOffset(srvr_sample_idx);
+        local_info.indices.push_back(REG_DATASET_IDX);
+        local_info.offs.push_back(sample_offset);
       }
+      rdma_ops.exec_rdma_write(splitter.getChunkSize(), local_info, remote_info, i, false);
     }
   }
   Logger::instance().log("Server: VD samples sent to all clients\n");
@@ -324,7 +302,7 @@ void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec) {
   }
 
   for (ClientDataRbyz& clnt_data : clnt_data_vec) {
-    clnt_data.limit_step_time = curr_time * 2;
+    clnt_data.limit_step_time = curr_time;
   }
   Logger::instance().log("Server: Initialized timeout time for clients to " + 
                          std::to_string(clnt_data_vec[0].limit_step_time.count()) + " ns\n");
@@ -338,7 +316,6 @@ void RByzAux::runRByzServer(int n_clients,
                     std::vector<ClientDataRbyz>& clnt_data_vec) {
   
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  int vd_insert_rounds = n_clients;
   int total_steps = GLOBAL_ITERS_FL;
   std::vector<int> test_step(n_clients, LOCAL_STEPS_RBYZ);
   int min_steps = std::ceil(LOCAL_STEPS_RBYZ * 0.5); // Minimum steps to consider a client valid
@@ -347,7 +324,7 @@ void RByzAux::runRByzServer(int n_clients,
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
-  RegMnistSplitter splitter(n_clients, mnist, clnt_data_vec);
+  RegMnistSplitter splitter(SGL_SIZE, mnist, clnt_data_vec);
   
   // RBYZ training loop
   for (int round = 0; round < GLOBAL_ITERS_RBYZ; round++) {
@@ -361,9 +338,8 @@ void RByzAux::runRByzServer(int n_clients,
     std::memcpy(regMem.srvr_w, global_w, total_bytes);
 
     // Before each round, write the server's VD to the clients to test after first local step
-    if (vd_insert_rounds > 0) {
-      writeServerVD(regMem.vd_sample, splitter, clnt_data_vec);
-      vd_insert_rounds--;
+    if (round == 0) {
+      writeServerVD(splitter, clnt_data_vec);
     }
   
     // Signal to clients that the server is ready
@@ -477,7 +453,7 @@ void RByzAux::runRByzServer(int n_clients,
 
       bool timed_out = false;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(20000);
+      std::chrono::microseconds limit_step_time(20000000);
       // Wait for the client to finish the round
       while (client.round != round + 1 && !timed_out) {
         std::this_thread::sleep_for(initial_time);
@@ -530,13 +506,6 @@ void RByzAux::runRByzServer(int n_clients,
 void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   
-  // Before rbyz, the client has to write error and loss for the first time
-  Logger::instance().log("Client: Initial Error and loss from client: " +
-                         std::to_string(*regMem.loss_and_err) + ", " +
-                         std::to_string(*(regMem.loss_and_err + 1)) + "\n");
-
-  Logger::instance().log("Srvr ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
-
   while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
 
     // Perform label  flipping attack
@@ -546,6 +515,14 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     //   mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
     //   mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
     // }
+
+    if (regMem.round.load() == 2) {
+      Logger::instance().log("POST: first mnist samples\n");
+      for (int i = 0; i < 5; i++) {
+        Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*mnist.getLabel(i)) + 
+                              " | og_idx = " + std::to_string(*mnist.getOriginalIndex(i)) + "\n");
+      }
+    }
 
     regMem.local_step.store(0);
     

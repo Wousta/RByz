@@ -19,7 +19,7 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTrain& mnist) {
+void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTrain& reg_mnist) {
   reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(regMem.srvr_w));
   reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
@@ -28,9 +28,9 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.addr_locs.push_back(castI(&regMem.CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
-  reg_info.addr_locs.push_back(castI(mnist.getRegisteredData()));
-  reg_info.addr_locs.push_back(castI(mnist.getForwardPass()));
-  reg_info.addr_locs.push_back(castI(mnist.getForwardPassIndices()));
+  reg_info.addr_locs.push_back(castI(reg_mnist.getRegisteredData()));
+  reg_info.addr_locs.push_back(castI(reg_mnist.getForwardPass()));
+  reg_info.addr_locs.push_back(castI(reg_mnist.getForwardPassIndices()));
 
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
@@ -40,9 +40,9 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(mnist.getRegisteredDataSize());
-  reg_info.data_sizes.push_back(mnist.getForwardPassMemSize());
-  reg_info.data_sizes.push_back(mnist.getForwardPassIndicesMemSize());
+  reg_info.data_sizes.push_back(reg_mnist.getRegisteredDataSize());
+  reg_info.data_sizes.push_back(reg_mnist.getForwardPassMemSize());
+  reg_info.data_sizes.push_back(reg_mnist.getForwardPassIndicesMemSize());
 
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -153,6 +153,12 @@ int main(int argc, char* argv[]) {
   RdmaOps rdma_ops(conns);
   std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
+
+  Logger::instance().log("PRE: first mnist samples\n");
+  for (int i = 0; i < 5; i++) {
+    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*registered_mnist->getLabel(i)) + 
+                           " | og_idx = " + std::to_string(*registered_mnist->getOriginalIndex(i)) + "\n");
+  }
 
   std::vector<torch::Tensor> w;
   if (load_model) {

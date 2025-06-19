@@ -30,7 +30,6 @@ private:
         const std::vector<uint32_t>& clnt_indices);
 
     void writeServerVD(
-        void* vd_sample,
         RegMnistSplitter& splitter, 
         std::vector<ClientDataRbyz>& clnt_data);
 

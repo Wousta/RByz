@@ -36,7 +36,7 @@ void prepareRdmaRegistration(
     std::vector<RegInfo>& reg_info,
     RegMemSrvr &regMem,
     std::vector<ClientDataRbyz>& clnt_data_vec,
-    RegisteredMnistTrain &registered_mnist) {
+    RegisteredMnistTrain &reg_mnist) {
 
   // Configure memory registration for each client
   for (int i = 0; i < n_clients; i++) {
@@ -49,7 +49,7 @@ void prepareRdmaRegistration(
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
-    reg_info[i].addr_locs.push_back(castI(regMem.vd_sample));
+    reg_info[i].addr_locs.push_back(castI(regMem.reg_mnist_data));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
@@ -62,7 +62,7 @@ void prepareRdmaRegistration(
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(registered_mnist.getSampleSize());
+    reg_info[i].data_sizes.push_back(reg_mnist.getRegisteredDataSize());
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 
@@ -259,10 +259,10 @@ void allocateServerMemory(
     int n_clients,
     RegMemSrvr &regMem,
     std::vector<ClientDataRbyz>& clnt_data_vec,
-    RegisteredMnistTrain &registered_mnist) {
+    RegisteredMnistTrain &reg_mnist) {
 
-  size_t sample_size = registered_mnist.getSampleSize();
-  std::vector<size_t> clnts_samples_count = registered_mnist.getClientsSamplesCount();
+  size_t sample_size = reg_mnist.getSampleSize();
+  std::vector<size_t> clnts_samples_count = reg_mnist.getClientsSamplesCount();
 
   for (int i = 0; i < n_clients; i++) {
     // Allocate memory for client weights and metrics
@@ -279,9 +279,9 @@ void allocateServerMemory(
 
     // Calculate memory sizes for client data
     size_t num_samples = clnts_samples_count[i];
-    size_t batch_size = registered_mnist.getKTrainBatchSize();
-    const size_t values_per_sample = registered_mnist.getValuesPerSample();
-    const size_t bytes_per_value = registered_mnist.getBytesPerValue();
+    size_t batch_size = reg_mnist.getKTrainBatchSize();
+    const size_t values_per_sample = reg_mnist.getValuesPerSample();
+    const size_t bytes_per_value = reg_mnist.getBytesPerValue();
     size_t forward_pass_mem_size = num_samples * values_per_sample * bytes_per_value;
     size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
     
@@ -330,7 +330,7 @@ int main(int argc, char *argv[]) {
   // Objects for training fltrust and rbyz
   std::unique_ptr<BaseMnistTrain> regular_mnist = 
     std::make_unique<RegularMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
-  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
+  std::unique_ptr<RegisteredMnistTrain> reg_mnist =
     std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
 
   // Data structures for connection and data registration
@@ -338,10 +338,10 @@ int main(int argc, char *argv[]) {
   std::vector<RcConn> conns(n_clients);
 
   // Data structures for server and clients registered memory
-  RegMemSrvr regMem(n_clients, registered_mnist->getSampleSize());
+  RegMemSrvr regMem(n_clients, *reg_mnist);
   std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
-  allocateServerMemory(n_clients, regMem, clnt_data_vec, *registered_mnist);
-  prepareRdmaRegistration(n_clients, reg_info, regMem, clnt_data_vec, *registered_mnist);
+  allocateServerMemory(n_clients, regMem, clnt_data_vec, *reg_mnist);
+  prepareRdmaRegistration(n_clients, reg_info, regMem, clnt_data_vec, *reg_mnist);
   
   // Accept connection from each client
   for (int i = 0; i < n_clients; i++) {
@@ -365,14 +365,14 @@ int main(int argc, char *argv[]) {
 
       // Do one iteration of fltrust with ALL clients to initialize trust scores
       std::cout << "SRVR Running FLTrust with loaded model\n";
-      w = run_fltrust_srvr(1, n_clients, *registered_mnist, regMem, clnt_data_vec);
+      w = run_fltrust_srvr(1, n_clients, *reg_mnist, regMem, clnt_data_vec);
       Logger::instance().log("SRVR FLTrust with loaded model done\n");
     }
   }
 
   if (!load_model) {
     Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *registered_mnist, regMem, clnt_data_vec);
+    w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *reg_mnist, regMem, clnt_data_vec);
 
     // regular_mnist.saveModelState(w, model_file);
   }
@@ -384,14 +384,14 @@ int main(int argc, char *argv[]) {
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
-  // registered_mnist->copyModelParameters(regular_mnist->getModel());
-  // registered_mnist->setLoss(regular_mnist->getLoss());
-  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
+  // reg_mnist->copyModelParameters(regular_mnist->getModel());
+  // reg_mnist->setLoss(regular_mnist->getLoss());
+  // reg_mnist->setErrorRate(regular_mnist->getErrorRate());
 
   Logger::instance().log("Initial test of the model before RByz\n");
-  registered_mnist->testModel();
+  reg_mnist->testModel();
 
-  RByzAux rbyz_aux(rdma_ops, *registered_mnist);
+  RByzAux rbyz_aux(rdma_ops, *reg_mnist);
   rbyz_aux.runRByzServer(n_clients, w, regMem, clnt_data_vec);
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -400,7 +400,7 @@ int main(int argc, char *argv[]) {
                          " seconds\n");
 
   // Test the model after training
-  registered_mnist->testModel();
+  reg_mnist->testModel();
 
   for (RcConn conn : conns) {
     conn.disconnect();

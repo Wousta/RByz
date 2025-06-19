@@ -16,22 +16,21 @@ public:
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   std::vector<float *> clnt_loss_and_err;
-  void* vd_sample;
+  void* reg_mnist_data;
 
-  RegMemSrvr(int n_clients, size_t sample_size)
-      : vd_sample(reinterpret_cast<void *>(malloc(sample_size))),
-        srvr_w(reinterpret_cast<float *>(malloc(REG_SZ_DATA))),
+  RegMemSrvr(int n_clients, RegisteredMnistTrain &reg_mnist)
+      : srvr_w(reinterpret_cast<float *>(malloc(REG_SZ_DATA))),
         n_clients(n_clients),
         clnt_ready_flags(n_clients, 0),
         clnt_ws(n_clients),
-        clnt_loss_and_err(n_clients) {}
+        clnt_loss_and_err(n_clients),
+        reg_mnist_data(reg_mnist.getRegisteredData()) {}
 
   ~RegMemSrvr() {
     free(srvr_w);
     for (int i = 0; i < n_clients; i++) {
       free(clnt_ws[i]);
       free(clnt_loss_and_err[i]);
-      free(vd_sample);
     }
   }
 };
