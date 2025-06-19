@@ -129,7 +129,7 @@ int main(int argc, char* argv[]) {
   addr_info.port = strdup(port.c_str());
 
   // Sleep to not overload the server when all clients connect
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 700));
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 800));
 
   // Objects for training fltrust and rbyz
   std::unique_ptr<BaseMnistTrain> regular_mnist =

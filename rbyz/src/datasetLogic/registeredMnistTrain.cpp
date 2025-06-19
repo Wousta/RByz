@@ -196,7 +196,7 @@ void RegisteredMnistTrain::processBatchResults(
       forward_pass[curr_idx] = losses_accessor[i];
       forward_pass[error_start + curr_idx] = correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0) Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx < 10) {
+      if (curr_idx < 2) {
           Logger::instance().log("Processed sample " + std::to_string(curr_idx) + 
                         " with original index: " + std::to_string(forward_pass_indices[curr_idx]) +
                         " label: " + std::to_string(*getLabel(curr_idx)) +

@@ -83,7 +83,7 @@ struct ClientDataRbyz {
     int max_step = LOCAL_STEPS_RBYZ;
     int min_step = LOCAL_STEPS_RBYZ;
     int steps_to_finish = LOCAL_STEPS_RBYZ;
-    std::chrono::nanoseconds limit_step_time;
+    std::chrono::milliseconds limit_step_time;
     
     // Dataset data
     alignas(8) size_t dataset_size;

@@ -38,6 +38,8 @@ for log_file in "$log_dir"/*.log; do
         if [ $count -gt 0 ]; then
             # Use bash arithmetic for ceiling: (sum + count - 1) / count
             avg=$(( (sum + count - 1) / count ))
+            #avg=$(( (avg * 6) / 5 ))
+            avg=$(( (avg * 5) / 4 ))
             #avg=$(( (avg * 3) / 2 ))
             #avg=$(( (avg * 2) ))
             client_averages["$client_id"]="$avg"

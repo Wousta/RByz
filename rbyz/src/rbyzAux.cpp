@@ -5,6 +5,7 @@
 #include "tensorOps.hpp"
 
 #include <algorithm>
+#include <unistd.h>
 
 
 //////////////////////////////////////////////////////////////
@@ -285,27 +286,16 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
 }
 
 void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec) {
-  std::chrono::nanoseconds curr_time(1);
-  int quorum = static_cast<int>(std::ceil(clnt_data_vec.size() * 0.5));
-  int finished_clients = 0;
-
-  while (finished_clients < quorum) {
-    std::this_thread::sleep_for(curr_time);
-    curr_time *= 2; // Exponential backoff
-    for (ClientDataRbyz& clnt : clnt_data_vec) {
-      rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt.index);
-
-      if (clnt.local_step == 1) {
-        finished_clients++;
-      }
-    }
-  }
-
   for (ClientDataRbyz& clnt_data : clnt_data_vec) {
-    clnt_data.limit_step_time = curr_time;
+    clnt_data.limit_step_time = std::chrono::milliseconds(step_times[clnt_data.index][0]);
+    Logger::instance().log("Client " + std::to_string(clnt_data.index) + 
+                           " initial limit step time: " + 
+                           std::to_string(clnt_data.limit_step_time.count()) + " ms\n");
   }
-  Logger::instance().log("Server: Initialized timeout time for clients to " + 
-                         std::to_string(clnt_data_vec[0].limit_step_time.count()) + " ns\n");
+}
+
+void RByzAux::runBenchMark(std::vector<ClientDataRbyz>& clnt_data_vec) {
+
 }
 
 //////////////////////////////////////////////////////////////
@@ -324,7 +314,7 @@ void RByzAux::runRByzServer(int n_clients,
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
-  RegMnistSplitter splitter(SGL_SIZE, mnist, clnt_data_vec);
+  RegMnistSplitter splitter(1, mnist, clnt_data_vec);
   
   // RBYZ training loop
   for (int round = 0; round < GLOBAL_ITERS_RBYZ; round++) {
@@ -340,15 +330,12 @@ void RByzAux::runRByzServer(int n_clients,
     // Before each round, write the server's VD to the clients to test after first local step
     if (round == 0) {
       writeServerVD(splitter, clnt_data_vec);
+      initTimeoutTime(clnt_data_vec);
     }
   
     // Signal to clients that the server is ready
     regMem.srvr_ready_flag = round;
     Logger::instance().log("Server: wrote ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
-
-    if (round == 0) {
-      initTimeoutTime(clnt_data_vec);
-    }
 
     // For each client run N rounds of RByz
     for (int srvr_step = 0; srvr_step < LOCAL_STEPS_RBYZ; srvr_step++) {
@@ -373,12 +360,21 @@ void RByzAux::runRByzServer(int n_clients,
                                " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
         // Wait for client to finish the step with exponential backoff
-        std::chrono::nanoseconds initial_time(1);
+        std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count() * 0.75));
+        if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+          std::this_thread::sleep_for(initial_time);
+          Logger::instance().log("    -> Server waited initial: " + std::to_string(initial_time.count()) +
+                                 " ms for client " + std::to_string(j) + "\n");
+        }
+        rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
+        rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, j);
+
+        std::chrono::milliseconds exp_backoff_time(1);
         bool advanced = true;
         while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
-          std::this_thread::sleep_for(initial_time);
-          initial_time *= 2; // Exponential backoff
-          if (initial_time > clnt_data.limit_step_time) {
+          std::this_thread::sleep_for(exp_backoff_time);
+          exp_backoff_time *= 2; // Exponential backoff
+          if (exp_backoff_time > clnt_data.limit_step_time) {
 
             // Choose lower steps to wait for and increase the limit time
             if(clnt_data.steps_to_finish <= min_steps) {
@@ -387,8 +383,8 @@ void RByzAux::runRByzServer(int n_clients,
               clnt_data.is_byzantine = true;
 
             } else {
-              long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.5));
-              clnt_data.limit_step_time = std::chrono::nanoseconds(new_limit);
+              long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.3));
+              clnt_data.limit_step_time = std::chrono::milliseconds(new_limit);
               clnt_data.steps_to_finish = step_range(rng);
               middle_steps = std::max(static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75)), min_steps);
               step_range = std::uniform_int_distribution<int>(middle_steps, clnt_data.steps_to_finish);
@@ -453,7 +449,7 @@ void RByzAux::runRByzServer(int n_clients,
 
       bool timed_out = false;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(20000000);
+      std::chrono::microseconds limit_step_time(2000000);
       // Wait for the client to finish the round
       while (client.round != round + 1 && !timed_out) {
         std::this_thread::sleep_for(initial_time);
@@ -505,6 +501,8 @@ void RByzAux::runRByzServer(int n_clients,
  */
 void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
+  std::string log_file = "lstep_" + std::to_string(getpid()) + ".log";
+  Logger::instance().logCustom("./stepTimes", log_file, std::to_string(regMem.id - 1) + "\n");
   
   while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
 
@@ -534,26 +532,26 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     } while (regMem.srvr_ready_flag != regMem.round.load());
 
     // Read the aggregated weights from the server and update the local weights
+    Logger::instance().log("Client: Reading server weights for round " + std::to_string(regMem.round.load()) + "\n");
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
     // mnist.updateModelParameters(w);
     // mnist.testModel();
 
+    Logger::instance().log("Client: Read server weights for round " + std::to_string(regMem.round.load()) + "\n");
     // Run local training steps, all training data is sampled before training to let server insert VD samples
     Logger::instance().log("Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
     while (regMem.local_step.load() < regMem.CAS.load()) {
+      // auto start = std::chrono::high_resolution_clock::now();
       int step = regMem.local_step.load();
       Logger::instance().log(" ...... Client: Running step " + std::to_string(step) + " of RByz in round " + std::to_string(regMem.round.load()) + "\n");
 
       w = mnist.runMnistTrain(step, w);
-      Logger::instance().log("Client: Loss and error from client: " +
-                             std::to_string(*regMem.loss_and_err) + ", " +
-                             std::to_string(*(regMem.loss_and_err + 1)) + "\n");
       regMem.local_step.store(step + 1);
+      // auto end = std::chrono::high_resolution_clock::now();
+      // std::string time = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+      // Logger::instance().logCustom("./stepTimes", log_file, time + "\n");
       Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
-      //std::this_thread::sleep_for(std::chrono::nanoseconds(5000)); // Simulate some processing time
     }
-
-    auto start = std::chrono::high_resolution_clock::now();
 
     // Write the weights to the registered memory and write to the server
     torch::Tensor flat_w = flatten_tensor_vector(w);
@@ -566,11 +564,6 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
     mnist.testModel();
-
-    auto end = std::chrono::high_resolution_clock::now();
-    Logger::instance().log("Total time taken PART: " +
-                         std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()) +
-                         " ns\n");
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load() - 1) + " completed ////////////////\n");
   }
 
