@@ -4,7 +4,6 @@
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
 #include "datasetLogic/baseMnistTrain.hpp"
-#include "datasetLogic/regularMnistTrain.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "rbyzAux.hpp"
@@ -132,8 +131,6 @@ int main(int argc, char* argv[]) {
   std::this_thread::sleep_for(std::chrono::milliseconds(id * 800));
 
   // Objects for training fltrust and rbyz
-  std::unique_ptr<BaseMnistTrain> regular_mnist =
-      std::make_unique<RegularMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
   std::unique_ptr<RegisteredMnistTrain> registered_mnist =
     std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
 
@@ -160,27 +157,7 @@ int main(int argc, char* argv[]) {
                            " | og_idx = " + std::to_string(*registered_mnist->getOriginalIndex(i)) + "\n");
   }
 
-  std::vector<torch::Tensor> w;
-  if (load_model) {
-    w = regular_mnist->loadModelState(model_file);
-    if (w.empty()) {
-      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
-      load_model = false;
-    } else {
-      Logger::instance().log("Successfully loaded model from file.\n");
-      printTensorSlices(w, 0, 5);
-
-      // Do one iteration of fltrust with one iteration to initialize trust scores
-      std::cout << "CLNT Running FLTrust with loaded model\n";
-      w = run_fltrust_clnt(1, rdma_ops, *registered_mnist, regMem);
-      std::cout << "\nCLNT FLTrust with loaded model done\n";
-    }
-  }
-  
-  if (!load_model) {
-    w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *registered_mnist, regMem);
-  }
-
+  std::vector<torch::Tensor> w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *registered_mnist, regMem);
   // Label flipping for Byzantine clients
   // if (id <= N_BYZ_CLNTS) {
   //   Logger::instance().log("Client " + std::to_string(id) + " is Byzantine, flipping labels\n");
@@ -190,9 +167,6 @@ int main(int argc, char* argv[]) {
   // } 
 
   // Run the RByz client
-  // registered_mnist->copyModelParameters(regular_mnist->getModel());
-  // registered_mnist->setLoss(regular_mnist->getLoss());
-  // registered_mnist->setErrorRate(regular_mnist->getErrorRate());
   RByzAux rbyz_aux(rdma_ops, *registered_mnist);
   rbyz_aux.runRByzClient(w, regMem);
 

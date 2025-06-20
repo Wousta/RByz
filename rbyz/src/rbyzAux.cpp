@@ -360,7 +360,7 @@ void RByzAux::runRByzServer(int n_clients,
                                " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
         // Wait for client to finish the step with exponential backoff
-        std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count() * 0.75));
+        std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
         if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
           std::this_thread::sleep_for(initial_time);
           Logger::instance().log("    -> Server waited initial: " + std::to_string(initial_time.count()) +
@@ -383,7 +383,7 @@ void RByzAux::runRByzServer(int n_clients,
               clnt_data.is_byzantine = true;
 
             } else {
-              long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.3));
+              long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.25));
               clnt_data.limit_step_time = std::chrono::milliseconds(new_limit);
               clnt_data.steps_to_finish = step_range(rng);
               middle_steps = std::max(static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75)), min_steps);

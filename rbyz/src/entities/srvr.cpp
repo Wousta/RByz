@@ -20,7 +20,6 @@
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
-#include "datasetLogic/regularMnistTrain.hpp"
 #include "datasetLogic/baseMnistTrain.hpp"
 #include "rbyzAux.hpp"
 #include "rdmaOps.hpp"
@@ -328,8 +327,6 @@ int main(int argc, char *argv[]) {
   std::cout << "Server: port = " << port << "\n";
 
   // Objects for training fltrust and rbyz
-  std::unique_ptr<BaseMnistTrain> regular_mnist = 
-    std::make_unique<RegularMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
   std::unique_ptr<RegisteredMnistTrain> reg_mnist =
     std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
 
@@ -352,31 +349,8 @@ int main(int argc, char *argv[]) {
   Logger::instance().openRByzAccLog();
   auto start = std::chrono::high_resolution_clock::now();
   
-  std::vector<torch::Tensor> w;
-  if (load_model) {
-    w = regular_mnist->loadModelState(model_file);
-    if (w.empty()) {
-      Logger::instance().log("Failed to load model state. Running FLTrust instead.\n");
-      std::cout << "Failed to load model state from file: " << model_file << "\n";
-      load_model = false;
-    } else {
-      Logger::instance().log("Successfully loaded model from file.\n");
-      std::cout << "Loaded model state from file: " << model_file << "\n";
-
-      // Do one iteration of fltrust with ALL clients to initialize trust scores
-      std::cout << "SRVR Running FLTrust with loaded model\n";
-      w = run_fltrust_srvr(1, n_clients, *reg_mnist, regMem, clnt_data_vec);
-      Logger::instance().log("SRVR FLTrust with loaded model done\n");
-    }
-  }
-
-  if (!load_model) {
-    Logger::instance().log("SRVR Running FLTrust, load model set FALSE\n");
-    w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *reg_mnist, regMem, clnt_data_vec);
-
-    // regular_mnist.saveModelState(w, model_file);
-  }
-
+  std::cout << "SRVR Running FLTrust\n";
+  std::vector<torch::Tensor> w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *reg_mnist, regMem, clnt_data_vec);
   // auto end = std::chrono::high_resolution_clock::now();
   // Logger::instance().log("Total time taken: " +
   //                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +
@@ -384,10 +358,6 @@ int main(int argc, char *argv[]) {
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
-  // reg_mnist->copyModelParameters(regular_mnist->getModel());
-  // reg_mnist->setLoss(regular_mnist->getLoss());
-  // reg_mnist->setErrorRate(regular_mnist->getErrorRate());
-
   Logger::instance().log("Initial test of the model before RByz\n");
   reg_mnist->testModel();
 
