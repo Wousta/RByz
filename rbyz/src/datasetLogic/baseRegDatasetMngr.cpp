@@ -60,3 +60,67 @@ std::vector<torch::Tensor> BaseRegDatasetMngr::getInitialWeights() {
 
   return initialWeights;
 }
+
+template <typename DataLoader>
+void BaseRegDatasetMngr::test(DataLoader& data_loader, size_t dataset_size) {
+  torch::NoGradGuard no_grad;
+  model->eval();
+  double test_loss = 0;
+  int32_t correct = 0;
+  int32_t total_samples = 0;  // Track actual samples processed
+  
+  for (const auto& batch : data_loader) {
+    auto data = batch.data.to(device), targets = batch.target.to(device);
+    auto output = model->forward(data);
+    test_loss += torch::nll_loss(output,
+                                 targets,
+                                 /*weight=*/{},
+                                 torch::Reduction::Sum)
+                     .template item<float>();
+    auto pred = output.argmax(1);
+    correct += pred.eq(targets).sum().template item<int64_t>();
+    total_samples += targets.size(0);  // Add actual batch size
+  }
+
+  test_loss /= total_samples;  // Use actual samples processed
+  setTestLoss(test_loss);  // Set the test loss
+  setTestAccuracy(static_cast<float>(correct) / total_samples);  // Use actual samples
+  
+  std::ostringstream oss;
+  oss << "\n  Test set: Average loss: " << std::fixed << std::setprecision(4) << test_loss
+      << " | Accuracy: " << std::fixed << std::setprecision(3)
+      << getTestAccuracy() 
+      << " (" << correct << "/" << total_samples << ")";  // Show actual counts for verification
+  Logger::instance().log(oss.str() + "\n");
+  Logger::instance().log("  Testing done\n");
+}
+
+std::vector<torch::Tensor> BaseRegDatasetMngr::updateModelParameters(const std::vector<torch::Tensor>& w) {
+  std::vector<torch::Tensor> params = model->parameters();
+  size_t param_count = params.size();
+  std::vector<torch::Tensor> w_cuda;
+  
+  if (device.is_cuda()) {
+    w_cuda.reserve(param_count);
+    for (const auto& param : w) {
+      auto cuda_tensor = torch::empty_like(param, torch::kCUDA);
+      cudaMemcpyAsync(cuda_tensor.data_ptr<float>(),
+                      param.data_ptr<float>(),
+                      param.numel() * sizeof(float),
+                      cudaMemcpyHostToDevice,
+                      memcpy_stream_A);
+      w_cuda.push_back(cuda_tensor);
+    }
+
+    cudaDeviceSynchronize();
+    for (size_t i = 0; i < params.size(); ++i) {
+      params[i].data().copy_(w_cuda[i]);
+    }
+    return w_cuda;
+  } else {
+    for (size_t i = 0; i < params.size(); ++i) {
+      params[i].data().copy_(w[i]);
+    }
+    return w;
+  }
+}
