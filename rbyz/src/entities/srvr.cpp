@@ -221,10 +221,9 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     }
 
     // Use attacks to simulate Byzantine clients
-    clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
     clnt_updates = trim_attack(
       clnt_updates,
-      mnist.getModel(),
       GLOBAL_LEARN_RATE,
       N_BYZ_CLNTS,
       mnist.getDevice()

@@ -217,7 +217,6 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
       // Find corresponding server index
       auto srvr_it = srvr_indices_map.find(clnt_idx);
       if (srvr_it == srvr_indices_map.end()) {
-        // This should never happen for inserted indices
         throw std::runtime_error("Missing server index for inserted sample: " + std::to_string(clnt_idx));
       }
       
@@ -227,6 +226,7 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
       srvr_loss_total += srvr_out[srvr_i];
       clnt_error_total += clnt_out[clnt_error_start + i];
       srvr_error_total += srvr_out[srvr_error_start + srvr_i];
+
       processed_samples++;
       
       if (check_byz) {
@@ -449,7 +449,7 @@ void RByzAux::runRByzServer(int n_clients,
 
       bool timed_out = false;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(2000000);
+      std::chrono::microseconds limit_step_time(20000000);
       // Wait for the client to finish the round
       while (client.round != round + 1 && !timed_out) {
         std::this_thread::sleep_for(initial_time);
@@ -477,7 +477,7 @@ void RByzAux::runRByzServer(int n_clients,
 
     // Use attacks to simulate Byzantine clients
     //clnt_updates = trim_attack(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    clnt_updates = no_byz(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
 
     // Aggregation
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);

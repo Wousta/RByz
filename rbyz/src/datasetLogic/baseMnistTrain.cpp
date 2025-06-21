@@ -122,7 +122,7 @@ SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id_arg,
 }
 
 template <typename DataLoader>
-void BaseMnistTrain::test(Net& model,
+void BaseMnistTrain::test(oldNet& model,
                              torch::Device device,
                              DataLoader& data_loader,
                              size_t dataset_size) {
@@ -180,7 +180,7 @@ std::vector<torch::Tensor> BaseMnistTrain::loadModelState(const std::string& fil
   return w;
 }
 
-void BaseMnistTrain::copyModelParameters(const Net& source_model) {
+void BaseMnistTrain::copyModelParameters(const oldNet& source_model) {
     auto source_params = source_model.parameters();
     auto dest_params = model.parameters();
     
@@ -285,7 +285,7 @@ void BaseMnistTrain::buildLabelToIndicesMap() {
 
 // Explicit template instantiation
 template void BaseMnistTrain::test<torch::data::StatelessDataLoader<BaseMnistTrain::DatasetType, torch::data::samplers::RandomSampler>>(
-    Net&, 
+    oldNet&, 
     torch::Device,
     torch::data::StatelessDataLoader<BaseMnistTrain::DatasetType, torch::data::samplers::RandomSampler>&,
     size_t);

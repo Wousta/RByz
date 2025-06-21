@@ -16,7 +16,7 @@ inline constexpr int SGL_SIZE = 2;
 
 // RBYZ
 inline constexpr int GLOBAL_ITERS_RBYZ = 10;
-inline constexpr int LOCAL_STEPS_RBYZ = 6;
+inline constexpr int LOCAL_STEPS_RBYZ = 5;
 inline constexpr int VD_SPLIT = 100;  // will divide the VD per client, to determine how many samples to use per VD for each client.
 constexpr int MEM_FREE = 0; 
 constexpr int MEM_OCCUPIED = 1;

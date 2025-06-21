@@ -5,8 +5,9 @@
 #include <vector>
 #include <cuda_runtime.h>
 
-struct Net : torch::nn::Module {
-  Net()
+struct oldNet : torch::nn::Module {
+  public:
+  oldNet()
       : conv1(torch::nn::Conv2dOptions(1, 10, /*kernel_size=*/5)),
         conv2(torch::nn::Conv2dOptions(10, 20, /*kernel_size=*/5)),
         fc1(320, 50),
@@ -29,6 +30,7 @@ struct Net : torch::nn::Module {
     return torch::log_softmax(x, /*dim=*/1);
   }
 
+  private:
   torch::nn::Conv2d conv1;
   torch::nn::Conv2d conv2;
   torch::nn::Dropout2d conv2_drop;
@@ -48,7 +50,7 @@ protected:
   const int64_t kLogInterval = 10;
   torch::DeviceType device_type;
   torch::Device device;
-  Net model;
+  oldNet model;
   size_t test_dataset_size;
   float loss;
   float test_loss;
@@ -72,7 +74,7 @@ protected:
 
   template <typename DataLoader>
   void test(
-      Net& model,
+      oldNet& model,
       torch::Device device,
       DataLoader& data_loader,
       size_t dataset_size);
@@ -91,7 +93,7 @@ public:
   virtual std::vector<torch::Tensor> getInitialWeights();
   void saveModelState(const std::vector<torch::Tensor>& w, const std::string& filename);
   std::vector<torch::Tensor> loadModelState(const std::string& filename);
-  void copyModelParameters(const Net& source_model);
+  void copyModelParameters(const oldNet& source_model);
   std::vector<torch::Tensor> updateModelParameters(const std::vector<torch::Tensor>& w);
   std::vector<size_t> getClientsSamplesCount();
   void buildLabelToIndicesMap();
@@ -101,7 +103,7 @@ public:
   }
 
   // Getters and setters
-  Net getModel() { return model; }
+  oldNet getModel() { return model; }
   torch::Device getDevice() { return device; }
   float getTestLoss() { return test_loss; }
   void setTestLoss(float new_test_loss) { test_loss = new_test_loss; }

@@ -5,7 +5,6 @@
 /**
  * No attack is performed.
  * @param v: list of gradients
- * @param net: model
  * @param lr: learning rate
  * @param f: number of malicious clients, where the first f are malicious
  * @param device: device used in training and inference
@@ -13,7 +12,6 @@
  */
 std::vector<torch::Tensor> no_byz(
     const std::vector<torch::Tensor> &v,
-    Net net,
     int lr,
     int f,
     torch::Device device)
@@ -24,7 +22,6 @@ std::vector<torch::Tensor> no_byz(
 /**
  * Local model poisoning attack against the trimmed mean aggregation rule.
  * @param v: list of gradients
- * @param net: model
  * @param lr: learning rate
  * @param f: number of malicious clients, where the first f are malicious
  * @param device: device used in training and inference
@@ -32,7 +29,6 @@ std::vector<torch::Tensor> no_byz(
  */
 std::vector<torch::Tensor> trim_attack(
     const std::vector<torch::Tensor> &v,
-    Net net,
     int lr,
     int f,
     torch::Device device)
@@ -82,7 +78,6 @@ std::vector<torch::Tensor> trim_attack(
 /**
  * Local model poisoning attack against the krum aggregation rule.
  * @param v: list of gradients
- * @param net: model
  * @param lr: learning rate
  * @param f: number of malicious clients, where the first f are malicious
  * @param device: device used in training and inference
@@ -90,7 +85,6 @@ std::vector<torch::Tensor> trim_attack(
  */
 std::vector<torch::Tensor> krum_attack(
     const std::vector<torch::Tensor> &v,
-    Net net,
     int lr,
     int f,
     torch::Device device)
