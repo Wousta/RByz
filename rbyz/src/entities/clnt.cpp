@@ -1,3 +1,5 @@
+#include "datasetLogic/iRegDatasetMngr.hpp"
+#include "datasetLogic/regMnistMngr.hpp"
 #include "rc_conn.hpp"
 #include "rdma-api.hpp"
 #include "util.hpp"
@@ -8,6 +10,8 @@
 #include "global/globalConstants.hpp"
 #include "rbyzAux.hpp"
 #include "entities.hpp"
+#include "nets/mnistNet.hpp"
+#include "nets/cifar10Net.hpp"
 
 //#include <logger.hpp>
 #include <lyra/lyra.hpp>
@@ -18,7 +22,7 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTrain& reg_mnist) {
+void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, IRegDatasetMngr& mngr) {
   reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(regMem.srvr_w));
   reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
@@ -27,9 +31,9 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.addr_locs.push_back(castI(&regMem.CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
-  reg_info.addr_locs.push_back(castI(reg_mnist.getRegisteredData()));
-  reg_info.addr_locs.push_back(castI(reg_mnist.getForwardPass()));
-  reg_info.addr_locs.push_back(castI(reg_mnist.getForwardPassIndices()));
+  reg_info.addr_locs.push_back(castI(mngr.data_info.reg_data));
+  reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass));
+  reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
 
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(REG_SZ_DATA);
@@ -39,9 +43,9 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(reg_mnist.getRegisteredDataSize());
-  reg_info.data_sizes.push_back(reg_mnist.getForwardPassMemSize());
-  reg_info.data_sizes.push_back(reg_mnist.getForwardPassIndicesMemSize());
+  reg_info.data_sizes.push_back(mngr.data_info.reg_data_size);
+  reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_mem_size);
+  reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_indices_mem_size);
 
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -49,10 +53,10 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, RegisteredMnistTr
 
 std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
                                             RdmaOps& rdma_ops,
-                                            BaseMnistTrain& mnist,
+                                            IRegDatasetMngr& mngr,
                                             RegMemClnt& regMem) {
 
-  std::vector<torch::Tensor> w = mnist.getInitialWeights();
+  std::vector<torch::Tensor> w = mngr.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
@@ -65,7 +69,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
 
     // Read the weights from the server and run training
     rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
-    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+    std::vector<torch::Tensor> g = mngr.runTraining(round, w);
 
     Logger::instance().log("Weight updates:\n");
     printTensorSlices(g, 0, 5);
@@ -88,7 +92,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
   }
 
-  mnist.updateModelParameters(w);
+  mngr.updateModelParameters(w);
 
   return w;
 }
@@ -130,13 +134,15 @@ int main(int argc, char* argv[]) {
   // Sleep to not overload the server when all clients connect
   std::this_thread::sleep_for(std::chrono::milliseconds(id * 800));
 
-  // Objects for training fltrust and rbyz
-  std::unique_ptr<RegisteredMnistTrain> registered_mnist =
-    std::make_unique<RegisteredMnistTrain>(id, n_clients + 1, CLNT_SUBSET_SIZE);
+  MnistNet mnist_net;
+  Cifar10Net cifar_net;
+
+  std::unique_ptr<RegMnistMngr> reg_mnist_mngr =
+    std::make_unique<RegMnistMngr>(id, n_clients + 1, CLNT_SUBSET_SIZE, mnist_net);
 
   // Struct to hold the registered data
   RegMemClnt regMem(id);
-  registerClntMemory(reg_info, regMem, *registered_mnist);
+  registerClntMemory(reg_info, regMem, *reg_mnist_mngr);
 
   // connect to server
   RcConn conn;
@@ -153,11 +159,11 @@ int main(int argc, char* argv[]) {
 
   Logger::instance().log("PRE: first mnist samples\n");
   for (int i = 0; i < 5; i++) {
-    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*registered_mnist->getLabel(i)) + 
-                           " | og_idx = " + std::to_string(*registered_mnist->getOriginalIndex(i)) + "\n");
+    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mnist_mngr->getLabel(i)) + 
+                           " | og_idx = " + std::to_string(*reg_mnist_mngr->getOriginalIndex(i)) + "\n");
   }
 
-  std::vector<torch::Tensor> w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *registered_mnist, regMem);
+  std::vector<torch::Tensor> w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *reg_mnist_mngr, regMem);
   // Label flipping for Byzantine clients
   // if (id <= N_BYZ_CLNTS) {
   //   Logger::instance().log("Client " + std::to_string(id) + " is Byzantine, flipping labels\n");
@@ -167,7 +173,7 @@ int main(int argc, char* argv[]) {
   // } 
 
   // Run the RByz client
-  RByzAux rbyz_aux(rdma_ops, *registered_mnist);
+  RByzAux rbyz_aux(rdma_ops, *reg_mnist_mngr);
   rbyz_aux.runRByzClient(w, regMem);
 
   std::cout << "\nClient done\n";

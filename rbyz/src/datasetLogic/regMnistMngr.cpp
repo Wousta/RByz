@@ -1,10 +1,10 @@
 #include "datasetLogic/regMnistMngr.hpp"
 #include "global/globalConstants.hpp"
+#include "nets/mnistNet.hpp"
 #include <vector>
 
-RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size,
-                           std::unique_ptr<NNet> net)
-    : BaseRegDatasetMngr(worker_id, num_workers, subset_size, std::move(net)),
+RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, MnistNet net)
+    : BaseRegDatasetMngr<MnistNet>(worker_id, num_workers, subset_size, net),
       test_dataset(
           torch::data::datasets::MNIST(
               kDataRoot, torch::data::datasets::MNIST::Mode::kTest)

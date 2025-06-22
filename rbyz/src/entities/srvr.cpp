@@ -14,8 +14,10 @@
 #include <vector>
 #include <chrono>
 
+#include "datasetLogic/regMnistMngr.hpp"
 #include "rc_conn.hpp"
 #include "rdma-api.hpp"
+#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "util.hpp"
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
@@ -24,6 +26,8 @@
 #include "rbyzAux.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
+#include "nets/mnistNet.hpp"
+#include "nets/cifar10Net.hpp"
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
@@ -35,7 +39,7 @@ void prepareRdmaRegistration(
     std::vector<RegInfo>& reg_info,
     RegMemSrvr &regMem,
     std::vector<ClientDataRbyz>& clnt_data_vec,
-    RegisteredMnistTrain &reg_mnist) {
+    IRegDatasetMngr &mngr) {
 
   // Configure memory registration for each client
   for (int i = 0; i < n_clients; i++) {
@@ -48,7 +52,7 @@ void prepareRdmaRegistration(
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
-    reg_info[i].addr_locs.push_back(castI(regMem.reg_mnist_data));
+    reg_info[i].addr_locs.push_back(castI(regMem.reg_data));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
@@ -61,7 +65,7 @@ void prepareRdmaRegistration(
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(reg_mnist.getRegisteredDataSize());
+    reg_info[i].data_sizes.push_back(mngr.data_info.reg_data_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 
@@ -171,16 +175,16 @@ torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates
 
 std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
                                             int n_clients,
-                                            BaseMnistTrain &mnist,
+                                            IRegDatasetMngr &mngr,
                                             RegMemSrvr &regMem,
                                             std::vector<ClientDataRbyz> &clntsData) {
-  std::vector<torch::Tensor> w = mnist.getInitialWeights();
+  std::vector<torch::Tensor> w = mngr.getInitialWeights();
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
-    mnist.testModel();
-    Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
+    mngr.runTesting();
+    Logger::instance().logRByzAcc(std::to_string(round) + " " + std::to_string(mngr.test_accuracy) + "\n");
 
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
@@ -195,7 +199,7 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
 
     // Run local training
     Logger::instance().log("Server: Running MNIST training for round " + std::to_string(round) + "\n");
-    std::vector<torch::Tensor> g = mnist.runMnistTrain(round, w);
+    std::vector<torch::Tensor> g = mngr.runTraining(round, w);
 
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH ROUND,
     // BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
@@ -221,12 +225,12 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     }
 
     // Use attacks to simulate Byzantine clients
-    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mngr.getDevice());
     clnt_updates = trim_attack(
       clnt_updates,
       GLOBAL_LEARN_RATE,
       N_BYZ_CLNTS,
-      mnist.getDevice()
+      mngr.getDevice()
     );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
@@ -240,12 +244,12 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
-    mnist.updateModelParameters(w);
+    mngr.updateModelParameters(w);
   }
 
   Logger::instance().log("FINAL FLTRUST\n");
-  mnist.updateModelParameters(w);
-  mnist.testModel();
+  mngr.updateModelParameters(w);
+  mngr.runTesting();
 
   return w;
 }
@@ -257,10 +261,10 @@ void allocateServerMemory(
     int n_clients,
     RegMemSrvr &regMem,
     std::vector<ClientDataRbyz>& clnt_data_vec,
-    RegisteredMnistTrain &reg_mnist) {
+    IRegDatasetMngr &mngr) {
 
-  size_t sample_size = reg_mnist.getSampleSize();
-  std::vector<size_t> clnts_samples_count = reg_mnist.getClientsSamplesCount();
+  size_t sample_size = mngr.data_info.get_sample_size();
+  std::vector<size_t> clnts_samples_count = mngr.getClientsSamplesCount();
 
   for (int i = 0; i < n_clients; i++) {
     // Allocate memory for client weights and metrics
@@ -277,9 +281,9 @@ void allocateServerMemory(
 
     // Calculate memory sizes for client data
     size_t num_samples = clnts_samples_count[i];
-    size_t batch_size = reg_mnist.getKTrainBatchSize();
-    const size_t values_per_sample = reg_mnist.getValuesPerSample();
-    const size_t bytes_per_value = reg_mnist.getBytesPerValue();
+    size_t batch_size = mngr.kTrainBatchSize;
+    const size_t values_per_sample = mngr.f_pass_data.values_per_sample;
+    const size_t bytes_per_value = mngr.f_pass_data.bytes_per_value;
     size_t forward_pass_mem_size = num_samples * values_per_sample * bytes_per_value;
     size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
     
@@ -325,19 +329,21 @@ int main(int argc, char *argv[]) {
   std::cout << "Server: srvr_ip = " << srvr_ip << "\n";
   std::cout << "Server: port = " << port << "\n";
 
-  // Objects for training fltrust and rbyz
-  std::unique_ptr<RegisteredMnistTrain> reg_mnist =
-    std::make_unique<RegisteredMnistTrain>(0, n_clients + 1, SRVR_SUBSET_SIZE);
+  MnistNet mnist_net;
+  Cifar10Net cifar_net;
+
+  std::unique_ptr<RegMnistMngr> reg_mnist_mngr =
+    std::make_unique<RegMnistMngr>(0, n_clients + 1, SRVR_SUBSET_SIZE, mnist_net);
 
   // Data structures for connection and data registration
   std::vector<RegInfo> reg_info(n_clients);
   std::vector<RcConn> conns(n_clients);
 
   // Data structures for server and clients registered memory
-  RegMemSrvr regMem(n_clients, *reg_mnist);
+  RegMemSrvr regMem(n_clients, *reg_mnist_mngr);
   std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
-  allocateServerMemory(n_clients, regMem, clnt_data_vec, *reg_mnist);
-  prepareRdmaRegistration(n_clients, reg_info, regMem, clnt_data_vec, *reg_mnist);
+  allocateServerMemory(n_clients, regMem, clnt_data_vec, *reg_mnist_mngr);
+  prepareRdmaRegistration(n_clients, reg_info, regMem, clnt_data_vec, *reg_mnist_mngr);
   
   // Accept connection from each client
   for (int i = 0; i < n_clients; i++) {
@@ -349,7 +355,7 @@ int main(int argc, char *argv[]) {
   auto start = std::chrono::high_resolution_clock::now();
   
   std::cout << "SRVR Running FLTrust\n";
-  std::vector<torch::Tensor> w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *reg_mnist, regMem, clnt_data_vec);
+  std::vector<torch::Tensor> w = run_fltrust_srvr(GLOBAL_ITERS_FL, n_clients, *reg_mnist_mngr, regMem, clnt_data_vec);
   // auto end = std::chrono::high_resolution_clock::now();
   // Logger::instance().log("Total time taken: " +
   //                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end - start).count()) +
@@ -358,9 +364,9 @@ int main(int argc, char *argv[]) {
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
   Logger::instance().log("Initial test of the model before RByz\n");
-  reg_mnist->testModel();
+  reg_mnist_mngr->runTesting();
 
-  RByzAux rbyz_aux(rdma_ops, *reg_mnist);
+  RByzAux rbyz_aux(rdma_ops, *reg_mnist_mngr);
   rbyz_aux.runRByzServer(n_clients, w, regMem, clnt_data_vec);
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -369,7 +375,7 @@ int main(int argc, char *argv[]) {
                          " seconds\n");
 
   // Test the model after training
-  reg_mnist->testModel();
+  reg_mnist_mngr->runTesting();
 
   for (RcConn conn : conns) {
     conn.disconnect();

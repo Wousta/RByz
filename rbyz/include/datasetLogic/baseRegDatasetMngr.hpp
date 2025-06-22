@@ -1,7 +1,9 @@
 #pragma once
 
 #include "datasetLogic/subsetSampler.hpp"
-#include "nets/nnet.hpp"
+#include "nets/cifar10Net.hpp"
+#include "nets/mnistNet.hpp"
+#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "structs.hpp"
 
 #include <ATen/core/TensorBody.h>
@@ -9,55 +11,70 @@
 #include <future>
 #include <vector>
 
-class BaseRegDatasetMngr {
+template<typename NetType>
+class BaseRegDatasetMngr : public IRegDatasetMngr {
 public:
-  const int worker_id;
-  const int num_workers;
-  const int64_t subset_size;
-  const int64_t kTrainBatchSize = 32;
-  const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 2;
-  const int64_t kLogInterval = 10;
-  size_t test_dataset_size;
-  float loss;
-  float test_loss;
-  float error_rate;
-  float train_accuracy = 0.0; // Initialize train accuracy
-  float test_accuracy = 0.0;  // Initialize test accuracy
-  RegTrainData data_info;
-  ForwardPassData f_pass_data;
 
-  BaseRegDatasetMngr(int worker_id, int num_workers, int64_t subset_size,
-                     std::unique_ptr<NNet> net);
+  BaseRegDatasetMngr(int worker_id, int num_workers, int64_t subset_size, NetType net);
   virtual ~BaseRegDatasetMngr();
 
   virtual std::vector<torch::Tensor>
-  runTraining(int round, const std::vector<torch::Tensor> &w) = 0;
-  virtual void runInference(std::vector<torch::Tensor> &w) = 0;
-  virtual void runTesting() = 0;
-  virtual void runInference(const std::vector<torch::Tensor> &w) = 0;
-  std::vector<size_t> getClientsSamplesCount(
-      const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices);
+  runTraining(int round, const std::vector<torch::Tensor> &w) override = 0;
+  virtual void runTesting() override = 0;
+  virtual void runInference(const std::vector<torch::Tensor> &w) override = 0;
+
+  std::vector<size_t> getClientsSamplesCount() override;
   std::vector<torch::Tensor>
-  updateModelParameters(const std::vector<torch::Tensor> &w);
+  updateModelParameters(const std::vector<torch::Tensor> &w) override;
+  std::vector<torch::Tensor> getInitialWeights() override;
+  torch::Device getDevice() override { return device; }
+  const NetType &getModel() const { return model; }
 
-  std::vector<torch::Tensor> getInitialWeights();
-  torch::Device getDevice() { return device; }
-  const NNet &getModel() const { return *model; }
-
+  // Label flipping attacks
+  void flipLabelsRandom(float flip_ratio, std::mt19937 &rng) override;
+  void flipLabelsTargeted(int source_label, int target_label, float flip_ratio,
+                          std::mt19937 &rng) override;
+  std::vector<size_t> findSamplesWithLabel(int label) override;
 
   // Getters for specific sample data
-  uint64_t getSampleOffset(size_t image_idx);
-  void* getSample(size_t image_idx);
-  uint32_t* getOriginalIndex(size_t image_idx);
-  int64_t* getLabel(size_t image_idx);
-  float* getImage(size_t image_idx);
+  inline uint64_t getSampleOffset(size_t image_idx) override {
+    if (image_idx >= data_info.num_samples) {
+      throw std::out_of_range(
+          "Image index out of range in RegisteredMnistTrain::getSampleOffset()");
+    }
+    return image_idx * data_info.get_sample_size();
+  }
+
+  inline void *getSample(size_t image_idx) override {
+    if (image_idx >= data_info.num_samples) {
+      throw std::out_of_range(
+          "Image index " + std::to_string(image_idx) +
+          " out of range in RegisteredMnistTrain::getSample()");
+    }
+
+    return getBasePointerForIndex(image_idx);
+  }
+
+  inline uint32_t *getOriginalIndex(size_t image_idx) override {
+    return reinterpret_cast<uint32_t *>(getBasePointerForIndex(image_idx));
+  }
+
+  inline int64_t *getLabel(size_t image_idx) override {
+    return reinterpret_cast<int64_t *>(getBasePointerForIndex(image_idx) +
+                                      data_info.index_size);
+  }
+
+  inline float *getImage(size_t image_idx) override {
+    return reinterpret_cast<float *>(getBasePointerForIndex(image_idx) +
+                                    data_info.index_size + data_info.label_size);
+  }
 
 protected:
   const char *kDataRoot = "./data";
+  std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
   size_t forward_pass_size;
   size_t error_start;
-  std::unique_ptr<NNet> model;
+  NetType model;
   torch::Device device;
   cudaStream_t memcpy_stream_A; // Stream for async memcpy
   cudaStream_t memcpy_stream_B; // Stream for async memcpy
@@ -104,3 +121,6 @@ protected:
     return static_cast<char*>(data_info.reg_data) + (image_idx * data_info.get_sample_size());
   }
 };
+
+extern template class BaseRegDatasetMngr<MnistNet>;
+extern template class BaseRegDatasetMngr<Cifar10Net>;

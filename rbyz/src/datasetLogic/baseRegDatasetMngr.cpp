@@ -5,10 +5,10 @@
 #include <cstddef>
 #include <random>
 
-BaseRegDatasetMngr::BaseRegDatasetMngr(int worker_id, int num_workers,
-                                       int64_t subset_size,
-                                       std::unique_ptr<NNet> net)
-    : worker_id(worker_id), num_workers(num_workers), subset_size(subset_size),
+template <typename NetType>
+BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, int num_workers,
+                                                int64_t subset_size, NetType net)
+    : IRegDatasetMngr(worker_id, num_workers, subset_size),
       model(std::move(net)), device(init_device()) {
   torch::manual_seed(1);
   model->to(device);
@@ -19,7 +19,12 @@ BaseRegDatasetMngr::BaseRegDatasetMngr(int worker_id, int num_workers,
   }
 }
 
-BaseRegDatasetMngr::~BaseRegDatasetMngr() {
+template <typename NetType> BaseRegDatasetMngr<NetType>::~BaseRegDatasetMngr() {
+  if (pending_forward_pass.load()) {
+    Logger::instance().log("Waiting for pending forward pass processing in destructor\n");
+    forward_pass_future.wait();
+  }
+
   if (device.is_cuda()) {
     cudaError_t err_A, err_B;
     err_A = cudaStreamDestroy(memcpy_stream_A);
@@ -32,10 +37,16 @@ BaseRegDatasetMngr::~BaseRegDatasetMngr() {
       std::cerr << "Error destroying stream B: " << cudaGetErrorString(err_B)
                 << std::endl;
     }
+
+    cudaFreeHost(data_info.reg_data);
+    cudaFreeHost(f_pass_data.forward_pass);
+    cudaFreeHost(f_pass_data.forward_pass_indices);
+    Logger::instance().log("Freed Cuda registered memory for dataset\n");
   }
 }
 
-torch::Device BaseRegDatasetMngr::init_device() {
+template <typename NetType>
+torch::Device BaseRegDatasetMngr<NetType>::init_device() {
   try {
     if (torch::cuda::is_available()) {
       Logger::instance().log("CUDA is available, using GPU\n");
@@ -51,7 +62,8 @@ torch::Device BaseRegDatasetMngr::init_device() {
   }
 }
 
-std::vector<torch::Tensor> BaseRegDatasetMngr::getInitialWeights() {
+template <typename NetType>
+std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::getInitialWeights() {
   std::vector<torch::Tensor> initialWeights;
   for (const auto &param : model->parameters()) {
     // Must be at CPU at the beginning
@@ -64,7 +76,8 @@ std::vector<torch::Tensor> BaseRegDatasetMngr::getInitialWeights() {
   return initialWeights;
 }
 
-std::vector<torch::Tensor> BaseRegDatasetMngr::calculateUpdateCuda(
+template <typename NetType>
+std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCuda(
     const std::vector<torch::Tensor> &w_cuda) {
   std::vector<torch::Tensor> params = model->parameters();
   std::vector<torch::Tensor> result;
@@ -86,8 +99,9 @@ std::vector<torch::Tensor> BaseRegDatasetMngr::calculateUpdateCuda(
   return result;
 }
 
-std::vector<torch::Tensor>
-BaseRegDatasetMngr::calculateUpdateCPU(const std::vector<torch::Tensor> &w) {
+template <typename NetType>
+std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCPU(
+    const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> result;
   size_t param_count = w.size();
   result.reserve(param_count);
@@ -104,8 +118,9 @@ BaseRegDatasetMngr::calculateUpdateCPU(const std::vector<torch::Tensor> &w) {
   return result;
 }
 
+template <typename NetType>
 template <typename DataLoader>
-void BaseRegDatasetMngr::test(DataLoader &data_loader) {
+void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
   torch::NoGradGuard no_grad;
   model->eval();
   double test_loss = 0;
@@ -125,7 +140,7 @@ void BaseRegDatasetMngr::test(DataLoader &data_loader) {
 
   test_loss /= total_samples;  // Use actual samples processed
   this->test_loss = test_loss; // Store for later use
-  this->train_accuracy =
+  this->test_accuracy =
       static_cast<float>(correct) / total_samples; // Store train accuracy
 
   std::ostringstream oss;
@@ -137,9 +152,11 @@ void BaseRegDatasetMngr::test(DataLoader &data_loader) {
   Logger::instance().log("  Testing done\n");
 }
 
+template <typename NetType>
 template <typename DataLoader>
-void BaseRegDatasetMngr::train(size_t epoch, torch::optim::Optimizer &optimizer,
-                               DataLoader &data_loader) {
+void BaseRegDatasetMngr<NetType>::train(size_t epoch,
+                                        torch::optim::Optimizer &optimizer,
+                                        DataLoader &data_loader) {
   Logger::instance().log("  RegTraining model for epoch " +
                          std::to_string(epoch) + "\n");
 
@@ -268,8 +285,9 @@ void BaseRegDatasetMngr::train(size_t epoch, torch::optim::Optimizer &optimizer,
   pending_forward_pass.store(true);
 }
 
-std::vector<torch::Tensor>
-BaseRegDatasetMngr::updateModelParameters(const std::vector<torch::Tensor> &w) {
+template <typename NetType>
+std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
+    const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> params = model->parameters();
   size_t param_count = params.size();
   std::vector<torch::Tensor> w_cuda;
@@ -297,9 +315,10 @@ BaseRegDatasetMngr::updateModelParameters(const std::vector<torch::Tensor> &w) {
   }
 }
 
+template <typename NetType>
 template <typename DataLoader>
-void BaseRegDatasetMngr::runInferenceBase(const std::vector<torch::Tensor> &w,
-                                          DataLoader &data_loader) {
+void BaseRegDatasetMngr<NetType>::runInferenceBase(
+    const std::vector<torch::Tensor> &w, DataLoader &data_loader) {
   // Wait for any pending forward pass processing
   if (pending_forward_pass.load()) {
     Logger::instance().log(
@@ -391,8 +410,8 @@ void BaseRegDatasetMngr::runInferenceBase(const std::vector<torch::Tensor> &w,
                          ", Total samples: " + std::to_string(total) + "\n");
 }
 
-std::vector<size_t> BaseRegDatasetMngr::getClientsSamplesCount(
-    const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices) {
+template <typename NetType>
+std::vector<size_t> BaseRegDatasetMngr<NetType>::getClientsSamplesCount() {
   Logger::instance().log("Getting samples count for each client\n");
   int num_clients = num_workers - 1; // Exclude server
   std::vector<size_t> samples_count(num_clients, 0);
@@ -436,7 +455,8 @@ std::vector<size_t> BaseRegDatasetMngr::getClientsSamplesCount(
   return samples_count;
 }
 
-SubsetSampler BaseRegDatasetMngr::get_subset_sampler(
+template <typename NetType>
+SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
     int worker_id_arg, size_t dataset_size_arg, int64_t subset_size_arg,
     const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices) {
 
@@ -489,7 +509,8 @@ SubsetSampler BaseRegDatasetMngr::get_subset_sampler(
   return SubsetSampler(worker_indices);
 }
 
-void BaseRegDatasetMngr::processForwardPassConcurrent(
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::processForwardPassConcurrent(
     ForwardPassBuffer buffer) {
   assert(buffer.outputs.size() == buffer.losses.size() &&
          "Outputs and losses vectors must have the same size");
@@ -516,7 +537,8 @@ void BaseRegDatasetMngr::processForwardPassConcurrent(
  * sample in the batch.
  * @param curr_idx Reference to the current index in the forward_pass buffer.
  */
-void BaseRegDatasetMngr::processBatchResults(
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::processBatchResults(
     const torch::Tensor &output, const torch::Tensor &targets,
     const torch::Tensor &individual_losses, size_t &curr_idx) {
 
@@ -579,7 +601,8 @@ void BaseRegDatasetMngr::processBatchResults(
   }
 }
 
-void BaseRegDatasetMngr::processForwardPass(ForwardPassBuffer buffer) {
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::processForwardPass(ForwardPassBuffer buffer) {
   assert(buffer.outputs.size() == buffer.losses.size() &&
          "Outputs and losses vectors must have the same size");
 
@@ -591,39 +614,9 @@ void BaseRegDatasetMngr::processForwardPass(ForwardPassBuffer buffer) {
   }
 }
 
-uint64_t BaseRegDatasetMngr::getSampleOffset(size_t image_idx) {
-  if (image_idx >= data_info.num_samples) {
-    throw std::out_of_range(
-        "Image index out of range in RegisteredMnistTrain::getSampleOffset()");
-  }
-  return image_idx * data_info.get_sample_size();
-}
-
-void *BaseRegDatasetMngr::getSample(size_t image_idx) {
-  if (image_idx >= data_info.num_samples) {
-    throw std::out_of_range(
-        "Image index " + std::to_string(image_idx) +
-        " out of range in RegisteredMnistTrain::getSample()");
-  }
-
-  return getBasePointerForIndex(image_idx);
-}
-
-uint32_t *BaseRegDatasetMngr::getOriginalIndex(size_t image_idx) {
-  return reinterpret_cast<uint32_t *>(getBasePointerForIndex(image_idx));
-}
-
-int64_t *BaseRegDatasetMngr::getLabel(size_t image_idx) {
-  return reinterpret_cast<int64_t *>(getBasePointerForIndex(image_idx) +
-                                     data_info.index_size);
-}
-
-float *BaseRegDatasetMngr::getImage(size_t image_idx) {
-  return reinterpret_cast<float *>(getBasePointerForIndex(image_idx) +
-                                   data_info.index_size + data_info.label_size);
-}
-
-void BaseRegDatasetMngr::initDataInfo(const std::vector<size_t> &indices, int img_size) {
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::initDataInfo(
+    const std::vector<size_t> &indices, int img_size) {
   data_info.num_samples = indices.size();
   data_info.image_size = img_size * sizeof(float);
   data_info.reg_data_size = indices.size() * data_info.get_sample_size();
@@ -656,7 +649,105 @@ void BaseRegDatasetMngr::initDataInfo(const std::vector<size_t> &indices, int im
   inference_buffer.targets.reserve(num_batches);
   inference_buffer.losses.reserve(num_batches);
 
-  Logger::instance().log("registered_samples: " + std::to_string(indices.size()) + "\n");
+  Logger::instance().log(
+      "registered_samples: " + std::to_string(indices.size()) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " +
                          std::to_string(data_info.reg_data_size) + " bytes\n");
 }
+
+
+//////////////////////// LABEL FLIPPING ATTCKS ////////////////////////
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio, std::mt19937& rng) {
+    if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
+        throw std::invalid_argument("Flip ratio must be between 0 and 1");
+    }
+    
+    size_t num_to_flip = static_cast<size_t>(data_info.num_samples * flip_ratio);
+    std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
+    std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+    
+    std::unordered_set<size_t> flipped_indices;
+    
+    Logger::instance().log("Starting random label flipping attack: " + 
+                          std::to_string(num_to_flip) + " samples (" + 
+                          std::to_string(flip_ratio * 100) + "%)\n");
+    
+    while (flipped_indices.size() < num_to_flip) {
+        size_t idx = sample_dist(rng);
+        if (flipped_indices.find(idx) == flipped_indices.end()) {
+            int64_t* label_ptr = getLabel(idx);
+            int64_t original_label = *label_ptr;
+            
+            // Generate a different label
+            int64_t new_label;
+            do {
+                new_label = label_dist(rng);
+            } while (new_label == original_label);
+            
+            *label_ptr = new_label;
+            flipped_indices.insert(idx);
+        }
+    }
+    
+    Logger::instance().log("Random label flipping completed\n");
+}
+
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label, int target_label, 
+                                            float flip_ratio, std::mt19937& rng) {
+    if (source_label < 0 || source_label > 9 || target_label < 0 || target_label > 9) {
+        throw std::invalid_argument("Labels must be between 0 and 9 for MNIST");
+    }
+    
+    if (source_label == target_label) {
+        throw std::invalid_argument("Source and target labels must be different");
+    }
+    
+    // Find all samples with the source label
+    std::vector<size_t> source_indices = findSamplesWithLabel(source_label);
+    
+    if (source_indices.empty()) {
+        Logger::instance().log("No samples found with source label " + 
+                              std::to_string(source_label) + "\n");
+        return;
+    }
+    
+    size_t num_to_flip = static_cast<size_t>(source_indices.size() * flip_ratio);
+    
+    Logger::instance().log("Starting targeted label flipping attack: " + 
+                          std::to_string(source_label) + " -> " + 
+                          std::to_string(target_label) + " (" + 
+                          std::to_string(num_to_flip) + " samples)\n");
+    
+    // Randomly select which source samples to flip
+    std::shuffle(source_indices.begin(), source_indices.end(), rng);
+    
+    for (size_t i = 0; i < num_to_flip && i < source_indices.size(); ++i) {
+        size_t idx = source_indices[i];
+        *getLabel(idx) = target_label;
+    }
+    
+    Logger::instance().log("Targeted label flipping completed\n");
+}
+
+template <typename NetType>
+std::vector<size_t> BaseRegDatasetMngr<NetType>::findSamplesWithLabel(int label) {
+    std::vector<size_t> indices;
+    indices.reserve(data_info.num_samples / 10); // Rough estimate for MNIST
+    
+    for (size_t i = 0; i < data_info.num_samples; ++i) {
+        if (*getLabel(i) == label) {
+            indices.push_back(i);
+        }
+    }
+    
+    return indices;
+}
+
+// Explicit template instantiation for the types we need
+#include "nets/cifar10Net.hpp"
+#include "nets/mnistNet.hpp"
+
+template class BaseRegDatasetMngr<MnistNet>;
+template class BaseRegDatasetMngr<Cifar10Net>;

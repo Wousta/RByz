@@ -1,6 +1,7 @@
 #pragma once
 
 #include "datasetLogic/baseRegDatasetMngr.hpp"
+#include "nets/mnistNet.hpp"
 #include "registeredMNIST.hpp"
 
 #include <memory>
@@ -11,14 +12,13 @@
  * Memory layout per sample:
  * [1 uint32_t (original index)][1 int64_t (label)][784 floats (pixels)]
  */
-class RegMnistMngr : public BaseRegDatasetMngr {
+class RegMnistMngr : public BaseRegDatasetMngr<MnistNet> {
 private:
   const int IMG_SIZE = 28 * 28; // Size of MNIST image in pixels
 
   using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> registered_loader;
   std::unique_ptr<RegisteredMNIST> registered_dataset;
-  std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
 
   using DatasetType =
       decltype(torch::data::datasets::MNIST(kDataRoot)
@@ -36,9 +36,8 @@ private:
   void buildRegisteredDataset(const std::vector<size_t> &indices);
 
 public:
-  RegMnistMngr(int worker_id, int num_workers, int64_t subset_size,
-               std::unique_ptr<NNet> net);
-  ~RegMnistMngr() override;
+  RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, MnistNet net);
+  ~RegMnistMngr() = default;
 
   std::vector<torch::Tensor> runTraining(int round, const std::vector<torch::Tensor> &w) override;
 

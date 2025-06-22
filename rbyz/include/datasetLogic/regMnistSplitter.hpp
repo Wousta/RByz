@@ -22,7 +22,7 @@ class RegMnistSplitter {
     const int sgl_size;
     uint32_t chunk_size;
     int vd_test_size;
-    RegisteredMnistTrain& mnist;
+    IRegDatasetMngr& mngr;
     std::vector<ClientDataRbyz>& clnt_data_vec;
     std::vector<std::vector<size_t>> vd_indexes;              // Vector of indices for the start of each VD
     std::vector<size_t> clnt_chunks;                          // Vector of offsets for the clients till n-1
@@ -34,8 +34,8 @@ class RegMnistSplitter {
     std::mt19937 rng;
 
     public:
-    RegMnistSplitter(int sgl_size, RegisteredMnistTrain& mnist, std::vector<ClientDataRbyz>& clnt_data_vec)
-        : n_clients(clnt_data_vec.size()), sgl_size(sgl_size), mnist(mnist), clnt_data_vec(clnt_data_vec),  
+    RegMnistSplitter(int sgl_size, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
+        : n_clients(clnt_data_vec.size()), sgl_size(sgl_size), mngr(mngr), clnt_data_vec(clnt_data_vec),  
           vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
           rng((static_cast<unsigned int>(std::time(nullptr)))) {
 
@@ -44,7 +44,7 @@ class RegMnistSplitter {
         }
 
         // Split the server registered data into n_clients VDs
-        size_t vd_size = mnist.getNumSamples() / n_clients;
+        size_t vd_size = mngr.data_info.num_samples / n_clients;
 
         Logger::instance().log("Splitting registered dataset into " + std::to_string(n_clients) + " VDs of size " + std::to_string(vd_size) + "\n");
 
@@ -53,7 +53,7 @@ class RegMnistSplitter {
             size_t end_idx;
 
             if (i == n_clients - 1) {
-                end_idx = mnist.getNumSamples();
+                end_idx = mngr.data_info.num_samples;
             } else {
                 end_idx = (i + 1) * vd_size;
             }
@@ -78,13 +78,14 @@ class RegMnistSplitter {
                                      " VD split size: " + std::to_string(vd_test_size));
         }
 
-        size_t num_samples_clnt = clnt_data_vec[0].dataset_size / mnist.getSampleSize();
-        size_t num_samples_last_clnt = clnt_data_vec.back().dataset_size / mnist.getSampleSize();
+        size_t sample_size = mngr.data_info.get_sample_size();
+        size_t num_samples_clnt = clnt_data_vec[0].dataset_size /sample_size;
+        size_t num_samples_last_clnt = clnt_data_vec.back().dataset_size / sample_size;
         double chunks_proportion = vd_test_size / static_cast<double>(num_samples_clnt);
         double chunks_proportion_last = vd_test_size / static_cast<double>(num_samples_last_clnt);
 
         // chunks will be the size of two SGLs, (Scatter Gather Lists)
-        chunk_size = mnist.getSampleSize() * sgl_size;
+        chunk_size = sample_size * sgl_size;
 
         size_t total_offsets = clnt_data_vec[0].dataset_size / chunk_size;
         size_t total_offsets_last = clnt_data_vec.back().dataset_size / chunk_size;

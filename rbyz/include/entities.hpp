@@ -1,4 +1,7 @@
 #pragma once
+#include "datasetLogic/baseRegDatasetMngr.hpp"
+#include "datasetLogic/iRegDatasetMngr.hpp"
+#include "global/globalConstants.hpp"
 #include <atomic>
 #include <vector>
 
@@ -16,15 +19,15 @@ public:
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   std::vector<float *> clnt_loss_and_err;
-  void* reg_mnist_data;
+  void* reg_data;
 
-  RegMemSrvr(int n_clients, RegisteredMnistTrain &reg_mnist)
+  RegMemSrvr(int n_clients, IRegDatasetMngr &manager)
       : srvr_w(reinterpret_cast<float *>(malloc(REG_SZ_DATA))),
         n_clients(n_clients),
         clnt_ready_flags(n_clients, 0),
         clnt_ws(n_clients),
         clnt_loss_and_err(n_clients),
-        reg_mnist_data(reg_mnist.getRegisteredData()) {}
+        reg_data(manager.data_info.reg_data) {}
 
   ~RegMemSrvr() {
     free(srvr_w);

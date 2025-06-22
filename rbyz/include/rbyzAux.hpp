@@ -1,22 +1,17 @@
 #pragma once
 
+#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "rdmaOps.hpp"
-#include "datasetLogic/baseMnistTrain.hpp"
-#include "datasetLogic/registeredMnistTrain.hpp"
 #include "datasetLogic/regMnistSplitter.hpp"
-#include "logger.hpp"
-#include "global/globalConstants.hpp"
 #include "entities.hpp"
-#include <atomic>
 #include <vector>
-#include <thread>
 #include <float.h>
 
 
 class RByzAux {
 private:
     RdmaOps& rdma_ops;
-    RegisteredMnistTrain& mnist;
+    IRegDatasetMngr& mngr;
     std::vector<std::vector<int64_t>> step_times = {{1699}, {1780}, {1702}, {1778}, {1703}, {1779}, {1703}, {1779}, {1702}, {1782}};
 
     void updateTS(
@@ -41,8 +36,8 @@ private:
     void runBenchMark(std::vector<ClientDataRbyz>& clnt_data_vec);
 
 public:
-    RByzAux(RdmaOps& rdma_ops, RegisteredMnistTrain& mnist)
-        : rdma_ops(rdma_ops), mnist(mnist) {}
+    RByzAux(RdmaOps& rdma_ops, IRegDatasetMngr& mngr)
+        : rdma_ops(rdma_ops), mngr(mngr) {}
 
     RByzAux() = delete;
     

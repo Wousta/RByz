@@ -152,7 +152,7 @@ void RByzAux::writeServerVD(RegMnistSplitter& splitter,
         }
         size_t srvr_sample_idx = srvr_indices[srvr_idx++];
         clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx);
-        uint64_t sample_offset = mnist.getSampleOffset(srvr_sample_idx);
+        uint64_t sample_offset = mngr.getSampleOffset(srvr_sample_idx);
         local_info.indices.push_back(REG_DATASET_IDX);
         local_info.offs.push_back(sample_offset);
       }
@@ -166,16 +166,16 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
   // Compare the output of the forward pass with the server's output
   float* clnt_out = clnt_data.forward_pass;
   uint32_t* clnt_indices = clnt_data.forward_pass_indices;
-  float* srvr_out = mnist.getForwardPass();
-  uint32_t* srvr_indices = mnist.getForwardPassIndices();
+  float* srvr_out = mngr.f_pass_data.forward_pass;
+  uint32_t* srvr_indices = mngr.f_pass_data.forward_pass_indices;
   size_t clnt_forward_pass_size = clnt_data.forward_pass_mem_size / sizeof(float);
   
   size_t clnt_num_indices = clnt_data.forward_pass_indices_mem_size / sizeof(uint32_t);
-  size_t srvr_num_indices = mnist.getForwardPassIndicesMemSize() / sizeof(uint32_t);
+  size_t srvr_num_indices = mngr.f_pass_data.forward_pass_indices_mem_size / sizeof(uint32_t);
   size_t clnt_error_start = clnt_forward_pass_size / 2;
   
   // Calculate server error start position
-  size_t srvr_forward_pass_size = mnist.getForwardPassMemSize() / sizeof(float);
+  size_t srvr_forward_pass_size = mngr.f_pass_data.forward_pass_mem_size / sizeof(float);
   size_t srvr_error_start = srvr_forward_pass_size / 2;
 
   // Divided by two because forward pass output contains both loss and error rate
@@ -186,7 +186,7 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
   // get the original indices of the inserted samples
   std::unordered_set<uint32_t> inserted_indices_set;
   for(size_t srvr_idx : clnt_data.inserted_indices) {
-    inserted_indices_set.insert(*mnist.getOriginalIndex(srvr_idx));
+    inserted_indices_set.insert(*mngr.getOriginalIndex(srvr_idx));
   }
 
   if (inserted_indices_set.size() != clnt_data.inserted_indices.size()) {
@@ -321,13 +321,13 @@ void RByzAux::runRByzServer(int n_clients,
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
-  RegMnistSplitter splitter(1, mnist, clnt_data_vec);
+  RegMnistSplitter splitter(1, mngr, clnt_data_vec);
   
   // RBYZ training loop
   for (int round = 0; round < GLOBAL_ITERS_RBYZ; round++) {
     Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
 
-    mnist.testModel();
+    mngr.runTesting();
 
     auto flat_w = flatten_tensor_vector(w);
     size_t total_bytes = flat_w.numel() * sizeof(float);
@@ -349,7 +349,7 @@ void RByzAux::runRByzServer(int n_clients,
       Logger::instance().log("  Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
 
       // Log accuracy and round to Results
-      Logger::instance().logRByzAcc(std::to_string(total_steps) + " " + std::to_string(mnist.getTestAccuracy()) + "\n");
+      Logger::instance().logRByzAcc(std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
       total_steps++;
 
       for (ClientDataRbyz& clnt_data : clnt_data_vec) {
@@ -484,7 +484,7 @@ void RByzAux::runRByzServer(int n_clients,
 
     // Use attacks to simulate Byzantine clients
     //clnt_updates = trim_attack(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
+    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mngr.getDevice());
 
     // Aggregation
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
@@ -494,7 +494,7 @@ void RByzAux::runRByzServer(int n_clients,
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
     }
-    mnist.updateModelParameters(w);
+    mngr.updateModelParameters(w);
 
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
@@ -524,8 +524,8 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     if (regMem.round.load() == 2) {
       Logger::instance().log("POST: first mnist samples\n");
       for (int i = 0; i < 5; i++) {
-        Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*mnist.getLabel(i)) + 
-                              " | og_idx = " + std::to_string(*mnist.getOriginalIndex(i)) + "\n");
+        Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*mngr.getLabel(i)) + 
+                              " | og_idx = " + std::to_string(*mngr.getOriginalIndex(i)) + "\n");
       }
     }
 
@@ -552,7 +552,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
       int step = regMem.local_step.load();
       Logger::instance().log(" ...... Client: Running step " + std::to_string(step) + " of RByz in round " + std::to_string(regMem.round.load()) + "\n");
 
-      w = mnist.runMnistTrain(step, w);
+      w = mngr.runTraining(step, w);
       regMem.local_step.store(step + 1);
       // auto end = std::chrono::high_resolution_clock::now();
       // std::string time = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
@@ -570,7 +570,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
 
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
-    mnist.testModel();
+    mngr.runTesting();
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load() - 1) + " completed ////////////////\n");
   }
 
