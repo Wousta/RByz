@@ -82,6 +82,7 @@ file(APPEND ${UNITY_SRC} "#include \"../include/datasetLogic/subsetSampler.hpp\"
 file(APPEND ${UNITY_SRC} "#include \"../include/datasetLogic/registeredMNIST.hpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseMnistTrain.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseRegDatasetMngr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regMnistMngr.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/registeredMnistTrain.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rbyzAux.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rdmaOps.cpp\"\n")

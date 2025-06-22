@@ -2,7 +2,9 @@
 #include "logger.hpp"
 #include "tensorOps.hpp"
 
+#include <ATen/core/TensorBody.h>
 #include <random>
+#include <vector>
 
 BaseMnistTrain::BaseMnistTrain(int worker_id, int num_workers, int64_t subset_size)
     : worker_id(worker_id),
@@ -75,7 +77,8 @@ std::vector<torch::Tensor> BaseMnistTrain::getInitialWeights() {
 
 SubsetSampler BaseMnistTrain::get_subset_sampler(int worker_id_arg,
                                                 size_t dataset_size_arg,
-                                                int64_t subset_size_arg) {
+                                                int64_t subset_size_arg,
+                                                const std::unordered_map<int64_t, std::vector<size_t>>& label_to_indices) {
 
   // Allocate indices to workers
   float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / dataset_size_arg;
@@ -289,3 +292,5 @@ template void BaseMnistTrain::test<torch::data::StatelessDataLoader<BaseMnistTra
     torch::Device,
     torch::data::StatelessDataLoader<BaseMnistTrain::DatasetType, torch::data::samplers::RandomSampler>&,
     size_t);
+
+    

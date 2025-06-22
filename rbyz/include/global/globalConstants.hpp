@@ -13,6 +13,8 @@ inline constexpr double GLOBAL_TARGET_ACCURACY = 0.96;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 inline constexpr int FLTRUST_END = -3;  
 inline constexpr int SGL_SIZE = 2;  
+inline constexpr bool MNIST = true;  
+inline constexpr bool CIFAR10 = false;  
 
 // RBYZ
 inline constexpr int GLOBAL_ITERS_RBYZ = 10;

@@ -1,4 +1,5 @@
 #include "rbyzAux.hpp"
+#include "attacks.hpp"
 #include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
@@ -226,6 +227,12 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
       srvr_loss_total += srvr_out[srvr_i];
       clnt_error_total += clnt_out[clnt_error_start + i];
       srvr_error_total += srvr_out[srvr_error_start + srvr_i];
+
+      if (processed_samples == 0 && clnt_data.index == 0) {
+        Logger::instance().log("Processing first sample of client 0: idx " + std::to_string(clnt_idx) + 
+                              " loss: " + std::to_string(clnt_loss_total) + 
+                              " error: " + std::to_string(clnt_error_total) + "\n");
+      }
 
       processed_samples++;
       

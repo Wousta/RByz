@@ -2,9 +2,9 @@
 
 #include "nnet.hpp"
 
-class MnistNet : public NNet {
+class MnistNetImpl : public NNet {
 public:
-  MnistNet() 
+  MnistNetImpl() 
         : conv1(torch::nn::Conv2dOptions(1, 10, /*kernel_size=*/5)),
         conv2(torch::nn::Conv2dOptions(10, 20, /*kernel_size=*/5)),
         fc1(320, 50),

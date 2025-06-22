@@ -16,16 +16,16 @@
 #include "logger.hpp"
 #include "tensorOps.hpp"
 
-RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64_t subset_size)
+RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64_t subset_size, bool dataset_type)
     : BaseMnistTrain(worker_id, num_workers, subset_size) {
 
-  auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
-  SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE, subset_size);
+  SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE, subset_size, label_to_indices);
   auto& indices = train_sampler.indices();
 
   // Initialize data info
   num_samples = indices.size();
-  reg_data_size = indices.size() * sample_size;
+  data_info.image_size = 784 * sizeof(float);          // 28x28 = 784 is the size of an image in MNIST dataset
+  reg_data_size = indices.size() * data_info.get_sample_size();
   forward_pass_mem_size = num_samples * forward_pass_info.values_per_sample * forward_pass_info.bytes_per_value;
   forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
   forward_pass_size = forward_pass_mem_size / forward_pass_info.bytes_per_value;
@@ -52,6 +52,7 @@ RegisteredMnistTrain::RegisteredMnistTrain(int worker_id, int num_workers, int64
                          std::to_string(reg_data_size) + " bytes\n");
 
   // Copy data from the original dataset to the registered memory
+  auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
   std::unordered_map<size_t, size_t> index_map;
   index_map.reserve(indices.size());
 
@@ -103,7 +104,7 @@ uint64_t RegisteredMnistTrain::getSampleOffset(size_t image_idx) {
   if (image_idx >= num_samples) {
     throw std::out_of_range("Image index out of range in RegisteredMnistTrain::getSampleOffset()");
   }
-  return image_idx * sample_size;
+  return image_idx * data_info.get_sample_size();
 }
 
 void* RegisteredMnistTrain::getSample(size_t image_idx) {
