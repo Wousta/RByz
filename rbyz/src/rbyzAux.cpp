@@ -1,6 +1,5 @@
 #include "rbyzAux.hpp"
 #include "attacks.hpp"
-#include "datasetLogic/registeredMnistTrain.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 #include "tensorOps.hpp"

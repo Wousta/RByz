@@ -2,10 +2,7 @@
 #pragma once
 
 #include "rc_conn.hpp"
-#include "rdma-api.hpp"
 #include "util.hpp"
-#include "tensorOps.hpp"
-#include "datasetLogic/registeredMnistTrain.hpp"
 
 #include <vector>
 

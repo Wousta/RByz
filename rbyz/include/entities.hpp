@@ -1,5 +1,4 @@
 #pragma once
-#include "datasetLogic/baseRegDatasetMngr.hpp"
 #include "datasetLogic/iRegDatasetMngr.hpp"
 #include "global/globalConstants.hpp"
 #include <atomic>

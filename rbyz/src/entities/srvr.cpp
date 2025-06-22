@@ -6,9 +6,7 @@
 #include <ctime>
 #include <iostream>
 #include <lyra/lyra.hpp>
-#include <numeric>
 #include <random>
-#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -16,13 +14,10 @@
 
 #include "datasetLogic/regMnistMngr.hpp"
 #include "rc_conn.hpp"
-#include "rdma-api.hpp"
 #include "datasetLogic/iRegDatasetMngr.hpp"
 #include "util.hpp"
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
-#include "datasetLogic/registeredMnistTrain.hpp"
-#include "datasetLogic/baseMnistTrain.hpp"
 #include "rbyzAux.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"

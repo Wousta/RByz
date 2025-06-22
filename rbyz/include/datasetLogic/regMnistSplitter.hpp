@@ -1,8 +1,6 @@
 #pragma once
 
-#include "registeredMnistTrain.hpp"
 #include "logger.hpp"
-#include "global/globalConstants.hpp"
 #include "entities.hpp"
 
 #include <ctime>
