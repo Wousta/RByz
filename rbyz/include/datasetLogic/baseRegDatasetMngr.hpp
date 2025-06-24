@@ -1,9 +1,9 @@
 #pragma once
 
+#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "datasetLogic/subsetSampler.hpp"
 #include "nets/cifar10Net.hpp"
 #include "nets/mnistNet.hpp"
-#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "structs.hpp"
 
 #include <ATen/core/TensorBody.h>
@@ -11,11 +11,10 @@
 #include <future>
 #include <vector>
 
-template<typename NetType>
-class BaseRegDatasetMngr : public IRegDatasetMngr {
+template <typename NetType> class BaseRegDatasetMngr : public IRegDatasetMngr {
 public:
-
-  BaseRegDatasetMngr(int worker_id, int num_workers, int64_t subset_size, NetType net);
+  BaseRegDatasetMngr(int worker_id, int num_workers, int64_t subset_size,
+                     NetType net);
   virtual ~BaseRegDatasetMngr();
 
   virtual std::vector<torch::Tensor>
@@ -23,7 +22,9 @@ public:
   virtual void runTesting() override = 0;
   virtual void runInference(const std::vector<torch::Tensor> &w) override = 0;
 
-  std::vector<size_t> getClientsSamplesCount() override;
+  std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
+                                             uint32_t srvr_subset_size,
+                                             uint32_t dataset_size) override;
   std::vector<torch::Tensor>
   updateModelParameters(const std::vector<torch::Tensor> &w) override;
   std::vector<torch::Tensor> getInitialWeights() override;
@@ -39,8 +40,8 @@ public:
   // Getters for specific sample data
   inline uint64_t getSampleOffset(size_t image_idx) override {
     if (image_idx >= data_info.num_samples) {
-      throw std::out_of_range(
-          "Image index out of range in RegisteredMnistTrain::getSampleOffset()");
+      throw std::out_of_range("Image index out of range in "
+                              "RegisteredMnistTrain::getSampleOffset()");
     }
     return image_idx * data_info.get_sample_size();
   }
@@ -61,19 +62,21 @@ public:
 
   inline int64_t *getLabel(size_t image_idx) override {
     return reinterpret_cast<int64_t *>(getBasePointerForIndex(image_idx) +
-                                      data_info.index_size);
+                                       data_info.index_size);
   }
 
   // UINT8CHANGE
   // inline uint8_t *getImage(size_t image_idx) override {
   //   return reinterpret_cast<uint8_t *>(getBasePointerForIndex(image_idx) +
-  //                                   data_info.index_size + data_info.label_size);
+  //                                   data_info.index_size +
+  //                                   data_info.label_size);
   // }
   inline float *getImage(size_t image_idx) override {
     return reinterpret_cast<float *>(getBasePointerForIndex(image_idx) +
-                                    data_info.index_size + data_info.label_size);
+                                     data_info.index_size +
+                                     data_info.label_size);
   }
-  
+
 protected:
   std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
   size_t forward_pass_size;
@@ -85,7 +88,6 @@ protected:
 
   std::future<void> forward_pass_future;
   std::atomic<bool> pending_forward_pass{false};
-
 
   // Buffers for concurrent forward pass processing
   ForwardPassBuffer current_buffer;
@@ -101,28 +103,31 @@ protected:
                            const torch::Tensor &individual_losses,
                            size_t &curr_idx);
 
-
   virtual void buildLabelToIndicesMap() = 0;
   virtual void initDataInfo(const std::vector<size_t> &indices, int img_size);
   torch::Device init_device();
   SubsetSampler get_subset_sampler(
-      int worker_id, size_t dataset_size, int64_t subset_size,
+      int worker_id, size_t dataset_size, int64_t subset_size, uint32_t srvr_subset_size,
       const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices);
-  std::vector<torch::Tensor> calculateUpdateCuda(const std::vector<torch::Tensor> &w_cuda);
-  std::vector<torch::Tensor> calculateUpdateCPU(const std::vector<torch::Tensor> &w);
+  std::vector<torch::Tensor>
+  calculateUpdateCuda(const std::vector<torch::Tensor> &w_cuda);
+  std::vector<torch::Tensor>
+  calculateUpdateCPU(const std::vector<torch::Tensor> &w);
+
+  template <typename DataLoader> void test(DataLoader &data_loader);
 
   template <typename DataLoader>
-  void test(DataLoader &data_loader);
+  void train(size_t epoch, torch::optim::Optimizer &optimizer,
+             DataLoader &data_loader);
 
   template <typename DataLoader>
-  void train(size_t epoch, torch::optim::Optimizer& optimizer, DataLoader &data_loader);
-
-  template<typename DataLoader>
-  void runInferenceBase(const std::vector<torch::Tensor>& w, DataLoader &registered_loader);
+  void runInferenceBase(const std::vector<torch::Tensor> &w,
+                        DataLoader &registered_loader);
 
   // Registered dataset specific methods
-  inline char* getBasePointerForIndex(size_t image_idx) const {
-    return static_cast<char*>(data_info.reg_data) + (image_idx * data_info.get_sample_size());
+  inline char *getBasePointerForIndex(size_t image_idx) const {
+    return static_cast<char *>(data_info.reg_data) +
+           (image_idx * data_info.get_sample_size());
   }
 };
 

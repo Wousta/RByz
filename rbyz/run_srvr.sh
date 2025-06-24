@@ -3,11 +3,12 @@ srvr_ip=192.168.128.103 # Delta
 #srvr_ip=192.168.117.103  # quatro
 port=2000
 n_clients=2
-load_model=true
+use_mnist=false
 model_file="mnist_model_params.pt"
+debug_client_id=2
 
 # Lyra handling of boolean flag
-if [ "$load_model" = true ]; then
+if [ "$use_mnist" = true ]; then
   load_model_param="--load"
 else
   load_model_param=""
@@ -44,13 +45,22 @@ SRVR_PID=$!
 
 for id in $(seq 1 $n_clients); do
   sleep 1
-  build/clnt --srvr_ip $srvr_ip --port $port --id $id --n_clients $n_clients $load_model_param --file $model_file &
-  # gdb -ex "break /home/bustaman/usr-rdma-api-main/rbyz/src/mnistTrain.cpp:409" \
-  #     -ex "break /home/bustaman/usr-rdma-api-main/rbyz/src/clnt.cpp:154" \
-  #     -ex "start" \
-  #     --args build/clnt --srvr_ip $srvr_ip --port $port --id $id --n_clients $n_clients $load_model_param --file $model_file 
-  #valgrind --leak-check=full build/clnt --srvr_ip $srvr_ip --port $port --id $id $load_model_param --file $model_file &
-  CLNT_PIDS+=($!)
+  
+  if [ "$debug_client_id" -eq "$id" ]; then
+    # Run this client with gdb
+    echo "Running client $id with gdb for debugging..."
+    gdb -ex "break /home/bustaman/rbyz/rbyz/src/datasetLogic/baseRegDatasetMngr.cpp:474" \
+        -ex "break rbyz/src/datasetLogic/regCIFAR10Mngr.cpp:20" \
+        -ex "break rbyz/src/datasetLogic/regCIFAR10Mngr.cpp:72" \
+        -ex "break rbyz/src/datasetLogic/regCIFAR10Mngr.cpp:30" \
+        -ex "start" \
+        --args build/clnt --srvr_ip $srvr_ip --port $port --id $id --n_clients $n_clients $load_model_param --file $model_file 
+    CLNT_PIDS+=($!)
+  else
+    # Run this client normally in background
+    build/clnt --srvr_ip $srvr_ip --port $port --id $id --n_clients $n_clients $load_model_param --file $model_file &
+    CLNT_PIDS+=($!)
+  fi
 done
 
 # gdb -ex "break srvr.cpp:200" \

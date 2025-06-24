@@ -2,11 +2,7 @@
 
 inline constexpr int N_BYZ_CLNTS = 3;
 inline constexpr int GLOBAL_ITERS_FL = 4;
-inline constexpr int DATASET_SIZE = 60000;
-inline constexpr int CLNT_SUBSET_SIZE = 5900;   
-inline constexpr int SRVR_SUBSET_SIZE = 1000;  
 inline constexpr float GLOBAL_LEARN_RATE = 0.05f;
-inline constexpr uint64_t REG_SZ_DATA = 87360;
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr double ACCURACY_WARMUP = 0.5;
 inline constexpr double GLOBAL_TARGET_ACCURACY = 0.96;
@@ -15,6 +11,18 @@ inline constexpr int FLTRUST_END = -3;
 inline constexpr int SGL_SIZE = 2;  
 inline constexpr bool MNIST = true;  
 inline constexpr bool CIFAR10 = false;  
+
+// MNIST
+inline constexpr uint64_t REG_SZ_DATA_MNIST = 87360;
+inline constexpr int DATASET_SIZE_MNIST = 60000;
+inline constexpr int CLNT_SUBSET_SIZE_MNIST = 5900;   
+inline constexpr int SRVR_SUBSET_SIZE_MNIST = 1000;  
+
+// CIFAR10
+inline constexpr uint64_t REG_SZ_DATA_CF10 = 248024;
+inline constexpr int DATASET_SIZE_CF10 = 50000;
+inline constexpr int CLNT_SUBSET_SIZE_CF10 = 24500;
+inline constexpr int SRVR_SUBSET_SIZE_CF10 = 1000;
 
 // RBYZ
 inline constexpr int GLOBAL_ITERS_RBYZ = 10;

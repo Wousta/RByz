@@ -1,6 +1,7 @@
 #pragma once
 
 #include "datasetLogic/baseRegDatasetMngr.hpp"
+#include "global/globalConstants.hpp"
 #include "nets/mnistNet.hpp"
 #include "registeredMNIST.hpp"
 
@@ -16,6 +17,8 @@ class RegMnistMngr : public BaseRegDatasetMngr<MnistNet> {
 private:
   const int IMG_SIZE = 28 * 28; // Size of MNIST image in pixels
   const char *kDataRoot = "./data/mnist";
+  const uint32_t DATASET_SIZE = DATASET_SIZE_MNIST;
+  const uint32_t SRVR_SUBSET_SIZE = SRVR_SUBSET_SIZE_MNIST;
 
   using RegTrainDataLoader =
       torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
@@ -23,7 +26,7 @@ private:
   std::unique_ptr<RegisteredMNIST> train_dataset;
 
   using DatasetType =
-      decltype(torch::data::datasets::MNIST(kDataRoot)
+      decltype(torch::data::datasets::MNIST(kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
                    .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                    .map(torch::data::transforms::Stack<>()));
   DatasetType test_dataset;

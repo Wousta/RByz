@@ -1,5 +1,7 @@
 #include "datasetLogic/iRegDatasetMngr.hpp"
+#include "datasetLogic/regCIFAR10Mngr.hpp"
 #include "datasetLogic/regMnistMngr.hpp"
+#include "logger.hpp"
 #include "rc_conn.hpp"
 #include "util.hpp"
 #include "rdmaOps.hpp"
@@ -33,9 +35,9 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, IRegDatasetMngr& 
   reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
 
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_DATA);
+  reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(REG_SZ_DATA);
+  reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
@@ -57,6 +59,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
+    mngr.runTesting();
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -65,7 +68,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
 
     // Read the weights from the server and run training
-    rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
+    rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
     std::vector<torch::Tensor> g = mngr.runTraining(round, w);
 
     Logger::instance().log("Weight updates:\n");
@@ -74,12 +77,12 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     // Send the updated weights back to the server
     torch::Tensor all_tensors = flatten_tensor_vector(g);
     size_t total_bytes_g = all_tensors.numel() * sizeof(float);
-    if(total_bytes_g != (size_t)REG_SZ_DATA) {
-      throw std::runtime_error("REG_SZ_DATA and total_bytes sent do not match!!");
+    if(total_bytes_g != (size_t)regMem.reg_sz_data) {
+      throw std::runtime_error("reg_sz_data and total_bytes sent do not match!!");
     }
     float* all_tensors_float = all_tensors.data_ptr<float>();
     std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
-    unsigned int total_bytes_g_int = static_cast<unsigned int>(REG_SZ_DATA);
+    unsigned int total_bytes_g_int = static_cast<unsigned int>(regMem.reg_sz_data);
     rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
 
     // Update the ready flag
@@ -99,7 +102,7 @@ int main(int argc, char* argv[]) {
 
   int id;
   int n_clients;
-  bool load_model = false;
+  bool use_mnist = false;
   std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
   std::string port;
@@ -112,7 +115,7 @@ int main(int argc, char* argv[]) {
     lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
     lyra::opt(port, "port")["-p"]["--port"]("port") |
     lyra::opt(id, "id")["-p"]["--id"]("id") |
-    lyra::opt(load_model)["-l"]["--load"]("Load model from saved file") |
+    lyra::opt(use_mnist)["-l"]["--load"]("Load model from saved file") |
     lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
     lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
   auto result = cli.parse({ argc, argv });
@@ -133,13 +136,21 @@ int main(int argc, char* argv[]) {
 
   MnistNet mnist_net;
   Cifar10Net cifar_net;
+  std::unique_ptr<IRegDatasetMngr> reg_mngr;
+  std::unique_ptr<RegMemClnt> regMem;
 
-  std::unique_ptr<RegMnistMngr> reg_mnist_mngr =
-    std::make_unique<RegMnistMngr>(id, n_clients + 1, CLNT_SUBSET_SIZE, mnist_net);
+  if (use_mnist) {
+    regMem = std::make_unique<RegMemClnt>(id, REG_SZ_DATA_MNIST);
+    reg_mngr = std::make_unique<RegMnistMngr>(id, n_clients + 1, CLNT_SUBSET_SIZE_MNIST, mnist_net);
+    Logger::instance().log("Client: Using MNIST dataset\n");
+  } else {
+    regMem = std::make_unique<RegMemClnt>(id, REG_SZ_DATA_CF10);
+    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, n_clients + 1, CLNT_SUBSET_SIZE_CF10, cifar_net);
+    Logger::instance().log("Client: Using CIFAR10 dataset\n");
+  }
 
-  // Struct to hold the registered data
-  RegMemClnt regMem(id);
-  registerClntMemory(reg_info, regMem, *reg_mnist_mngr);
+  registerClntMemory(reg_info, *regMem, *reg_mngr);
+  Logger::instance().log("Client: Registered memory for client " + std::to_string(id) + "\n");
 
   // connect to server
   RcConn conn;
@@ -156,11 +167,11 @@ int main(int argc, char* argv[]) {
 
   Logger::instance().log("PRE: first mnist samples\n");
   for (int i = 0; i < 5; i++) {
-    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mnist_mngr->getLabel(i)) + 
-                           " | og_idx = " + std::to_string(*reg_mnist_mngr->getOriginalIndex(i)) + "\n");
+    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mngr->getLabel(i)) + 
+                           " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
   }
 
-  std::vector<torch::Tensor> w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *reg_mnist_mngr, regMem);
+  std::vector<torch::Tensor> w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *reg_mngr, *regMem);
   // Label flipping for Byzantine clients
   // if (id <= N_BYZ_CLNTS) {
   //   Logger::instance().log("Client " + std::to_string(id) + " is Byzantine, flipping labels\n");
@@ -170,8 +181,8 @@ int main(int argc, char* argv[]) {
   // } 
 
   // Run the RByz client
-  RByzAux rbyz_aux(rdma_ops, *reg_mnist_mngr);
-  rbyz_aux.runRByzClient(w, regMem);
+  RByzAux rbyz_aux(rdma_ops, *reg_mngr);
+  rbyz_aux.runRByzClient(w, *regMem);
 
   std::cout << "\nClient done\n";
   std::this_thread::sleep_for(std::chrono::minutes(1));

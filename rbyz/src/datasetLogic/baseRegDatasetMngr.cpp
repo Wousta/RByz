@@ -8,7 +8,8 @@
 
 template <typename NetType>
 BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, int num_workers,
-                                                int64_t subset_size, NetType net)
+                                                int64_t subset_size,
+                                                NetType net)
     : IRegDatasetMngr(worker_id, num_workers, subset_size),
       model(std::move(net)), device(init_device()) {
   torch::manual_seed(1);
@@ -22,7 +23,8 @@ BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, int num_workers,
 
 template <typename NetType> BaseRegDatasetMngr<NetType>::~BaseRegDatasetMngr() {
   if (pending_forward_pass.load()) {
-    Logger::instance().log("Waiting for pending forward pass processing in destructor\n");
+    Logger::instance().log(
+        "Waiting for pending forward pass processing in destructor\n");
     forward_pass_future.wait();
   }
 
@@ -257,6 +259,7 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
      * You keep your individual losses for analysis
      */
     auto loss_mean = individual_losses.mean();
+    AT_ASSERT(!std::isnan(loss_mean.template item<float>()));
     loss_mean.backward();
     optimizer.step();
 
@@ -412,13 +415,16 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(
 }
 
 template <typename NetType>
-std::vector<size_t> BaseRegDatasetMngr<NetType>::getClientsSamplesCount() {
+std::vector<size_t>
+BaseRegDatasetMngr<NetType>::getClientsSamplesCount(uint32_t clnt_subset_size,
+                                                    uint32_t srvr_subset_size,
+                                                    uint32_t dataset_size) {
   Logger::instance().log("Getting samples count for each client\n");
   int num_clients = num_workers - 1; // Exclude server
   std::vector<size_t> samples_count(num_clients, 0);
 
   // Allocate indices to workers
-  float srvr_proportion = static_cast<float>(SRVR_SUBSET_SIZE) / DATASET_SIZE;
+  float srvr_proportion = static_cast<float>(srvr_subset_size) / dataset_size;
   float clnt_proportion = (1 - srvr_proportion) / (num_clients);
   for (size_t i = 0; i < num_clients; i++) {
     std::vector<size_t> worker_indices;
@@ -445,8 +451,8 @@ std::vector<size_t> BaseRegDatasetMngr<NetType>::getClientsSamplesCount() {
                             indices.begin() + end);
     }
 
-    if (worker_indices.size() > CLNT_SUBSET_SIZE) {
-      worker_indices.resize(CLNT_SUBSET_SIZE);
+    if (worker_indices.size() > clnt_subset_size) {
+      worker_indices.resize(clnt_subset_size);
     }
 
     size_t worker_samples_count = worker_indices.size();
@@ -458,12 +464,12 @@ std::vector<size_t> BaseRegDatasetMngr<NetType>::getClientsSamplesCount() {
 
 template <typename NetType>
 SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
-    int worker_id_arg, size_t dataset_size_arg, int64_t subset_size_arg,
+    int worker_id_arg, size_t dataset_size_arg, int64_t subset_size_arg, uint32_t srvr_subset_size,
     const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices) {
 
   // Allocate indices to workers
   float srvr_proportion =
-      static_cast<float>(SRVR_SUBSET_SIZE) / dataset_size_arg;
+      static_cast<float>(srvr_subset_size) / dataset_size_arg;
   float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
 
   std::vector<size_t> worker_indices;
@@ -619,8 +625,12 @@ template <typename NetType>
 void BaseRegDatasetMngr<NetType>::initDataInfo(
     const std::vector<size_t> &indices, int img_size) {
   data_info.num_samples = indices.size();
-  //data_info.image_size = img_size * sizeof(uint8_t); // UINT8CHANGE
+  // data_info.image_size = img_size * sizeof(uint8_t); // UINT8CHANGE
   data_info.image_size = img_size * sizeof(float);
+  Logger::instance().log(
+      "Initializing data info with " + std::to_string(data_info.num_samples) +
+      " samples and image size: " + std::to_string(data_info.image_size) +
+      " bytes\n");
   data_info.reg_data_size = indices.size() * data_info.get_sample_size();
   f_pass_data.forward_pass_mem_size = data_info.num_samples *
                                       f_pass_data.values_per_sample *
@@ -657,94 +667,99 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
                          std::to_string(data_info.reg_data_size) + " bytes\n");
 }
 
-
 //////////////////////// LABEL FLIPPING ATTCKS ////////////////////////
 template <typename NetType>
-void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio, std::mt19937& rng) {
-    if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
-        throw std::invalid_argument("Flip ratio must be between 0 and 1");
+void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio,
+                                                   std::mt19937 &rng) {
+  if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
+    throw std::invalid_argument("Flip ratio must be between 0 and 1");
+  }
+
+  size_t num_to_flip = static_cast<size_t>(data_info.num_samples * flip_ratio);
+  std::uniform_int_distribution<size_t> sample_dist(0,
+                                                    data_info.num_samples - 1);
+  std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+
+  std::unordered_set<size_t> flipped_indices;
+
+  Logger::instance().log(
+      "Starting random label flipping attack: " + std::to_string(num_to_flip) +
+      " samples (" + std::to_string(flip_ratio * 100) + "%)\n");
+
+  while (flipped_indices.size() < num_to_flip) {
+    size_t idx = sample_dist(rng);
+    if (flipped_indices.find(idx) == flipped_indices.end()) {
+      int64_t *label_ptr = getLabel(idx);
+      int64_t original_label = *label_ptr;
+
+      // Generate a different label
+      int64_t new_label;
+      do {
+        new_label = label_dist(rng);
+      } while (new_label == original_label);
+
+      *label_ptr = new_label;
+      flipped_indices.insert(idx);
     }
-    
-    size_t num_to_flip = static_cast<size_t>(data_info.num_samples * flip_ratio);
-    std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
-    std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
-    
-    std::unordered_set<size_t> flipped_indices;
-    
-    Logger::instance().log("Starting random label flipping attack: " + 
-                          std::to_string(num_to_flip) + " samples (" + 
-                          std::to_string(flip_ratio * 100) + "%)\n");
-    
-    while (flipped_indices.size() < num_to_flip) {
-        size_t idx = sample_dist(rng);
-        if (flipped_indices.find(idx) == flipped_indices.end()) {
-            int64_t* label_ptr = getLabel(idx);
-            int64_t original_label = *label_ptr;
-            
-            // Generate a different label
-            int64_t new_label;
-            do {
-                new_label = label_dist(rng);
-            } while (new_label == original_label);
-            
-            *label_ptr = new_label;
-            flipped_indices.insert(idx);
-        }
-    }
-    
-    Logger::instance().log("Random label flipping completed\n");
+  }
+
+  Logger::instance().log("Random label flipping completed\n");
 }
 
 template <typename NetType>
-void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label, int target_label, 
-                                            float flip_ratio, std::mt19937& rng) {
-    if (source_label < 0 || source_label > 9 || target_label < 0 || target_label > 9) {
-        throw std::invalid_argument("Labels must be between 0 and 9 for MNIST");
-    }
-    
-    if (source_label == target_label) {
-        throw std::invalid_argument("Source and target labels must be different");
-    }
-    
-    // Find all samples with the source label
-    std::vector<size_t> source_indices = findSamplesWithLabel(source_label);
-    
-    if (source_indices.empty()) {
-        Logger::instance().log("No samples found with source label " + 
-                              std::to_string(source_label) + "\n");
-        return;
-    }
-    
-    size_t num_to_flip = static_cast<size_t>(source_indices.size() * flip_ratio);
-    
-    Logger::instance().log("Starting targeted label flipping attack: " + 
-                          std::to_string(source_label) + " -> " + 
-                          std::to_string(target_label) + " (" + 
-                          std::to_string(num_to_flip) + " samples)\n");
-    
-    // Randomly select which source samples to flip
-    std::shuffle(source_indices.begin(), source_indices.end(), rng);
-    
-    for (size_t i = 0; i < num_to_flip && i < source_indices.size(); ++i) {
-        size_t idx = source_indices[i];
-        *getLabel(idx) = target_label;
-    }
-    
-    Logger::instance().log("Targeted label flipping completed\n");
+void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label,
+                                                     int target_label,
+                                                     float flip_ratio,
+                                                     std::mt19937 &rng) {
+  if (source_label < 0 || source_label > 9 || target_label < 0 ||
+      target_label > 9) {
+    throw std::invalid_argument("Labels must be between 0 and 9 for MNIST");
+  }
+
+  if (source_label == target_label) {
+    throw std::invalid_argument("Source and target labels must be different");
+  }
+
+  // Find all samples with the source label
+  std::vector<size_t> source_indices = findSamplesWithLabel(source_label);
+
+  if (source_indices.empty()) {
+    Logger::instance().log("No samples found with source label " +
+                           std::to_string(source_label) + "\n");
+    return;
+  }
+
+  size_t num_to_flip = static_cast<size_t>(source_indices.size() * flip_ratio);
+
+  Logger::instance().log("Starting targeted label flipping attack: " +
+                         std::to_string(source_label) + " -> " +
+                         std::to_string(target_label) + " (" +
+                         std::to_string(num_to_flip) + " samples)\n");
+
+  // Randomly select which source samples to flip
+  std::shuffle(source_indices.begin(), source_indices.end(), rng);
+
+  for (size_t i = 0; i < num_to_flip && i < source_indices.size(); ++i) {
+    size_t idx = source_indices[i];
+    *getLabel(idx) = target_label;
+  }
+
+  Logger::instance().log("Targeted label flipping completed\n");
 }
 
 template <typename NetType>
-std::vector<size_t> BaseRegDatasetMngr<NetType>::findSamplesWithLabel(int label) {
-    std::vector<size_t> indices;
-    indices.reserve(data_info.num_samples / 10); // Rough estimate for MNIST
-    
-    for (size_t i = 0; i < data_info.num_samples; ++i) {
-        if (*getLabel(i) == label) {
-            indices.push_back(i);
-        }
+std::vector<size_t>
+BaseRegDatasetMngr<NetType>::findSamplesWithLabel(int label) {
+  std::vector<size_t> indices;
+  indices.reserve(data_info.num_samples / 10); // Rough estimate for MNIST
+
+  for (size_t i = 0; i < data_info.num_samples; ++i) {
+    if (*getLabel(i) == label) {
+      indices.push_back(i);
     }
-    
-    return indices;
+  }
+
+  return indices;
 }
 
 // Explicit template instantiation for the types we need

@@ -11,12 +11,8 @@ results_path="/home/bustaman/rbyz/Results"
 load_model=false
 model_file="mnist_model_params.pt"
 
-gdb -ex "break /home/bustaman/rbyz/rbyz/src/rbyzAux.cpp:331" \
-    -ex "break /home/bustaman/rbyz/rbyz/src/rbyzAux.cpp:390" \
-    -ex "break /home/bustaman/rbyz/rbyz/src/rbyzAux.cpp:405" \
-    -ex "break /home/bustaman/rbyz/rbyz/src/rbyzAux.cpp:405" \
-    -ex "break /home/bustaman/rbyz/rbyz/src/rbyzAux.cpp:434" \
-    -ex "break /home/bustaman/rbyz/rbyz/src/rbyzAux.cpp:471" \
+gdb -ex "break /home/bustaman/rbyz/rbyz/src/entities/srvr.cpp:389" \
+    -ex "break /home/bustaman/rbyz/rbyz/src/entities/srvr.cpp:256" \
     -ex "start" \
     --args build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_model_param --file $model_file 
     #-ex "break /home/bustaman/rbyz/rdma-api/src/rdma-api.cpp:22" \

@@ -470,7 +470,7 @@ void RByzAux::runRByzServer(int n_clients,
                              std::to_string(client.index) + "\n");
 
       if (!timed_out) {
-        size_t numel_server = REG_SZ_DATA / sizeof(float);
+        size_t numel_server = regMem.reg_sz_data / sizeof(float);
         torch::Tensor flat_tensor =
             torch::from_blob(
                 regMem.clnt_ws[i], {static_cast<long>(numel_server)}, torch::kFloat32)
@@ -539,7 +539,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
 
     // Read the aggregated weights from the server and update the local weights
     Logger::instance().log("Client: Reading server weights for round " + std::to_string(regMem.round.load()) + "\n");
-    rdma_ops.read_mnist_update(w, regMem.srvr_w, SRVR_W_IDX);
+    rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
     // mnist.updateModelParameters(w);
     // mnist.testModel();
 
@@ -564,7 +564,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     size_t total_bytes_g = flat_w.numel() * sizeof(float);
     float* flat_w_float = flat_w.data_ptr<float>();
     std::memcpy(regMem.clnt_w, flat_w_float, total_bytes_g);
-    unsigned int total_bytes_w_int = static_cast<unsigned int>(REG_SZ_DATA);
+    unsigned int total_bytes_w_int = static_cast<unsigned int>(regMem.reg_sz_data);
     rdma_ops.exec_rdma_write(total_bytes_w_int, CLNT_W_IDX);
 
     regMem.round.store(regMem.round.load() + 1);

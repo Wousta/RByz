@@ -22,20 +22,12 @@ RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, 
   buildLabelToIndicesMap();
 
   SubsetSampler train_sampler = get_subset_sampler(
-      worker_id, DATASET_SIZE, subset_size, label_to_indices);
+      worker_id, DATASET_SIZE_MNIST, subset_size, SRVR_SUBSET_SIZE, label_to_indices);
   auto &indices = train_sampler.indices();
 
   // Init reg data structures and pin memory
   initDataInfo(indices, IMG_SIZE);  
   buildRegisteredDataset(indices);
-
-  // Test getting last samples
-  Logger::instance().log("TESTING LAST SAMPLE\n");
-  Logger::instance().log("Last sample data: index " +
-                         std::to_string(data_info.num_samples - 1) + " og index: " +
-                         std::to_string(*getOriginalIndex(data_info.num_samples - 1)) +
-                         ", label: " + std::to_string(*getLabel(data_info.num_samples - 1)) +
-                         "\n");
 
   auto loader_temp =
       torch::data::make_data_loader(*train_dataset,
@@ -43,7 +35,7 @@ RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, 
                                     torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
   train_loader = std::move(loader_temp);
 
-  Logger::instance().log("Registered memory dataset prepared with " +
+  Logger::instance().log("MNIST Registered memory dataset prepared with " +
                          std::to_string(data_info.num_samples) + " samples\n");
 }
 
@@ -60,7 +52,7 @@ RegMnistMngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
               << " epochs: " << kNumberOfEpochs << "\n";
   }
 
-  Logger::instance().log("Training model for step " + std::to_string(round) +
+  Logger::instance().log("MNIST Training model for step " + std::to_string(round) +
                          " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {

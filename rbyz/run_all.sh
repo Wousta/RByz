@@ -3,13 +3,13 @@
 # Configuration
 srvr_ip=192.168.128.103
 port=2000
-n_clients=10
+n_clients=2
 remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
-load_model=false
+use_mnist=true   # MNIST or CIFAR-10 dataset
 model_file="mnist_model_params.pt"
 
 # Calculate clients per machine (even distribution)
@@ -21,10 +21,10 @@ run_server_remote=false
 run_clients_remote=true
 
 # Lyra handling of boolean flag
-if [ "$load_model" = true ]; then
-  load_model_param="--load"
+if [ "$use_mnist" = true ]; then
+  load_use_mnist_param="--load"
 else
-  load_model_param=""
+  load_use_mnist_param=""
 fi
 
 # Cleanup function: kill local and remote processes
@@ -65,7 +65,7 @@ rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
-taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_model_param --file $model_file & 
+taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --file $model_file & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
@@ -101,7 +101,7 @@ for i in "${!remote_hosts[@]}"; do
       core_id=0; \
       for id in ${client_ids[@]}; do \
         echo \"Starting client \$id on $host with physical core \$core_id\" && \
-        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_model_param --file $model_file & \
+        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --file $model_file & \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.5; \
