@@ -43,6 +43,7 @@ public:
   virtual void *getSample(size_t image_idx) = 0;
   virtual uint32_t *getOriginalIndex(size_t image_idx) = 0;
   virtual int64_t *getLabel(size_t image_idx) = 0;
+  //virtual uint8_t *getImage(size_t image_idx) = 0; // UINT8CHANGE
   virtual float *getImage(size_t image_idx) = 0;
 
   // Label flipping attacks

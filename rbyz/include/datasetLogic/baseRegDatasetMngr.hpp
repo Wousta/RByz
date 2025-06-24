@@ -64,13 +64,17 @@ public:
                                       data_info.index_size);
   }
 
+  // UINT8CHANGE
+  // inline uint8_t *getImage(size_t image_idx) override {
+  //   return reinterpret_cast<uint8_t *>(getBasePointerForIndex(image_idx) +
+  //                                   data_info.index_size + data_info.label_size);
+  // }
   inline float *getImage(size_t image_idx) override {
     return reinterpret_cast<float *>(getBasePointerForIndex(image_idx) +
                                     data_info.index_size + data_info.label_size);
   }
-
+  
 protected:
-  const char *kDataRoot = "./data";
   std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
   size_t forward_pass_size;
   size_t error_start;

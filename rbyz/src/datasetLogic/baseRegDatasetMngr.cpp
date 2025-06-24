@@ -4,6 +4,7 @@
 #include "tensorOps.hpp"
 #include <cstddef>
 #include <random>
+#include <torch/types.h>
 
 template <typename NetType>
 BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, int num_workers,
@@ -618,6 +619,7 @@ template <typename NetType>
 void BaseRegDatasetMngr<NetType>::initDataInfo(
     const std::vector<size_t> &indices, int img_size) {
   data_info.num_samples = indices.size();
+  //data_info.image_size = img_size * sizeof(uint8_t); // UINT8CHANGE
   data_info.image_size = img_size * sizeof(float);
   data_info.reg_data_size = indices.size() * data_info.get_sample_size();
   f_pass_data.forward_pass_mem_size = data_info.num_samples *

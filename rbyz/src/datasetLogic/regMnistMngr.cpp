@@ -1,5 +1,6 @@
 #include "datasetLogic/regMnistMngr.hpp"
 #include "global/globalConstants.hpp"
+#include "logger.hpp"
 #include "nets/mnistNet.hpp"
 #include <vector>
 
@@ -28,11 +29,19 @@ RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, 
   initDataInfo(indices, IMG_SIZE);  
   buildRegisteredDataset(indices);
 
+  // Test getting last samples
+  Logger::instance().log("TESTING LAST SAMPLE\n");
+  Logger::instance().log("Last sample data: index " +
+                         std::to_string(data_info.num_samples - 1) + " og index: " +
+                         std::to_string(*getOriginalIndex(data_info.num_samples - 1)) +
+                         ", label: " + std::to_string(*getLabel(data_info.num_samples - 1)) +
+                         "\n");
+
   auto loader_temp =
-      torch::data::make_data_loader(*registered_dataset,
+      torch::data::make_data_loader(*train_dataset,
                                     train_sampler,  // Reuse the same sampler
                                     torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
-  registered_loader = std::move(loader_temp);
+  train_loader = std::move(loader_temp);
 
   Logger::instance().log("Registered memory dataset prepared with " +
                          std::to_string(data_info.num_samples) + " samples\n");
@@ -55,7 +64,7 @@ RegMnistMngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
                          " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, optimizer, *registered_loader);
+    train(epoch, optimizer, *train_loader);
   }
 
   // if (round % 2 == 0) {
@@ -72,6 +81,7 @@ RegMnistMngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
 }
 
 void RegMnistMngr::buildLabelToIndicesMap() {
+  label_to_indices.clear();
   auto dataset = torch::data::datasets::MNIST(kDataRoot)
                      .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                      .map(torch::data::transforms::Stack<>());
@@ -89,8 +99,8 @@ void RegMnistMngr::buildLabelToIndicesMap() {
   }
 }
 
+// Copy data from the original dataset to the registered memory
 void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
-  // Copy data from the original dataset to the registered memory
   auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
   std::unordered_map<size_t, size_t> index_map;
   index_map.reserve(indices.size());
@@ -99,13 +109,13 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
   for (const auto& original_idx : indices) {
     auto example = plain_mnist.get(original_idx);
 
-    // Store idx, for rbyz to identify server VD images
     *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
-
-    // Copy the label
     *getLabel(i) = static_cast<int64_t>(example.target.item<int64_t>());
 
-    // Copy the image data
+    // UINT8CHANGE
+    // auto image_tensor = example.data.to(torch::kUInt8); 
+    // auto reshaped_image = image_tensor.reshape({1,28, 28}).contiguous();
+    // std::memcpy(getImage(i), reshaped_image.data_ptr<uint8_t>(), data_info.image_size);
     auto normalized_image = (example.data.to(torch::kFloat32) - 0.1307) / 0.3081;
     auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
     std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
@@ -115,5 +125,5 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
     ++i;
   }
 
-  registered_dataset = std::make_unique<RegisteredMNIST>(data_info, index_map);
+  train_dataset = std::make_unique<RegisteredMNIST>(data_info, index_map);
 }

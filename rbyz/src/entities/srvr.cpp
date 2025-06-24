@@ -219,14 +219,17 @@ std::vector<torch::Tensor> run_fltrust_srvr(int rounds,
       clnt_updates.push_back(flat_tensor);
     }
 
+    Logger::instance().log("Processed clients\n");
+
+
     // Use attacks to simulate Byzantine clients
     clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mngr.getDevice());
-    clnt_updates = trim_attack(
-      clnt_updates,
-      GLOBAL_LEARN_RATE,
-      N_BYZ_CLNTS,
-      mngr.getDevice()
-    );
+    // clnt_updates = trim_attack(
+    //   clnt_updates,
+    //   GLOBAL_LEARN_RATE,
+    //   N_BYZ_CLNTS,
+    //   mngr.getDevice()
+    // );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
 

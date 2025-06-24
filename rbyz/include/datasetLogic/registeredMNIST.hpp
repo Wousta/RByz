@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <torch/torch.h>
 #include <cstddef>
 #include <vector>
@@ -30,6 +31,7 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
     RegisteredMNIST(RegTrainData& data_info, std::unordered_map<size_t, size_t> index_map)
         : data_info(&data_info),  // Match the member name
         index_map(index_map),
+        //options(torch::TensorOptions().dtype(torch::kUInt8)) { // UINT8CHANGE
         options(torch::TensorOptions().dtype(torch::kFloat32)) {
 
         num_samples = data_info.num_samples;
@@ -50,15 +52,16 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
         }
 
         void* sample = static_cast<char*>(data_info->reg_data) + (index * sample_size);
+        //uint8_t* img_ptr = reinterpret_cast<uint8_t*>(reinterpret_cast<uint8_t*>(sample) + index_size + label_size);
         float* img_ptr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(sample) + index_size + label_size);
 
-        // Create a tensor that references this memory (no copy)
-        // The from_blob function creates a tensor that points to existing memory
         torch::Tensor image = torch::from_blob(
             img_ptr,
             {1, 28, 28}, // MNIST image dimensions [channels, height, width]
             options
         ).clone(); // Clone to make a copy that's safe to return
+
+        //auto data_normalized = (image.to(torch::kFloat32) - 0.1307f) / 0.3081f; // UINT8CHANGE
 
         int64_t label = *reinterpret_cast<int64_t*>(reinterpret_cast<uint8_t*>(sample) + index_size);
         if (label < 0 || label >= 10) {
@@ -66,6 +69,7 @@ class RegisteredMNIST : public torch::data::Dataset<RegisteredMNIST> {
         }
         torch::Tensor target = torch::tensor(label, torch::kInt64);
 
+        //return {data_normalized, target}; // UINT8CHANGE
         return {image, target};
     }
 

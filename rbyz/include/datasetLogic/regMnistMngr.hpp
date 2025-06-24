@@ -15,18 +15,19 @@
 class RegMnistMngr : public BaseRegDatasetMngr<MnistNet> {
 private:
   const int IMG_SIZE = 28 * 28; // Size of MNIST image in pixels
+  const char *kDataRoot = "./data/mnist";
 
-  using RegTrainDataLoader = torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
-  std::unique_ptr<RegTrainDataLoader> registered_loader;
-  std::unique_ptr<RegisteredMNIST> registered_dataset;
+  using RegTrainDataLoader =
+      torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
+  std::unique_ptr<RegTrainDataLoader> train_loader;
+  std::unique_ptr<RegisteredMNIST> train_dataset;
 
   using DatasetType =
       decltype(torch::data::datasets::MNIST(kDataRoot)
                    .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                    .map(torch::data::transforms::Stack<>()));
   DatasetType test_dataset;
-  
-  // Testing is done the same both registered and regular
+
   using TestDataLoaderType =
       torch::data::StatelessDataLoader<DatasetType,
                                        torch::data::samplers::RandomSampler>;
@@ -36,16 +37,16 @@ private:
   void buildRegisteredDataset(const std::vector<size_t> &indices);
 
 public:
-  RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, MnistNet net);
+  RegMnistMngr(int worker_id, int num_workers, int64_t subset_size,
+               MnistNet net);
   ~RegMnistMngr() = default;
 
-  std::vector<torch::Tensor> runTraining(int round, const std::vector<torch::Tensor> &w) override;
+  std::vector<torch::Tensor>
+  runTraining(int round, const std::vector<torch::Tensor> &w) override;
 
   inline void runInference(const std::vector<torch::Tensor> &w) override {
-    runInferenceBase(w, *registered_loader);
+    runInferenceBase(w, *train_loader);
   }
 
-  inline void runTesting() override {
-    test(*test_loader);
-  }
+  inline void runTesting() override { test(*test_loader); }
 };
