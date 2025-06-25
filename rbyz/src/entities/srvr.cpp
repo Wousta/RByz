@@ -343,6 +343,7 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |
       lyra::opt(t_params.local_steps_rbyz, "local_steps_rbyz")["--local_steps_rbyz"]("local steps RByz") |
       lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz") |
+      lyra::opt(t_params.chunk_size, "chunk_size")["--chunk_size"]("chunk size for VDsampling") |
       lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz");
 
   auto result = cli.parse({argc, argv});

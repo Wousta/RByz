@@ -1,5 +1,6 @@
 #pragma once
 
+#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "logger.hpp"
 #include "entities.hpp"
 

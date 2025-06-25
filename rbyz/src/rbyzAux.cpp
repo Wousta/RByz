@@ -140,21 +140,20 @@ void RByzAux::writeServerVD(RegMnistSplitter& splitter,
       size_t clnt_chunk = clnt_chunks[j];
 
       LocalInfo local_info;
+      local_info.indices.push_back(REG_DATASET_IDX);
       RemoteInfo remote_info;
       remote_info.indx = REG_DATASET_IDX;
       remote_info.off = clnt_chunk;
 
-      for (int k = 0; k < splitter.getSamplesPerChunk(); k++) {
-        if (srvr_idx >= srvr_indices.size()) {
-          Logger::instance().log("Warning: Not enough VD samples for client " + std::to_string(i) + "\n");
-          break;
-        }
-        size_t srvr_sample_idx = srvr_indices[srvr_idx++];
-        clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx);
-        uint64_t sample_offset = mngr.getSampleOffset(srvr_sample_idx);
-        local_info.indices.push_back(REG_DATASET_IDX);
-        local_info.offs.push_back(sample_offset);
+      if (srvr_idx >= srvr_indices.size()) {
+        Logger::instance().log("Warning: Not enough VD samples for client " + std::to_string(i) + "\n");
+        break;
       }
+
+      size_t srvr_sample_idx = srvr_indices[srvr_idx++];
+      clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx);
+      uint64_t sample_offset = mngr.getSampleOffset(srvr_sample_idx);
+      local_info.offs.push_back(sample_offset);
       rdma_ops.exec_rdma_write(splitter.getChunkSize(), local_info, remote_info, i, false);
     }
   }
@@ -322,7 +321,7 @@ void RByzAux::runRByzServer(int n_clients,
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
-  RegMnistSplitter splitter(1, mngr, clnt_data_vec);
+  RegMnistSplitter splitter(t_params.chunk_size, mngr, clnt_data_vec);
   
   // RBYZ training loop
   for (int round = 0; round < global_rounds; round++) {

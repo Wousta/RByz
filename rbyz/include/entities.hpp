@@ -141,6 +141,7 @@ struct TrainInputParams {
   // RByz specific parameters
   int local_steps_rbyz;
   int global_iters_rbyz;
+  int chunk_size;
 
   //misc
   int only_flt;

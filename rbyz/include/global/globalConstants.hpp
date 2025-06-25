@@ -2,8 +2,7 @@
 
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
-inline constexpr int FLTRUST_END = -3;  
-inline constexpr int SGL_SIZE = 2;  
+inline constexpr int CHUNK_SIZE = 2;  
 
 // MNIST
 inline constexpr uint64_t REG_SZ_DATA_MNIST = 87360;    // Size of the parameter vector w for MNIST
@@ -14,10 +13,10 @@ inline constexpr uint64_t REG_SZ_DATA_CF10 = 248024;    // Size of the parameter
 inline constexpr int DATASET_SIZE_CF10 = 50000;
 
 // RBYZ
-constexpr int MEM_FREE = 0; 
-constexpr int MEM_OCCUPIED = 1;
-constexpr int SRVR_READY_RBYZ = -1;
-constexpr int SRVR_FINISHED_RBYZ = -2;
+inline constexpr int MEM_FREE = 0; 
+inline constexpr int MEM_OCCUPIED = 1;
+inline constexpr int SRVR_READY_RBYZ = -1;
+inline constexpr int SRVR_FINISHED_RBYZ = -2;
 
 // addr_locs of buffers
 inline constexpr int SRVR_READY_IDX = 0;

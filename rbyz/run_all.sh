@@ -16,33 +16,31 @@ if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
   load_use_mnist_param="--load"
   n_clients=10
-  n_byz_clnts=2
   epochs=5
   batch_size=32
   glob_learn_rate=0.05
   clnt_subset_size=5900
   srvr_subset_size=1000
-  glob_iters_fl=5
+  glob_iters_fl=50
   local_steps_rbyz=6
   glob_iters_rbyz=10
-  label_flip_type=0
-  flip_ratio=0.25
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param=""
   n_clients=0
-  n_byz_clnts=2
   epochs=5
   batch_size=128
-  glob_learn_rate=0.05
+  glob_learn_rate=0.005
   clnt_subset_size=4900
   srvr_subset_size=1000
   glob_iters_fl=100
   local_steps_rbyz=6
   glob_iters_rbyz=5
-  label_flip_type=0
-  flip_ratio=0.25
 fi
+n_byz_clnts=2
+chunk_size=1      # slab size for RByz VDsampling
+label_flip_type=0
+flip_ratio=0.25
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
@@ -55,7 +53,7 @@ cleanup() {
   # Kill local server process
   echo "Killing local server process..."
   kill $SRVR_PID 2>/dev/null
-  kill -2 $CPU_TRACKER_PID 2>/dev/null
+  ps aux | grep cpuTracker | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true
   
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."
@@ -90,7 +88,7 @@ echo "Starting server locally..."
 taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-  --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt & 
+  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --only_flt $only_flt & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
