@@ -15,6 +15,7 @@
 #include "datasetLogic/iRegDatasetMngr.hpp"
 #include "datasetLogic/regCIFAR10Mngr.hpp"
 #include "datasetLogic/regMnistMngr.hpp"
+#include "entities.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 #include "nets/cifar10Net.hpp"
@@ -188,13 +189,13 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
 }
 
 std::vector<torch::Tensor>
-run_fltrust_srvr(int rounds, int n_clients, IRegDatasetMngr &mngr,
+run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr,
                  RegMemSrvr &regMem, std::vector<ClientDataRbyz> &clntsData) {
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
-  for (int round = 1; round <= rounds; round++) {
+  for (int round = 1; round <= t_params.global_iters_fl; round++) {
     mngr.runTesting();
     Logger::instance().logRByzAcc(std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
@@ -243,14 +244,6 @@ run_fltrust_srvr(int rounds, int n_clients, IRegDatasetMngr &mngr,
     Logger::instance().log("Processed clients\n");
 
     // Use attacks to simulate Byzantine clients
-    clnt_updates =
-        no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mngr.getDevice());
-    // clnt_updates = trim_attack(
-    //   clnt_updates,
-    //   GLOBAL_LEARN_RATE,
-    //   N_BYZ_CLNTS,
-    //   mngr.getDevice()
-    // );
 
     Logger::instance().log("Server: Done with Byzantine attack\n");
 
@@ -262,7 +255,7 @@ run_fltrust_srvr(int rounds, int n_clients, IRegDatasetMngr &mngr,
         reconstruct_tensor_vector(aggregated_update, w);
 
     for (size_t i = 0; i < w.size(); i++) {
-      w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
+      w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
     mngr.updateModelParameters(w);
   }
@@ -326,9 +319,9 @@ int main(int argc, char *argv[]) {
   Logger::instance().log(
       "Server starting RBYZ in core: " + std::to_string(sched_getcpu()) + "\n");
 
+  TrainInputParams t_params;
   int n_clients;
   bool use_mnist = false;
-  std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -341,7 +334,15 @@ int main(int argc, char *argv[]) {
       lyra::opt(port, "port")["-p"]["--port"]("port") |
       lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
       lyra::opt(use_mnist)["-l"]["--load"]("Load model from saved file") |
-      lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
+      lyra::opt(t_params.n_byz_clnts, "n_byz")["-b"]["--n_byz"]("byzantine clients") |
+      lyra::opt(t_params.epochs, "epochs")["--epochs"]("number of epochs") |
+      lyra::opt(t_params.batch_size, "batch_size")["--batch_size"]("batch size") |
+      lyra::opt(t_params.global_learn_rate, "global_learn_rate")["--global_learn_rate"]("global learning rate") |
+      lyra::opt(t_params.clnt_subset_size, "clnt_subset_size")["--clnt_subset_size"]("client subset size") |
+      lyra::opt(t_params.srvr_subset_size, "srvr_subset_size")["--srvr_subset_size"]("server subset size") |
+      lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |
+      lyra::opt(t_params.local_steps_rbyz, "local_steps_rbyz")["--local_steps_rbyz"]("local steps RByz") |
+      lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz");
 
   auto result = cli.parse({argc, argv});
   if (!result) {
@@ -353,39 +354,52 @@ int main(int argc, char *argv[]) {
   // addr
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
+  std::cout << "Dataset type: " << (use_mnist ? "MNIST" : "CIFAR10") << "\n";
   std::cout << "Server: n_clients = " << n_clients << "\n";
   std::cout << "Server: srvr_ip = " << srvr_ip << "\n";
   std::cout << "Server: port = " << port << "\n";
+  std::cout << "Byz clients = " << t_params.n_byz_clnts << "\n";
+  std::cout << "Batch size = " << t_params.batch_size << "\n";
+  std::cout << "Global learn rate = " << t_params.global_learn_rate << "\n";
+  std::cout << "Client subset size = "
+            << t_params.clnt_subset_size << "\n";
+  std::cout << "Server subset size = "
+            << t_params.srvr_subset_size << "\n";
+  std::cout << "Global iterations FL = "
+            << t_params.global_iters_fl << "\n";
+  std::cout << "Local steps RByz = "
+            << t_params.local_steps_rbyz << "\n";
+  std::cout << "Global iterations RByz = "
+            << t_params.global_iters_rbyz << "\n";
 
+  t_params.num_workers = n_clients + 1; // +1 for server
   MnistNet mnist_net;
   Cifar10Net cifar_net;
   std::unique_ptr<RegMemSrvr> regMem;
   std::unique_ptr<IRegDatasetMngr> reg_mngr;
 
   if (use_mnist) {
-    reg_mngr = std::make_unique<RegMnistMngr>(0, n_clients + 1,
-                                              SRVR_SUBSET_SIZE_MNIST, mnist_net);
+    reg_mngr = std::make_unique<RegMnistMngr>(0, t_params, mnist_net);
 
-    regMem = std::make_unique<RegMemSrvr>(n_clients, REG_SZ_DATA_MNIST, *reg_mngr);
-    regMem->srvr_subset_size = SRVR_SUBSET_SIZE_MNIST;
-    regMem->clnt_subset_size = CLNT_SUBSET_SIZE_MNIST;
+    regMem = std::make_unique<RegMemSrvr>(n_clients, REG_SZ_DATA_MNIST, reg_mngr->data_info.reg_data);
     regMem->dataset_size = DATASET_SIZE_MNIST;
     Logger::instance().log("Server: Using MNIST dataset\n");
   } else {
-    reg_mngr = std::make_unique<RegCIFAR10Mngr>(
-        0, n_clients + 1, SRVR_SUBSET_SIZE_CF10, cifar_net);
+    reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, cifar_net);
 
-    regMem = std::make_unique<RegMemSrvr>(n_clients, REG_SZ_DATA_CF10,
-                                          *reg_mngr);
-    regMem->srvr_subset_size = SRVR_SUBSET_SIZE_CF10;
-    regMem->clnt_subset_size = CLNT_SUBSET_SIZE_CF10;
+    regMem = std::make_unique<RegMemSrvr>(n_clients, REG_SZ_DATA_CF10, reg_mngr->data_info.reg_data);
     regMem->dataset_size = DATASET_SIZE_CF10;
     Logger::instance().log("Server: Using CIFAR10 dataset\n");
   }
+  regMem->srvr_subset_size = t_params.srvr_subset_size;
+  regMem->clnt_subset_size = t_params.clnt_subset_size;
 
   std::vector<RegInfo> reg_info(n_clients);
   std::vector<RcConn> conns(n_clients);
   std::vector<ClientDataRbyz> clnt_data_vec(n_clients);
+  for (ClientDataRbyz &clnt_data : clnt_data_vec) {
+    clnt_data.init(t_params.local_steps_rbyz);
+  }
   allocateServerMemory(n_clients, *regMem, clnt_data_vec, *reg_mngr);
   prepareRdmaRegistration(n_clients, reg_info, *regMem, clnt_data_vec,
                           *reg_mngr);
@@ -401,7 +415,7 @@ int main(int argc, char *argv[]) {
 
   std::cout << "SRVR Running FLTrust\n";
   std::vector<torch::Tensor> w = run_fltrust_srvr(
-      GLOBAL_ITERS_FL, n_clients, *reg_mngr, *regMem, clnt_data_vec);
+      n_clients, t_params, *reg_mngr, *regMem, clnt_data_vec);
   // auto end = std::chrono::high_resolution_clock::now();
   // Logger::instance().log("Total time taken: " +
   //                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end
@@ -412,7 +426,7 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Initial test of the model before RByz\n");
   reg_mngr->runTesting();
 
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr);
+  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   rbyz_aux.runRByzServer(n_clients, w, *regMem, clnt_data_vec);
 
   auto end = std::chrono::high_resolution_clock::now();

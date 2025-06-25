@@ -5,9 +5,8 @@
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 
-RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, int num_workers,
-                               int64_t subset_size, Cifar10Net net)
-    : BaseRegDatasetMngr<Cifar10Net>(worker_id, num_workers, subset_size, net),
+RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net)
+    : BaseRegDatasetMngr<Cifar10Net>(worker_id, t_params, net),
       test_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
                        .map(torch::data::transforms::Normalize<>(
                            {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
@@ -23,7 +22,7 @@ RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, int num_workers,
   buildLabelToIndicesMap();
 
   SubsetSampler train_sampler = get_subset_sampler(
-      worker_id, DATASET_SIZE, subset_size, SRVR_SUBSET_SIZE, label_to_indices);
+      worker_id, DATASET_SIZE, subset_size, t_params.srvr_subset_size, label_to_indices);
   auto &indices = train_sampler.indices();
 
   // Init reg data structures and pin memory
@@ -46,7 +45,7 @@ RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   size_t param_count = w_cuda.size();
 
   torch::optim::SGD optimizer(model->parameters(),
-                              torch::optim::SGDOptions(GLOBAL_LEARN_RATE).momentum(0.9));
+                              torch::optim::SGDOptions(t_params.global_learn_rate).momentum(0.9));
 
   if (round % 1 == 0) {
     std::cout << "Training model for round " << round

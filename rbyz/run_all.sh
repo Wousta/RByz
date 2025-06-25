@@ -3,29 +3,45 @@
 # Configuration
 srvr_ip=192.168.128.103
 port=2000
-n_clients=2
 remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 use_mnist=true   # MNIST or CIFAR-10 dataset
-model_file="mnist_model_params.pt"
+
+# Lyra handling of boolean flag
+if [ "$use_mnist" = true ]; then
+  # MNIST dataset 60000 training images
+  load_use_mnist_param="--load"
+  n_clients=10
+  n_byz_clnts=2
+  epochs=5
+  batch_size=32
+  glob_learn_rate=0.05
+  clnt_subset_size=5900
+  srvr_subset_size=1000
+  glob_iters_fl=5
+  local_steps_rbyz=6
+  glob_iters_rbyz=10
+else
+  # CIFAR-10 dataset 50000 training images
+  load_use_mnist_param=""
+  n_clients=0
+  n_byz_clnts=2
+  epochs=5
+  batch_size=128
+  glob_learn_rate=0.05
+  clnt_subset_size=4900
+  srvr_subset_size=1000
+  glob_iters_fl=100
+  local_steps_rbyz=6
+  glob_iters_rbyz=10
+fi
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
 remainder=$((n_clients % ${#remote_hosts[@]}))
-
-# Server runs locally, clients run remotely
-run_server_remote=false
-run_clients_remote=true
-
-# Lyra handling of boolean flag
-if [ "$use_mnist" = true ]; then
-  load_use_mnist_param="--load"
-else
-  load_use_mnist_param=""
-fi
 
 # Cleanup function: kill local and remote processes
 cleanup() {
@@ -65,7 +81,10 @@ rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
-taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --file $model_file & 
+taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
+  --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --clnt_subset_size $clnt_subset_size \
+  --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
+  --global_iters_rbyz $glob_iters_rbyz & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
@@ -101,10 +120,13 @@ for i in "${!remote_hosts[@]}"; do
       core_id=0; \
       for id in ${client_ids[@]}; do \
         echo \"Starting client \$id on $host with physical core \$core_id\" && \
-        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --file $model_file & \
+        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
+          --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --clnt_subset_size $clnt_subset_size \
+          --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
+          --global_iters_rbyz $glob_iters_rbyz & \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
-        sleep 0.5; \
+        sleep 0.1; \
       done" &
   fi
 done

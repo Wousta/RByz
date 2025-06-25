@@ -28,7 +28,8 @@ public:
         out = out.view({-1, 16 * 5 * 5});
         out = torch::relu(fc1->forward(out));
         out = torch::relu(fc2->forward(out));
-        return fc3->forward(out);
+        out = fc3->forward(out);
+        return torch::log_softmax(out, /*dim=*/1);
     }
 
 private:

@@ -1,4 +1,5 @@
 #pragma once
+#include "entities.hpp"
 #include "structs.hpp"
 #include <random>
 #include <torch/torch.h>
@@ -7,12 +8,13 @@
 class IRegDatasetMngr {
 public:
   const int worker_id;
+  TrainInputParams t_params;
   const int num_workers;
-  const int64_t subset_size;
-  const int64_t kTrainBatchSize = 32;
+  const int64_t kTrainBatchSize;
+  const int64_t kNumberOfEpochs;
   const int64_t kTestBatchSize = 1000;
-  const int64_t kNumberOfEpochs = 5;
   const int64_t kLogInterval = 10;
+  int64_t subset_size = 0;
   size_t test_dataset_size;
   float loss;
   float test_loss;
@@ -22,9 +24,16 @@ public:
   RegTrainData data_info;
   ForwardPassData f_pass_data;
 
-  IRegDatasetMngr(int worker_id, int num_workers, int64_t subset_size)
-      : worker_id(worker_id), num_workers(num_workers),
-        subset_size(subset_size) {}
+  IRegDatasetMngr(int worker_id, TrainInputParams &t_params)
+      : worker_id(worker_id), t_params(t_params),
+        num_workers(t_params.num_workers), kTrainBatchSize(t_params.batch_size),
+        kNumberOfEpochs(t_params.epochs) {
+          if (worker_id == 0) {
+            subset_size = t_params.srvr_subset_size;
+          } else {
+            subset_size = t_params.clnt_subset_size;
+          }
+        }
   virtual ~IRegDatasetMngr() = default;
 
   virtual std::vector<torch::Tensor>
@@ -52,5 +61,6 @@ public:
   virtual void flipLabelsRandom(float flip_ratio, std::mt19937 &rng) = 0;
   virtual void flipLabelsTargeted(int source_label, int target_label,
                                   float flip_ratio, std::mt19937 &rng) = 0;
+  virtual void corruptImagesRandom(float flip_ratio, std::mt19937 &rng) = 0;
   virtual std::vector<size_t> findSamplesWithLabel(int label) = 0;
 };

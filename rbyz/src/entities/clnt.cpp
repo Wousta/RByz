@@ -100,10 +100,10 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
 int main(int argc, char* argv[]) {
   Logger::instance().log("Client starting execution\n");
 
+  TrainInputParams t_params;
   int id;
   int n_clients;
   bool use_mnist = false;
-  std::string model_file = "mnist_model_params.pt";
   std::string srvr_ip;
   std::string port;
   unsigned int posted_wqes;
@@ -114,10 +114,18 @@ int main(int argc, char* argv[]) {
   auto cli = lyra::cli() |
     lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
     lyra::opt(port, "port")["-p"]["--port"]("port") |
-    lyra::opt(id, "id")["-p"]["--id"]("id") |
+    lyra::opt(id, "id")["-d"]["--id"]("id") |
     lyra::opt(use_mnist)["-l"]["--load"]("Load model from saved file") |
     lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
-    lyra::opt(model_file, "model_file")["-f"]["--file"]("Model file path");
+    lyra::opt(t_params.n_byz_clnts, "n_byz")["-b"]["--n_byz"]("byzantine clients") |
+    lyra::opt(t_params.epochs, "epochs")["--epochs"]("number of epochs") |
+    lyra::opt(t_params.batch_size, "batch_size")["--batch_size"]("batch size") |
+    lyra::opt(t_params.global_learn_rate, "global_learn_rate")["--global_learn_rate"]("global learning rate") |
+    lyra::opt(t_params.clnt_subset_size, "clnt_subset_size")["--clnt_subset_size"]("client subset size") |
+    lyra::opt(t_params.srvr_subset_size, "srvr_subset_size")["--srvr_subset_size"]("server subset size") |
+    lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |
+    lyra::opt(t_params.local_steps_rbyz, "local_steps_rbyz")["--local_steps_rbyz"]("local steps RByz") |
+    lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -128,24 +136,23 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("Client: id = " + std::to_string(id) + "\n");
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
   Logger::instance().log("Client: port = " + port + "\n");
+  Logger::instance().log("Byz clients = " + std::to_string(t_params.n_byz_clnts) + "\n");
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
 
-  // Sleep to not overload the server when all clients connect
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 800));
-
+  t_params.num_workers = n_clients + 1; // +1 for server
   MnistNet mnist_net;
   Cifar10Net cifar_net;
   std::unique_ptr<IRegDatasetMngr> reg_mngr;
   std::unique_ptr<RegMemClnt> regMem;
 
   if (use_mnist) {
-    regMem = std::make_unique<RegMemClnt>(id, REG_SZ_DATA_MNIST);
-    reg_mngr = std::make_unique<RegMnistMngr>(id, n_clients + 1, CLNT_SUBSET_SIZE_MNIST, mnist_net);
+    regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, REG_SZ_DATA_MNIST);
+    reg_mngr = std::make_unique<RegMnistMngr>(id, t_params, mnist_net);
     Logger::instance().log("Client: Using MNIST dataset\n");
   } else {
-    regMem = std::make_unique<RegMemClnt>(id, REG_SZ_DATA_CF10);
-    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, n_clients + 1, CLNT_SUBSET_SIZE_CF10, cifar_net);
+    regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, REG_SZ_DATA_CF10);
+    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, cifar_net);
     Logger::instance().log("Client: Using CIFAR10 dataset\n");
   }
 
@@ -153,6 +160,8 @@ int main(int argc, char* argv[]) {
   Logger::instance().log("Client: Registered memory for client " + std::to_string(id) + "\n");
 
   // connect to server
+  // Sleep to not overload the server when all clients connect
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 100));
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
 
@@ -171,7 +180,7 @@ int main(int argc, char* argv[]) {
                            " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
   }
 
-  std::vector<torch::Tensor> w = run_fltrust_clnt(GLOBAL_ITERS_FL, rdma_ops, *reg_mngr, *regMem);
+  std::vector<torch::Tensor> w = run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);
   // Label flipping for Byzantine clients
   // if (id <= N_BYZ_CLNTS) {
   //   Logger::instance().log("Client " + std::to_string(id) + " is Byzantine, flipping labels\n");
@@ -181,7 +190,7 @@ int main(int argc, char* argv[]) {
   // } 
 
   // Run the RByz client
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr);
+  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   rbyz_aux.runRByzClient(w, *regMem);
 
   std::cout << "\nClient done\n";

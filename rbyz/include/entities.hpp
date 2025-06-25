@@ -1,5 +1,4 @@
 #pragma once
-#include "datasetLogic/iRegDatasetMngr.hpp"
 #include "global/globalConstants.hpp"
 #include <atomic>
 #include <vector>
@@ -19,16 +18,13 @@ struct RegMemSrvr {
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   std::vector<float *> clnt_loss_and_err;
-  void* reg_data;
+  void *reg_data;
 
-  RegMemSrvr(int n_clients, uint32_t reg_sz_data, IRegDatasetMngr &manager)
+  RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
       : srvr_w(reinterpret_cast<float *>(malloc(reg_sz_data))),
-        reg_sz_data(reg_sz_data),
-        n_clients(n_clients),
-        clnt_ready_flags(n_clients, 0),
-        clnt_ws(n_clients),
-        clnt_loss_and_err(n_clients),
-        reg_data(manager.data_info.reg_data) {}
+        reg_sz_data(reg_sz_data), n_clients(n_clients),
+        clnt_ready_flags(n_clients, 0), clnt_ws(n_clients),
+        clnt_loss_and_err(n_clients), reg_data(reg_data) {}
 
   ~RegMemSrvr() {
     free(srvr_w);
@@ -43,24 +39,23 @@ struct RegMemSrvr {
  * @brief Holds the client's registered data.
  */
 struct RegMemClnt {
-  const int id; // For identification purposes, not used in RByz
+  const int id;               // For identification purposes, not used in RByz
   const uint32_t reg_sz_data; // Size of the registered parameter vector w
   int srvr_ready_flag;
-  float* srvr_w;
+  float *srvr_w;
   int clnt_ready_flag;
-  float* clnt_w;
-  float* loss_and_err;
+  float *clnt_w;
+  float *loss_and_err;
   alignas(8) std::atomic<int> CAS;
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
 
-  RegMemClnt(int id, uint32_t reg_sz_data) : 
-      id(id), reg_sz_data(reg_sz_data), srvr_ready_flag(0), 
-      clnt_ready_flag(0), CAS(LOCAL_STEPS_RBYZ), 
-      local_step(0), round(0) {
-    srvr_w = reinterpret_cast<float*> (malloc(reg_sz_data));
-    clnt_w = reinterpret_cast<float*> (malloc(reg_sz_data));
-    loss_and_err = reinterpret_cast<float*> (malloc(MIN_SZ));
+  RegMemClnt(int id, int local_steps_rbyz, uint32_t reg_sz_data)
+      : id(id), reg_sz_data(reg_sz_data), srvr_ready_flag(0),
+        clnt_ready_flag(0), CAS(local_steps_rbyz), local_step(0), round(0) {
+    srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
+    clnt_w = reinterpret_cast<float *>(malloc(reg_sz_data));
+    loss_and_err = reinterpret_cast<float *>(malloc(MIN_SZ));
   }
 
   ~RegMemClnt() {
@@ -75,48 +70,75 @@ struct RegMemClnt {
  * Used by the server to read the client's data.
  */
 struct ClientDataRbyz {
-    int index;
-    bool is_byzantine = false;
-    float trust_score;
-    float* updates;
-    float* loss;        // Unused in RByz, but kept for compatibility
-    float* error_rate;  // Unused in RByz, but kept for compatibility
+  int index;
+  bool is_byzantine = false;
+  float trust_score;
+  float *updates;
+  float *loss;       // Unused in RByz, but kept for compatibility
+  float *error_rate; // Unused in RByz, but kept for compatibility
 
-    // Handling of slow clients
-    bool is_slow = false;
-    int next_step = 1; 
-    int max_step = LOCAL_STEPS_RBYZ;
-    int min_step = LOCAL_STEPS_RBYZ;
-    int steps_to_finish = LOCAL_STEPS_RBYZ;
-    std::chrono::milliseconds limit_step_time;
-    
-    // Dataset data
-    alignas(8) size_t dataset_size;
-    std::unordered_set<size_t> inserted_indices;
+  // Handling of slow clients
+  bool is_slow = false;
+  int next_step = 1;
+  int max_step = 0;
+  int min_step = 0;
+  int steps_to_finish = 0;
+  std::chrono::milliseconds limit_step_time;
 
-    // Forward pass data
-    size_t forward_pass_mem_size;
-    size_t forward_pass_indices_mem_size;
-    float* forward_pass;
-    uint32_t* forward_pass_indices;
+  // Dataset data
+  alignas(8) size_t dataset_size;
+  std::unordered_set<size_t> inserted_indices;
 
-    // VD out data
-    alignas(8) float loss_clnt;
-    alignas(8) float error_rate_clnt;
-    alignas(8) float loss_srvr;
-    alignas(8) float error_rate_srvr;
-    
-    alignas(8) std::atomic<int> clnt_CAS;    
-    alignas(8) int local_step = 0;           
-    alignas(8) int round = 0;               
+  // Forward pass data
+  size_t forward_pass_mem_size;
+  size_t forward_pass_indices_mem_size;
+  float *forward_pass;
+  uint32_t *forward_pass_indices;
 
-    ClientDataRbyz() : clnt_CAS(LOCAL_STEPS_RBYZ), trust_score(0) {}
+  // VD out data
+  alignas(8) float loss_clnt;
+  alignas(8) float error_rate_clnt;
+  alignas(8) float loss_srvr;
+  alignas(8) float error_rate_srvr;
 
-    ~ClientDataRbyz() {
-        // Only free memory that was allocated with malloc/new
-        if (updates) free(updates);
-        if (loss) free(loss);
-        if (error_rate) free(error_rate);
-        if (forward_pass_indices) free(forward_pass_indices);
-    }
+  alignas(8) std::atomic<int> clnt_CAS;
+  alignas(8) int local_step = 0;
+  alignas(8) int round = 0;
+
+  ClientDataRbyz()
+      : clnt_CAS(0), trust_score(0) {}
+
+  ~ClientDataRbyz() {
+    // Only free memory that was allocated with malloc/new
+    if (updates)
+      free(updates);
+    if (loss)
+      free(loss);
+    if (error_rate)
+      free(error_rate);
+    if (forward_pass_indices)
+      free(forward_pass_indices);
+  }
+
+  void init(int local_steps_rbyz) {
+    clnt_CAS.store(local_steps_rbyz);
+    max_step = local_steps_rbyz;
+    min_step = local_steps_rbyz;
+    steps_to_finish = local_steps_rbyz;
+  }
+};
+
+struct TrainInputParams {
+  int num_workers;
+  int n_byz_clnts;
+  int epochs;
+  int batch_size;
+  float global_learn_rate;
+  int clnt_subset_size;
+  int srvr_subset_size;
+  int global_iters_fl;
+
+  // RByz specific parameters
+  int local_steps_rbyz;
+  int global_iters_rbyz;
 };

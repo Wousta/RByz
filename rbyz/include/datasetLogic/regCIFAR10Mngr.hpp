@@ -10,7 +10,6 @@ private:
   // Size of CIFAR-10 image in pixels (3 channels)
   const int IMG_SIZE = 32 * 32 * 3;
   const uint32_t DATASET_SIZE = DATASET_SIZE_CF10;
-  const uint32_t SRVR_SUBSET_SIZE = SRVR_SUBSET_SIZE_CF10;
   const std::string kDataRoot = "./data/cifar10";
 
   using RegTrainDataLoader =
@@ -40,8 +39,7 @@ private:
   void buildRegisteredDataset(const std::vector<size_t> &indices);
 
 public:
-  RegCIFAR10Mngr(int worker_id, int num_workers, int64_t subset_size,
-                 Cifar10Net net);
+  RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net);
   ~RegCIFAR10Mngr() = default;
 
   std::vector<torch::Tensor>

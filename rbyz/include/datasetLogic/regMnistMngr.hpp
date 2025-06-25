@@ -18,7 +18,6 @@ private:
   const int IMG_SIZE = 28 * 28; // Size of MNIST image in pixels
   const char *kDataRoot = "./data/mnist";
   const uint32_t DATASET_SIZE = DATASET_SIZE_MNIST;
-  const uint32_t SRVR_SUBSET_SIZE = SRVR_SUBSET_SIZE_MNIST;
 
   using RegTrainDataLoader =
       torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
@@ -40,8 +39,7 @@ private:
   void buildRegisteredDataset(const std::vector<size_t> &indices);
 
 public:
-  RegMnistMngr(int worker_id, int num_workers, int64_t subset_size,
-               MnistNet net);
+  RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net);
   ~RegMnistMngr() = default;
 
   std::vector<torch::Tensor>

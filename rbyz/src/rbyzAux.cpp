@@ -10,7 +10,7 @@
 
 //////////////////////////////////////////////////////////////
 ////////////////////// SERVER FUNCTIONS //////////////////////
-void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec) {
+void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec, int rounds_rbyz) {
   Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");
   for (int i = 0; i < clnt_data_vec.size(); i++) {
     if (clnt_data_vec[i].is_byzantine) {
@@ -20,7 +20,7 @@ void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec) {
     bool client_done = false;
     while (!client_done) {
       // Check if client has reached final round
-      if (clnt_data_vec[i].round == GLOBAL_ITERS_RBYZ) {
+      if (clnt_data_vec[i].round == rounds_rbyz) {
         client_done = true;
         Logger::instance().log("Server: Client " + std::to_string(i) + " has completed all iterations\n");
       } else {
@@ -312,18 +312,20 @@ void RByzAux::runRByzServer(int n_clients,
                     std::vector<ClientDataRbyz>& clnt_data_vec) {
   
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  int total_steps = GLOBAL_ITERS_FL;
-  std::vector<int> test_step(n_clients, LOCAL_STEPS_RBYZ);
-  int min_steps = std::ceil(LOCAL_STEPS_RBYZ * 0.5); // Minimum steps to consider a client valid
-  int middle_steps = std::ceil(LOCAL_STEPS_RBYZ * 0.75);
-  std::uniform_int_distribution<int> step_range(middle_steps, LOCAL_STEPS_RBYZ);
+  int total_steps = t_params.global_iters_fl;
+
+  // Initialization for timeouts
+  std::vector<int> test_step(n_clients, local_steps);
+  int min_steps = std::ceil(local_steps * 0.5); // Minimum steps to consider a client valid
+  int middle_steps = std::ceil(local_steps * 0.75);
+  std::uniform_int_distribution<int> step_range(middle_steps, local_steps);
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
   RegMnistSplitter splitter(1, mngr, clnt_data_vec);
   
   // RBYZ training loop
-  for (int round = 0; round < GLOBAL_ITERS_RBYZ; round++) {
+  for (int round = 0; round < global_rounds; round++) {
     Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
 
     mngr.runTesting();
@@ -344,7 +346,7 @@ void RByzAux::runRByzServer(int n_clients,
     Logger::instance().log("Server: wrote ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
 
     // For each client run N rounds of RByz
-    for (int srvr_step = 0; srvr_step < LOCAL_STEPS_RBYZ; srvr_step++) {
+    for (int srvr_step = 0; srvr_step < local_steps; srvr_step++) {
       Logger::instance().log("  Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
 
       // Log accuracy and round to Results
@@ -482,8 +484,6 @@ void RByzAux::runRByzServer(int n_clients,
     }
 
     // Use attacks to simulate Byzantine clients
-    //clnt_updates = trim_attack(clnt_updates, mnist.getModel(), GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mnist.getDevice());
-    clnt_updates = no_byz(clnt_updates, GLOBAL_LEARN_RATE, N_BYZ_CLNTS, mngr.getDevice());
 
     // Aggregation
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
@@ -491,7 +491,7 @@ void RByzAux::runRByzServer(int n_clients,
         reconstruct_tensor_vector(aggregated_update, w);
 
     for (size_t i = 0; i < w.size(); i++) {
-      w[i] = w[i] + GLOBAL_LEARN_RATE * aggregated_update_vec[i];
+      w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
     mngr.updateModelParameters(w);
 
@@ -499,7 +499,7 @@ void RByzAux::runRByzServer(int n_clients,
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
   }
 
-  awaitTermination(clnt_data_vec);  
+  awaitTermination(clnt_data_vec, global_rounds);  
 }
 
 /**
@@ -510,15 +510,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   std::string log_file = "lstep_" + std::to_string(getpid()) + ".log";
   Logger::instance().logCustom("./stepTimes", log_file, std::to_string(regMem.id - 1) + "\n");
   
-  while (regMem.round.load() < GLOBAL_ITERS_RBYZ) {
-
-    // Perform label  flipping attack
-    // if (regMem.id <= N_BYZ_CLNTS && regMem.round.load() == 3) {
-    //   Logger::instance().log("Client " + std::to_string(regMem.id) + " is Byzantine, flipping labels\n");
-    //   std::mt19937 rng(42);
-    //   mnist.flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
-    //   mnist.flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
-    // }
+  while (regMem.round.load() < global_rounds) {
 
     if (regMem.round.load() == 2) {
       Logger::instance().log("POST: first mnist samples\n");
@@ -574,7 +566,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   }
 
   // Notify the server that the client is done
-  regMem.round.store(GLOBAL_ITERS_RBYZ);
+  regMem.round.store(global_rounds);
   rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
   Logger::instance().log("Client: Finished RByz\n");
 }

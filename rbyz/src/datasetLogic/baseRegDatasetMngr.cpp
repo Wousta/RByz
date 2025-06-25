@@ -7,10 +7,9 @@
 #include <torch/types.h>
 
 template <typename NetType>
-BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, int num_workers,
-                                                int64_t subset_size,
+BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, TrainInputParams &t_params,
                                                 NetType net)
-    : IRegDatasetMngr(worker_id, num_workers, subset_size),
+    : IRegDatasetMngr(worker_id, t_params),
       model(std::move(net)), device(init_device()) {
   torch::manual_seed(1);
   model->to(device);
@@ -136,6 +135,8 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
     test_loss += torch::nll_loss(output, targets,
                                  /*weight=*/{}, torch::Reduction::Sum)
                      .template item<float>();
+    // test_loss += torch::nn::functional::cross_entropy(output, targets, 
+    // torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kSum)).template item<float>();
     auto pred = output.argmax(1);
     correct += pred.eq(targets).sum().template item<int64_t>();
     total_samples += targets.size(0); // Add actual batch size
@@ -243,6 +244,8 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     // Clear gradients from previous iteration
     optimizer.zero_grad();
     auto output = model->forward(data);
+    // auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
+    // torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
     auto individual_losses =
         torch::nll_loss(output, targets, {}, torch::Reduction::None);
 
@@ -745,6 +748,38 @@ void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label,
   }
 
   Logger::instance().log("Targeted label flipping completed\n");
+}
+
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
+                                                      std::mt19937 &rng) {
+  if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
+    throw std::invalid_argument("Flip ratio must be between 0 and 1");
+  }
+
+  size_t num_to_corrupt = static_cast<size_t>(data_info.num_samples * flip_ratio);
+  std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
+
+  std::unordered_set<size_t> corrupted_indices;
+
+  Logger::instance().log(
+      "Starting random image corruption attack: " + std::to_string(num_to_corrupt) +
+      " samples (" + std::to_string(flip_ratio * 100) + "%)\n");
+
+  while (corrupted_indices.size() < num_to_corrupt) {
+    size_t idx = sample_dist(rng);
+    if (corrupted_indices.find(idx) == corrupted_indices.end()) {
+      float *image_ptr = getImage(idx);
+      
+      // Set all image pixels to zero (garbage values)
+      size_t num_pixels = data_info.image_size / sizeof(float);
+      std::memset(image_ptr, 0, data_info.image_size);
+      
+      corrupted_indices.insert(idx);
+    }
+  }
+
+  Logger::instance().log("Random image corruption completed\n");
 }
 
 template <typename NetType>

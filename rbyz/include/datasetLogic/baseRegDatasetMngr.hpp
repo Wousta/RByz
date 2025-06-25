@@ -13,8 +13,7 @@
 
 template <typename NetType> class BaseRegDatasetMngr : public IRegDatasetMngr {
 public:
-  BaseRegDatasetMngr(int worker_id, int num_workers, int64_t subset_size,
-                     NetType net);
+  BaseRegDatasetMngr(int worker_id, TrainInputParams &t_params, NetType net);
   virtual ~BaseRegDatasetMngr();
 
   virtual std::vector<torch::Tensor>
@@ -35,6 +34,7 @@ public:
   void flipLabelsRandom(float flip_ratio, std::mt19937 &rng) override;
   void flipLabelsTargeted(int source_label, int target_label, float flip_ratio,
                           std::mt19937 &rng) override;
+  void corruptImagesRandom(float flip_ratio, std::mt19937 &rng) override;
   std::vector<size_t> findSamplesWithLabel(int label) override;
 
   // Getters for specific sample data

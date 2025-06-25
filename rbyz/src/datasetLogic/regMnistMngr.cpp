@@ -4,8 +4,8 @@
 #include "nets/mnistNet.hpp"
 #include <vector>
 
-RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, MnistNet net)
-    : BaseRegDatasetMngr<MnistNet>(worker_id, num_workers, subset_size, net),
+RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net)
+    : BaseRegDatasetMngr<MnistNet>(worker_id, t_params, net),
       test_dataset(
           torch::data::datasets::MNIST(
               kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
@@ -22,7 +22,7 @@ RegMnistMngr::RegMnistMngr(int worker_id, int num_workers, int64_t subset_size, 
   buildLabelToIndicesMap();
 
   SubsetSampler train_sampler = get_subset_sampler(
-      worker_id, DATASET_SIZE_MNIST, subset_size, SRVR_SUBSET_SIZE, label_to_indices);
+      worker_id, DATASET_SIZE_MNIST, subset_size, t_params.srvr_subset_size, label_to_indices);
   auto &indices = train_sampler.indices();
 
   // Init reg data structures and pin memory
@@ -45,7 +45,7 @@ RegMnistMngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   size_t param_count = w_cuda.size();
 
   torch::optim::SGD optimizer(model->parameters(),
-                              torch::optim::SGDOptions(GLOBAL_LEARN_RATE));
+                              torch::optim::SGDOptions(t_params.global_learn_rate));
 
   if (round % 1 == 0) {
     std::cout << "Training model for round " << round
