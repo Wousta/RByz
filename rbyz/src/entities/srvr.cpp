@@ -195,7 +195,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
-  for (int round = 1; round <= t_params.global_iters_fl; round++) {
+  for (int round = 0; round < t_params.global_iters_fl; round++) {
     mngr.runTesting();
     Logger::instance().logRByzAcc(std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
@@ -342,7 +342,8 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.srvr_subset_size, "srvr_subset_size")["--srvr_subset_size"]("server subset size") |
       lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |
       lyra::opt(t_params.local_steps_rbyz, "local_steps_rbyz")["--local_steps_rbyz"]("local steps RByz") |
-      lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz");
+      lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz") |
+      lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz");
 
   auto result = cli.parse({argc, argv});
   if (!result) {
@@ -371,6 +372,8 @@ int main(int argc, char *argv[]) {
             << t_params.local_steps_rbyz << "\n";
   std::cout << "Global iterations RByz = "
             << t_params.global_iters_rbyz << "\n";
+  std::cout << "Only FLTrust = "
+            << (t_params.only_flt ? "true" : "false") << "\n";
 
   t_params.num_workers = n_clients + 1; // +1 for server
   MnistNet mnist_net;
@@ -426,8 +429,10 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Initial test of the model before RByz\n");
   reg_mngr->runTesting();
 
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
-  rbyz_aux.runRByzServer(n_clients, w, *regMem, clnt_data_vec);
+  if (!t_params.only_flt) {
+      RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
+      rbyz_aux.runRByzServer(n_clients, w, *regMem, clnt_data_vec);
+  }
 
   auto end = std::chrono::high_resolution_clock::now();
   Logger::instance().log(

@@ -141,4 +141,9 @@ struct TrainInputParams {
   // RByz specific parameters
   int local_steps_rbyz;
   int global_iters_rbyz;
+
+  //misc
+  int only_flt;
+  int label_flip_type;
+  float flip_ratio;
 };

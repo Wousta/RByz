@@ -9,6 +9,7 @@ remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 use_mnist=true   # MNIST or CIFAR-10 dataset
+only_flt=0  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
 
 # Lyra handling of boolean flag
 if [ "$use_mnist" = true ]; then
@@ -24,6 +25,8 @@ if [ "$use_mnist" = true ]; then
   glob_iters_fl=5
   local_steps_rbyz=6
   glob_iters_rbyz=10
+  label_flip_type=0
+  flip_ratio=0.25
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param=""
@@ -36,7 +39,9 @@ else
   srvr_subset_size=1000
   glob_iters_fl=100
   local_steps_rbyz=6
-  glob_iters_rbyz=10
+  glob_iters_rbyz=5
+  label_flip_type=0
+  flip_ratio=0.25
 fi
 
 # Calculate clients per machine (even distribution)
@@ -50,6 +55,7 @@ cleanup() {
   # Kill local server process
   echo "Killing local server process..."
   kill $SRVR_PID 2>/dev/null
+  kill -2 $CPU_TRACKER_PID 2>/dev/null
   
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."
@@ -84,7 +90,7 @@ echo "Starting server locally..."
 taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-  --global_iters_rbyz $glob_iters_rbyz & 
+  --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
@@ -123,13 +129,17 @@ for i in "${!remote_hosts[@]}"; do
         taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
           --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --clnt_subset_size $clnt_subset_size \
           --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-          --global_iters_rbyz $glob_iters_rbyz & \
+          --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio & \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.1; \
       done" &
   fi
 done
+
+cd $results_path
+build/cpuTracker &
+CPU_TRACKER_PID=$!
 
 # Wait for the local server process
 wait $SRVR_PID

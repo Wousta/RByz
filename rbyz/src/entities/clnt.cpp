@@ -58,7 +58,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
-  for (int round = 1; round <= rounds; round++) {
+  for (int round = 0; round < rounds; round++) {
     mngr.runTesting();
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
@@ -125,7 +125,10 @@ int main(int argc, char* argv[]) {
     lyra::opt(t_params.srvr_subset_size, "srvr_subset_size")["--srvr_subset_size"]("server subset size") |
     lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |
     lyra::opt(t_params.local_steps_rbyz, "local_steps_rbyz")["--local_steps_rbyz"]("local steps RByz") |
-    lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz");
+    lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz") |
+    lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz") |
+    lyra::opt(t_params.label_flip_type, "label_flip_type")["--label_flip_type"]("Label flip type: 0 - random, 1 - targeted, 2 - corrupt images") |
+    lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -189,9 +192,10 @@ int main(int argc, char* argv[]) {
   //   registered_mnist->flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
   // } 
 
-  // Run the RByz client
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
-  rbyz_aux.runRByzClient(w, *regMem);
+  if (!t_params.only_flt) {
+    RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
+    rbyz_aux.runRByzClient(w, *regMem);
+  }
 
   std::cout << "\nClient done\n";
   std::this_thread::sleep_for(std::chrono::minutes(1));
