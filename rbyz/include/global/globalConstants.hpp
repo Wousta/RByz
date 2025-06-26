@@ -1,5 +1,6 @@
 #pragma once
 
+inline constexpr uint64_t NUM_CLASSES = 10; // Number of classes of CIFAR-10 and MNIST
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
 inline constexpr int CHUNK_SIZE = 2;  
@@ -9,7 +10,9 @@ inline constexpr uint64_t REG_SZ_DATA_MNIST = 87360;    // Size of the parameter
 inline constexpr int DATASET_SIZE_MNIST = 60000;
 
 // CIFAR10
-inline constexpr uint64_t REG_SZ_DATA_CF10 = 248024;    // Size of the parameter vector w for CIFAR-10
+inline constexpr uint64_t REG_SZ_DATA_CF10 = 5368488;    // Size of the parameter vector w for CIFAR-10
+//inline constexpr uint64_t REG_SZ_DATA_CF10 = 248024;    // Size of the parameter vector w for CIFAR-10
+//inline constexpr uint64_t REG_SZ_DATA_CF10 = 782952;      // Size of the parameter vector w for CIFAR-10 RESNET
 inline constexpr int DATASET_SIZE_CF10 = 50000;
 
 // RBYZ

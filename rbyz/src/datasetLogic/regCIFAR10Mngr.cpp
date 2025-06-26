@@ -44,8 +44,8 @@ RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
   size_t param_count = w_cuda.size();
 
-  torch::optim::SGD optimizer(model->parameters(),
-                              torch::optim::SGDOptions(t_params.global_learn_rate).momentum(0.9));
+  auto optimizer = torch::optim::Adam(model->parameters(), 
+                                    torch::optim::AdamOptions(0.001));
 
   if (round % 1 == 0) {
     std::cout << "Training model for round " << round

@@ -20,6 +20,8 @@
 #include "logger.hpp"
 #include "nets/cifar10Net.hpp"
 #include "nets/mnistNet.hpp"
+#include "nets/residual_block.hpp"
+#include "nets/resnet.hpp"
 #include "rbyzAux.hpp"
 #include "rc_conn.hpp"
 #include "rdmaOps.hpp"
@@ -27,6 +29,7 @@
 #include "util.hpp"
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
+using namespace resnet;
 
 /**
  * @brief Prepares RDMA registration configuration
@@ -382,6 +385,8 @@ int main(int argc, char *argv[]) {
   t_params.num_workers = n_clients + 1; // +1 for server
   MnistNet mnist_net;
   Cifar10Net cifar_net;
+  std::array<int64_t, 3> layers{2, 2, 2};
+  ResNet<ResidualBlock> resnet(layers, NUM_CLASSES);
   std::unique_ptr<RegMemSrvr> regMem;
   std::unique_ptr<IRegDatasetMngr> reg_mngr;
 
@@ -419,6 +424,18 @@ int main(int argc, char *argv[]) {
 
   Logger::instance().openRByzAccLog();
   auto start = std::chrono::high_resolution_clock::now();
+
+  // std::vector<torch::Tensor> test = reg_mngr->getInitialWeights();
+  // size_t total_bytes = 0;
+  // for (const auto& tensor : test) {
+  //   total_bytes += tensor.numel() * tensor.element_size();
+  // }
+
+  // std::cout << "Initial weights vector contains " << test.size() << " tensors\n";
+  // std::cout << "Total size in bytes: " << total_bytes << " bytes\n";
+  // std::cout << "Total size in MB: " << static_cast<float>(total_bytes) / (1024.0f * 1024.0f) << " MB\n";
+  
+  // return 0;
 
   std::cout << "SRVR Running FLTrust\n";
   std::vector<torch::Tensor> w = run_fltrust_srvr(

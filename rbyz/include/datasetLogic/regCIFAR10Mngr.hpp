@@ -3,7 +3,10 @@
 #include "datasetLogic/baseRegDatasetMngr.hpp"
 #include "global/globalConstants.hpp"
 #include "nets/cifar10Net.hpp"
+#include "nets/resnet.hpp"
 #include "registeredCIFAR10.hpp"
+
+using namespace resnet;
 
 class RegCIFAR10Mngr : public BaseRegDatasetMngr<Cifar10Net> {
 private:

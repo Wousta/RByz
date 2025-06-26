@@ -146,6 +146,8 @@ int main(int argc, char* argv[]) {
   t_params.num_workers = n_clients + 1; // +1 for server
   MnistNet mnist_net;
   Cifar10Net cifar_net;
+  std::array<int64_t, 3> layers{2, 2, 2};
+  ResNet<ResidualBlock> resnet(layers, NUM_CLASSES);
   std::unique_ptr<IRegDatasetMngr> reg_mngr;
   std::unique_ptr<RegMemClnt> regMem;
 

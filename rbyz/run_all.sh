@@ -8,7 +8,7 @@ remote_user="bustaman"
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
-use_mnist=true   # MNIST or CIFAR-10 dataset
+use_mnist=false   # MNIST or CIFAR-10 dataset
 
 # Lyra handling of boolean flag
 if [ "$use_mnist" = true ]; then
@@ -27,9 +27,9 @@ else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param=""
   n_clients=0
-  epochs=60
-  batch_size=128
-  glob_learn_rate=0.01
+  epochs=30
+  batch_size=100
+  glob_learn_rate=0.05
   clnt_subset_size=50000
   srvr_subset_size=50000
   glob_iters_fl=100
@@ -40,7 +40,7 @@ n_byz_clnts=2
 chunk_size=1      # slab size for RByz VDsampling
 label_flip_type=0
 flip_ratio=0.25
-only_flt=0  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+only_flt=1  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
 
 
 # Calculate clients per machine (even distribution)
