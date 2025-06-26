@@ -8,14 +8,13 @@ remote_user="bustaman"
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
-use_mnist=true   # MNIST or CIFAR-10 dataset
-only_flt=0  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+use_mnist=false   # MNIST or CIFAR-10 dataset
 
 # Lyra handling of boolean flag
 if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
   load_use_mnist_param="--load"
-  n_clients=10
+  n_clients=$1
   epochs=5
   batch_size=32
   glob_learn_rate=0.05
@@ -28,11 +27,11 @@ else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param=""
   n_clients=0
-  epochs=5
+  epochs=60
   batch_size=128
-  glob_learn_rate=0.005
-  clnt_subset_size=4900
-  srvr_subset_size=1000
+  glob_learn_rate=0.01
+  clnt_subset_size=50000
+  srvr_subset_size=50000
   glob_iters_fl=100
   local_steps_rbyz=6
   glob_iters_rbyz=5
@@ -41,6 +40,8 @@ n_byz_clnts=2
 chunk_size=1      # slab size for RByz VDsampling
 label_flip_type=0
 flip_ratio=0.25
+only_flt=1  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
@@ -53,7 +54,7 @@ cleanup() {
   # Kill local server process
   echo "Killing local server process..."
   kill $SRVR_PID 2>/dev/null
-  ps aux | grep cpuTracker | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true
+  ps aux | grep cpuTracker | grep -v grep | awk '{print $2}' | xargs kill -2 2>/dev/null || true
   
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."

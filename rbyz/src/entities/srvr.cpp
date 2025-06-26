@@ -195,7 +195,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
   printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial run of minstrain done\n");
 
-  for (int round = 0; round < t_params.global_iters_fl; round++) {
+  for (int round = 1; round <= t_params.global_iters_fl; round++) {
     mngr.runTesting();
     Logger::instance().logRByzAcc(std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
@@ -213,9 +213,12 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     regMem.srvr_ready_flag = round;
 
     // Run local training
-    Logger::instance().log("Server: Running MNIST training for round " +
+    Logger::instance().log("Server: Running FLtrust training for round " +
                            std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mngr.runTraining(round, w);
+    Logger::instance().log("Accuracy after training: \n");
+    mngr.runTesting();
+
 
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
     // ROUND, BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS

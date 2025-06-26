@@ -58,7 +58,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
-  for (int round = 0; round < rounds; round++) {
+  for (int round = 1; round <= rounds; round++) {
     mngr.runTesting();
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
