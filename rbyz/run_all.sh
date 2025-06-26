@@ -8,19 +8,19 @@ remote_user="bustaman"
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
-use_mnist=false   # MNIST or CIFAR-10 dataset
+use_mnist=true   # MNIST or CIFAR-10 dataset
 
 # Lyra handling of boolean flag
 if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
   load_use_mnist_param="--load"
-  n_clients=$1
+  n_clients=10 #$1
   epochs=5
   batch_size=32
   glob_learn_rate=0.05
   clnt_subset_size=5900
   srvr_subset_size=1000
-  glob_iters_fl=50
+  glob_iters_fl=5
   local_steps_rbyz=6
   glob_iters_rbyz=10
 else
@@ -40,7 +40,7 @@ n_byz_clnts=2
 chunk_size=1      # slab size for RByz VDsampling
 label_flip_type=0
 flip_ratio=0.25
-only_flt=1  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+only_flt=0  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
 
 
 # Calculate clients per machine (even distribution)
@@ -54,13 +54,13 @@ cleanup() {
   # Kill local server process
   echo "Killing local server process..."
   kill $SRVR_PID 2>/dev/null
-  ps aux | grep cpuTracker | grep -v grep | awk '{print $2}' | xargs kill -2 2>/dev/null || true
+  ps aux | grep profiler | grep -v grep | awk '{print $2}' | xargs kill -2 2>/dev/null || true
   
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."
   for host in "${remote_hosts[@]}"; do
     ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs kill -9 2>/dev/null || true" &
-    ssh $remote_user@$host "ps aux | grep cpuTracker | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true" &
+    ssh $remote_user@$host "ps aux | grep profiler | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true" &
   done
   
   exit 0
@@ -119,7 +119,7 @@ for i in "${!remote_hosts[@]}"; do
     # Start profiling CPU
     ssh $remote_user@$host "cd $results_path && \
       echo \"Starting CPU profiling on $host\" && \
-      build/cpuTracker" &
+      build/profiler" &
 
     ssh $remote_user@$host "cd $remote_script_path && \
       core_id=0; \
@@ -137,7 +137,7 @@ for i in "${!remote_hosts[@]}"; do
 done
 
 cd $results_path
-build/cpuTracker &
+build/profiler &
 CPU_TRACKER_PID=$!
 
 # Wait for the local server process

@@ -9,7 +9,6 @@
 #include <sched.h>
 #include <unordered_map>
 
-#include "CpuProfiler.hpp"
 
 class Logger {
 public:
@@ -23,44 +22,6 @@ public:
     void log(const std::string &message) {
         std::lock_guard<std::mutex> lock(mtx_);
         logFile_ << message;
-        logFile_.flush();
-    }
-
-    // CPU profiling methods
-    void startCpuProfilingTotal() {
-        std::lock_guard<std::mutex> lock(mtx_);
-        cpuProfiler_.startTotalMeasure();
-    }
-
-    void startCpuProfilingCore() {
-        std::lock_guard<std::mutex> lock(mtx_);
-        int core_id = sched_getcpu();
-        cpuProfiler_.startCoreMeasure(core_id);
-    }
-
-    void logCpuState(const std::string& context = "") {
-        std::lock_guard<std::mutex> lock(mtx_);
-        double cpuUtil = cpuProfiler_.getTotalCpuUtil();
-        std::string message = "CPU Utilization";
-        if (!context.empty()) {
-            message += " (" + context + ")";
-        }
-        message += ": " + std::to_string(cpuUtil) + "%\n";
-        logFile_ << currentDateTime() << " - " << message;
-        logFile_.flush();
-    }
-
-    void logCoreCpuState(const std::string& context = "") {
-        std::lock_guard<std::mutex> lock(mtx_);
-
-        int core_id = sched_getcpu();
-        double coreUtil = cpuProfiler_.getCoreUtil(core_id);
-        std::string message = "Core " + std::to_string(core_id) + " Utilization";
-        if (!context.empty()) {
-            message += " (" + context + ")";
-        }
-        message += ": " + std::to_string(coreUtil) + "%\n";
-        logFile_ << currentDateTime() << " - " << message;
         logFile_.flush();
     }
 
@@ -167,6 +128,5 @@ private:
     std::mutex mtx_;
     std::unordered_map<std::string, std::ofstream> accLogFiles_;
     std::string resultsDir_ = "/home/bustaman/rbyz/Results/logs/";
-    CPUProfiler cpuProfiler_;  // Add CPU profiler instance
     int pid_;
 };

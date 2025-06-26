@@ -62,6 +62,8 @@ rbyz/.vscode
 Results/build
 Results/logs
 Results/accLogs
-Results/accuracy_comparison.png
+Results/.cache
+Results/*.png
+Results/*.json
 rbyz/.cache
 fltrust/.cache
