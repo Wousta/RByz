@@ -52,8 +52,7 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
     reg_info[i].addr_locs.push_back(castI(regMem.reg_data));
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
-    reg_info[i].addr_locs.push_back(
-        castI(clnt_data_vec[i].forward_pass_indices));
+    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
     // Set memory sizes
     reg_info[i].data_sizes.push_back(MIN_SZ);
@@ -66,8 +65,7 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(mngr.data_info.reg_data_size);
     reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
-    reg_info[i].data_sizes.push_back(
-        clnt_data_vec[i].forward_pass_indices_mem_size);
+    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
 
     // Set permissions for remote access
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
@@ -199,10 +197,6 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
   Logger::instance().log("\nInitial run of minstrain done\n");
 
   for (int round = 1; round <= t_params.global_iters_fl; round++) {
-    mngr.runTesting();
-    Logger::instance().logRByzAcc(std::to_string(round) + " " +
-                                  std::to_string(mngr.test_accuracy) + "\n");
-
     auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
 
@@ -264,6 +258,10 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
     mngr.updateModelParameters(w);
+
+    mngr.runTesting();
+    Logger::instance().logRByzAcc(std::to_string(round) + " " +
+                                  std::to_string(mngr.test_accuracy) + "\n");
   }
 
   Logger::instance().log("FINAL FLTRUST\n");
@@ -450,8 +448,8 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Initial test of the model before RByz\n");
   reg_mngr->runTesting();
 
+  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
-      RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
       rbyz_aux.runRByzServer(n_clients, w, *regMem, clnt_data_vec);
   }
 
@@ -466,17 +464,20 @@ int main(int argc, char *argv[]) {
   // Test the model after training
   reg_mngr->runTesting();
 
-  for (RcConn conn : conns) {
-    conn.disconnect();
+  rbyz_aux.awaitTermination(clnt_data_vec, t_params.global_iters_rbyz);
+  regMem->srvr_ready_flag = SRVR_FINISHED;
+  for (int i = 0; i < n_clients; i++) {
+    rdma_ops.exec_rdma_write( sizeof(int), SRVR_READY_IDX, i);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    conns[i].disconnect();
   }
+
   free(addr_info.ipv4_addr);
   free(addr_info.port);
 
   std::cout << "\nServer done\n";
+  Logger::instance().log("\nServer done\n");
 
-  // sleep for server to be available
-  Logger::instance().log("\nSleeping for 1 hour\n");
-
-  std::this_thread::sleep_for(std::chrono::hours(1));
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   return 0;
 }

@@ -61,6 +61,18 @@ public:
         flAccLogFile_.flush();
     }
 
+    /**
+     * Log a custom message to a specific file in a directory.
+     * 
+     * @param dir Subdirectory within Results/logs/ (e.g., "training", "metrics")
+     * @param filename Log file name (e.g., "accuracy.log")
+     * @param message Message to write to the file
+     * 
+     * Creates: /home/bustaman/rbyz/Results/logs/{dir}/{filename}
+     * Files are opened in append mode. Thread-safe.
+     * 
+     * Example: logger.logCustom("training", "loss.log", "Epoch 1: Loss=0.5\n");
+     */
     void logCustom(const std::string &dir,  std::string &filename, const std::string &message) {
         std::lock_guard<std::mutex> lock(mtx_);
         std::string dirPath = resultsDir_ + dir;

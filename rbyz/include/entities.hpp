@@ -1,5 +1,6 @@
 #pragma once
 #include "global/globalConstants.hpp"
+#include "logger.hpp"
 #include <atomic>
 #include <vector>
 
@@ -28,10 +29,7 @@ struct RegMemSrvr {
 
   ~RegMemSrvr() {
     free(srvr_w);
-    for (int i = 0; i < n_clients; i++) {
-      free(clnt_ws[i]);
-      free(clnt_loss_and_err[i]);
-    }
+    std::cout << "Server memory freed\n";
   }
 };
 
@@ -61,7 +59,6 @@ struct RegMemClnt {
   ~RegMemClnt() {
     free(srvr_w);
     free(clnt_w);
-    free(loss_and_err);
   }
 };
 
@@ -110,14 +107,10 @@ struct ClientDataRbyz {
 
   ~ClientDataRbyz() {
     // Only free memory that was allocated with malloc/new
-    if (updates)
-      free(updates);
-    if (loss)
-      free(loss);
-    if (error_rate)
-      free(error_rate);
-    if (forward_pass_indices)
-      free(forward_pass_indices);
+    free(updates);
+    free(loss);
+    free(forward_pass_indices);
+    std::cout << "Client memory freed for index " << index << "\n";
   }
 
   void init(int local_steps_rbyz) {

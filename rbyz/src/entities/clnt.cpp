@@ -193,18 +193,22 @@ int main(int argc, char* argv[]) {
   //   registered_mnist->flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
   //   registered_mnist->flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
   // } 
-
+  
+  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
-    RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
     rbyz_aux.runRByzClient(w, *regMem);
   }
 
-  std::cout << "\nClient done\n";
-  std::this_thread::sleep_for(std::chrono::minutes(1));
+  regMem->round.store(t_params.global_iters_rbyz);
+  rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
+  std::cout << "\n$$$$$ Client done $$$$$\n";
+
+  while (regMem->srvr_ready_flag != SRVR_FINISHED) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
 
   free(addr_info.ipv4_addr);
   free(addr_info.port);
-  conn.disconnect();
 
   return 0;
 }

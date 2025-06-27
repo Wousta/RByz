@@ -3,7 +3,7 @@
 inline constexpr uint64_t NUM_CLASSES = 10; // Number of classes of CIFAR-10 and MNIST
 inline constexpr uint64_t MIN_SZ = 8;
 inline constexpr size_t CAS_SIZE = sizeof(uint64_t);
-inline constexpr int CHUNK_SIZE = 2;  
+inline constexpr int SRVR_FINISHED = -5;  
 
 // MNIST
 inline constexpr uint64_t REG_SZ_DATA_MNIST = 87360;    // Size of the parameter vector w for MNIST
