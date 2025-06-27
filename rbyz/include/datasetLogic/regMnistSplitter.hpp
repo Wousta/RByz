@@ -18,8 +18,9 @@
 class RegMnistSplitter {
     private:
     const int n_clients;
-    const int sgl_size;
-    uint32_t chunk_size;
+    const int chunk_sz;
+    const float vd_proportion;
+    uint32_t chunk_sz_bytes;
     int vd_test_size;
     IRegDatasetMngr& mngr;
     std::vector<ClientDataRbyz>& clnt_data_vec;
@@ -33,9 +34,9 @@ class RegMnistSplitter {
     std::mt19937 rng;
 
     public:
-    RegMnistSplitter(int sgl_size, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
-        : n_clients(clnt_data_vec.size()), sgl_size(sgl_size), mngr(mngr), clnt_data_vec(clnt_data_vec),  
-          vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
+    RegMnistSplitter(int chunk_sz, float vd_proportion, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
+        : n_clients(clnt_data_vec.size()), chunk_sz(chunk_sz), vd_proportion(vd_proportion), mngr(mngr),
+          clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
           rng((static_cast<unsigned int>(std::time(nullptr)))) {
 
         for (int i = 0; i < n_clients; i++) {
@@ -57,23 +58,27 @@ class RegMnistSplitter {
                 end_idx = (i + 1) * vd_size;
             }
 
-            std::vector<size_t> indices(end_idx - start_idx);
-            std::iota(indices.begin(), indices.end(), start_idx);
-            vd_indexes[i] = indices;
+            std::vector<size_t> indices;
 
+            // Fill indices in steps of chunk_sz, ensuring last_index + chunk_sz < end_idx
+            for (size_t idx = start_idx; idx + chunk_sz < end_idx; idx += chunk_sz) {
+                indices.push_back(idx);
+            }
+            
+            vd_indexes[i] = indices;
             Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + " size: " + std::to_string(vd_indexes[i].size()) + "\n");
         }
 
         // For each VD, only a part of the data will be used
-        vd_test_size = vd_indexes[0].size();
+        vd_test_size = vd_indexes[0].size() * vd_proportion;
         for (const auto& indices : vd_indexes) {
             if (indices.size() < vd_test_size) {
                 vd_test_size = indices.size();
             }
         }
 
-        if (vd_test_size < sgl_size) {
-            throw std::runtime_error("VD split size cannot be less than " + std::to_string(sgl_size) + 
+        if (vd_test_size < chunk_sz) {
+            throw std::runtime_error("VD split size cannot be less than " + std::to_string(chunk_sz) + 
                                      " VD split size: " + std::to_string(vd_test_size));
         }
 
@@ -84,10 +89,10 @@ class RegMnistSplitter {
         double chunks_proportion_last = vd_test_size / static_cast<double>(num_samples_last_clnt);
 
         // chunks will be the size of two SGLs, (Scatter Gather Lists)
-        chunk_size = sample_size * sgl_size;
+        chunk_sz_bytes = sample_size * chunk_sz;
 
-        size_t total_offsets = clnt_data_vec[0].dataset_size / chunk_size;
-        size_t total_offsets_last = clnt_data_vec.back().dataset_size / chunk_size;
+        size_t total_offsets = clnt_data_vec[0].dataset_size / chunk_sz_bytes;
+        size_t total_offsets_last = clnt_data_vec.back().dataset_size / chunk_sz_bytes;
         size_t num_offsets = total_offsets * std::min(0.25, chunks_proportion);
         size_t num_offsets_last = total_offsets_last * std::min(0.25, chunks_proportion_last);
 
@@ -106,13 +111,13 @@ class RegMnistSplitter {
         double step = static_cast<double>(total_offsets - 1) / (num_offsets - 1);
         for (size_t i = 0; i < num_offsets; ++i) {
             size_t offset_index = static_cast<size_t>(i * step);
-            clnt_chunks.push_back(offset_index * chunk_size);
+            clnt_chunks.push_back(offset_index * chunk_sz_bytes);
         }
 
         double step_last = static_cast<double>(total_offsets_last - 1) / (num_offsets_last - 1);
         for (size_t i = 0; i < num_offsets_last; ++i) {
             size_t offset_index = static_cast<size_t>(i * step_last);
-            last_clnt_chunks.push_back(offset_index * chunk_size);
+            last_clnt_chunks.push_back(offset_index * chunk_sz_bytes);
         }
 
         Logger::instance().log("Client offsets initialized with " + std::to_string(clnt_chunks.size()) + 
@@ -121,11 +126,11 @@ class RegMnistSplitter {
     }
 
     int getSamplesPerChunk() const {
-        return sgl_size;
+        return chunk_sz;
     }
 
     uint32_t getChunkSize() const {
-        return chunk_size;
+        return chunk_sz_bytes;
     }
 
     /**

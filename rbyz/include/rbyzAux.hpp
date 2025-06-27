@@ -14,9 +14,7 @@ private:
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
-  std::vector<std::vector<int64_t>> step_times = {
-      {1699}, {1780}, {1702}, {1778}, {1703},
-      {1779}, {1703}, {1779}, {1702}, {1782}};
+  std::vector<std::vector<int64_t>> step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
 
   void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
                 ClientDataRbyz &clnt_data, float srvr_loss,
@@ -33,8 +31,6 @@ private:
 
   bool processVDOut(ClientDataRbyz &clnt_data, bool check_byz);
   void initTimeoutTime(std::vector<ClientDataRbyz> &clnt_data_vec);
-  void awaitTermination(std::vector<ClientDataRbyz> &clnt_data_vec,
-                        int rounds_rbyz);
   void runBenchMark(std::vector<ClientDataRbyz> &clnt_data_vec);
 
 public:
@@ -44,6 +40,9 @@ public:
         global_rounds(t_params.global_iters_rbyz) {}
 
   RByzAux() = delete;
+
+  void awaitTermination(std::vector<ClientDataRbyz> &clnt_data_vec,
+                        int rounds_rbyz);
 
   void runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem);
 

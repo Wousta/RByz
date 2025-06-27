@@ -5,13 +5,14 @@
 #include "tensorOps.hpp"
 
 #include <algorithm>
+#include <thread>
 #include <unistd.h>
 
 
 //////////////////////////////////////////////////////////////
 ////////////////////// SERVER FUNCTIONS //////////////////////
 void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec, int rounds_rbyz) {
-  Logger::instance().log("Server: Waiting for all clients to complete RByz...\n");
+  Logger::instance().log("Server: Waiting for all clients to complete Task...\n");
   for (int i = 0; i < clnt_data_vec.size(); i++) {
     if (clnt_data_vec[i].is_byzantine) {
       continue;
@@ -22,9 +23,9 @@ void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec, int r
       // Check if client has reached final round
       if (clnt_data_vec[i].round == rounds_rbyz) {
         client_done = true;
-        Logger::instance().log("Server: Client " + std::to_string(i) + " has completed all iterations\n");
+        Logger::instance().log("Server: Client " + std::to_string(i) + " has finished\n");
       } else {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
     }
   }
@@ -146,7 +147,9 @@ void RByzAux::writeServerVD(RegMnistSplitter& splitter,
       remote_info.off = clnt_chunk;
 
       if (srvr_idx >= srvr_indices.size()) {
-        Logger::instance().log("Warning: Not enough VD samples for client " + std::to_string(i) + "\n");
+        Logger::instance().log("Warning: Not enough VD samples for client " + std::to_string(i) +
+                              "srvr_idx: " + std::to_string(srvr_idx) +
+                              " srvr_indices.size(): " + std::to_string(srvr_indices.size()) + "\n");
         break;
       }
 
@@ -321,13 +324,11 @@ void RByzAux::runRByzServer(int n_clients,
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
-  RegMnistSplitter splitter(t_params.chunk_size, mngr, clnt_data_vec);
+  RegMnistSplitter splitter(t_params.chunk_size, t_params.vd_proportion, mngr, clnt_data_vec);
   
   // RBYZ training loop
   for (int round = 0; round < global_rounds; round++) {
     Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
-
-    mngr.runTesting();
 
     auto flat_w = flatten_tensor_vector(w);
     size_t total_bytes = flat_w.numel() * sizeof(float);
@@ -347,10 +348,6 @@ void RByzAux::runRByzServer(int n_clients,
     // For each client run N rounds of RByz
     for (int srvr_step = 0; srvr_step < local_steps; srvr_step++) {
       Logger::instance().log("  Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
-
-      // Log accuracy and round to Results
-      Logger::instance().logRByzAcc(std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
-      total_steps++;
 
       for (ClientDataRbyz& clnt_data : clnt_data_vec) {
         int j = clnt_data.index;    
@@ -415,6 +412,11 @@ void RByzAux::runRByzServer(int n_clients,
           clnt_data.next_step = clnt_data.local_step + 1;
         }
       }
+
+      // Log accuracy and round to Results
+      total_steps++;
+      Logger::instance().logRByzAcc(std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
+
       std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
 
@@ -493,11 +495,14 @@ void RByzAux::runRByzServer(int n_clients,
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
     mngr.updateModelParameters(w);
+    mngr.runTesting();
 
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
   }
 
+  Logger::instance().log("\n\n=================  RBYZ SERVER FINISHED  =================\n");
+  std::cout << "\n\n=================  RBYZ SERVER FINISHED  =================\n";
   awaitTermination(clnt_data_vec, global_rounds);  
 }
 

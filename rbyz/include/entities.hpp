@@ -29,7 +29,6 @@ struct RegMemSrvr {
 
   ~RegMemSrvr() {
     free(srvr_w);
-    std::cout << "Server memory freed\n";
   }
 };
 
@@ -110,7 +109,6 @@ struct ClientDataRbyz {
     free(updates);
     free(loss);
     free(forward_pass_indices);
-    std::cout << "Client memory freed for index " << index << "\n";
   }
 
   void init(int local_steps_rbyz) {
@@ -135,6 +133,7 @@ struct TrainInputParams {
   int local_steps_rbyz;
   int global_iters_rbyz;
   int chunk_size;
+  float vd_proportion; // Proportion of validation data for each client
 
   //misc
   int only_flt;
