@@ -8,7 +8,7 @@
 
 using namespace resnet;
 
-class RegCIFAR10Mngr : public BaseRegDatasetMngr<Cifar10Net> {
+class RegCIFAR10Mngr : public BaseRegDatasetMngr<ResNet<ResidualBlock>> {
 private:
   // Size of CIFAR-10 image in pixels (3 channels)
   const int IMG_SIZE = 32 * 32 * 3;
@@ -42,7 +42,7 @@ private:
   void buildRegisteredDataset(const std::vector<size_t> &indices);
 
 public:
-  RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net);
+  RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net);
   ~RegCIFAR10Mngr() = default;
 
   std::vector<torch::Tensor>

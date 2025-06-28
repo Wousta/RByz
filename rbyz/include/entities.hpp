@@ -68,7 +68,7 @@ struct RegMemClnt {
 struct ClientDataRbyz {
   int index;
   bool is_byzantine = false;
-  float trust_score;
+  float trust_score = 0.0;
   float *updates;
   float *loss;       // Unused in RByz, but kept for compatibility
   float *error_rate; // Unused in RByz, but kept for compatibility
@@ -120,6 +120,7 @@ struct ClientDataRbyz {
 };
 
 struct TrainInputParams {
+  bool use_mnist = false;
   int num_workers;
   int n_byz_clnts;
   int epochs;

@@ -5,8 +5,8 @@
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 
-RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net)
-    : BaseRegDatasetMngr<Cifar10Net>(worker_id, t_params, net),
+RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net)
+    : BaseRegDatasetMngr<ResNet<ResidualBlock>>(worker_id, t_params, net),
       test_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
                        .map(torch::data::transforms::Normalize<>(
                            {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))

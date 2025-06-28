@@ -306,6 +306,16 @@ void RByzAux::runBenchMark(std::vector<ClientDataRbyz>& clnt_data_vec) {
 
 }
 
+void RByzAux::logTrustScores(const std::vector<ClientDataRbyz>& clnt_data_vec, int only_flt) const {
+  std::string filename = (only_flt) ? "F_trust_scores.log" : "R_trust_scores.log";
+  Logger::instance().logCustom("", filename, "- RB\n");
+
+  for (int i = 0; i < clnt_data_vec.size(); i++) {
+    std::string message = std::to_string(clnt_data_vec[i].trust_score) + "\n";
+    Logger::instance().logCustom("", filename, message);
+  }
+}
+
 //////////////////////////////////////////////////////////////
 /////////////////////// RBYZ ALGORITHM ///////////////////////
 void RByzAux::runRByzServer(int n_clients,
@@ -415,7 +425,7 @@ void RByzAux::runRByzServer(int n_clients,
 
       // Log accuracy and round to Results
       total_steps++;
-      Logger::instance().logRByzAcc(std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
+      Logger::instance().logAcc(t_params.only_flt, std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
 
       std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
@@ -436,17 +446,14 @@ void RByzAux::runRByzServer(int n_clients,
 
     Logger::instance().log("    Trust Scores after last step of round " + std::to_string(round) + ":\n");
     for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
-      if (clnt_data.is_byzantine) {
-        Logger::instance().log("    Client " + std::to_string(clnt_data.index) + " is Byzantine, skipping TS\n");
-        continue;
-      }
       Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
                               " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
     }
 
+    logTrustScores(clnt_data_vec, t_params.only_flt);
+
     std::vector<torch::Tensor> clnt_updates;
     std::vector<uint32_t> clnt_indices;
-    clnt_updates.reserve(n_clients);
 
     // Read client updates and aggregate them
     for (size_t i = 0; i < clnt_data_vec.size(); i++) {
@@ -458,7 +465,7 @@ void RByzAux::runRByzServer(int n_clients,
 
       bool timed_out = false;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(20000000);
+      std::chrono::microseconds limit_step_time(2000000); // 2 milliseconds
       // Wait for the client to finish the round
       while (client.round != round + 1 && !timed_out) {
         std::this_thread::sleep_for(initial_time);
@@ -483,8 +490,6 @@ void RByzAux::runRByzServer(int n_clients,
         clnt_indices.push_back(client.index);
       } 
     }
-
-    // Use attacks to simulate Byzantine clients
 
     // Aggregation
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
@@ -533,11 +538,8 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
       std::this_thread::sleep_for(std::chrono::nanoseconds(10));
     } while (regMem.srvr_ready_flag != regMem.round.load());
 
-    // Read the aggregated weights from the server and update the local weights
     Logger::instance().log("Client: Reading server weights for round " + std::to_string(regMem.round.load()) + "\n");
     rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
-    // mnist.updateModelParameters(w);
-    // mnist.testModel();
 
     Logger::instance().log("Client: Read server weights for round " + std::to_string(regMem.round.load()) + "\n");
     // Run local training steps, all training data is sampled before training to let server insert VD samples
@@ -552,7 +554,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
       // auto end = std::chrono::high_resolution_clock::now();
       // std::string time = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
       // Logger::instance().logCustom("./stepTimes", log_file, time + "\n");
-      Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
+      // Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
     }
 
     // Write the weights to the registered memory and write to the server

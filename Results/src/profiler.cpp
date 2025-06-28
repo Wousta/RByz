@@ -1,6 +1,7 @@
 #include "logger.hpp"
 #include <csignal>
 #include <atomic>
+#include <string>
 #include <thread>
 #include <chrono>
 #include <unistd.h>
@@ -18,6 +19,13 @@ void signalHandler(int signal) {
 }
 
 int main(int argc, char* argv[]) {
+    if (argc < 3) {
+        std::cerr << "Usage: " << argv[0] << " <name> <only_flt>" << std::endl;
+        return 1;
+    }
+
+    std::string name = argv[1];
+    int only_flt = std::stoi(argv[2]);
     CPUProfiler cpuProfiler; 
     memProfiler memoryProfiler;
 
@@ -27,7 +35,14 @@ int main(int argc, char* argv[]) {
     memoryProfiler.startMeasure();
     
     while (!stop_requested) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::string header;
+    if (only_flt) {
+        header = "F_";
+    } else {
+        header = "R_";
     }
 
     // Log final CPU and memory utilization
@@ -35,9 +50,9 @@ int main(int argc, char* argv[]) {
     double memUtil = memoryProfiler.getAvgMemUtil();
     std::string message = std::to_string(cpuUtil) + "\n";
     message += std::to_string(memUtil) + "\n";
-    std::string filename = "cpu_mem_util_" + std::to_string(getpid()) + ".log";
+    std::string filename = header + name + "_cpu_mem_util.log";
     Logger::instance().logCustom("", filename, message);
+    Logger::instance().logCustom("", filename, "$ END OF EXECUTION $\n");
     
-    Logger::instance().log("Profiler execution completed\n");
     return 0;
 }

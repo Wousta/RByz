@@ -8,39 +8,43 @@ remote_user="bustaman"
 remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
-use_mnist=false   # MNIST or CIFAR-10 dataset
 
-# Lyra handling of boolean flag
+use_mnist=${1:-false}       # First argument: true/false for MNIST vs CIFAR-10
+n_clients=${2:-10}          
+epochs=${3:-5}             
+batch_size=${4:-100}        
+glob_learn_rate=${5:-0.05}  # Global learning rate for FLtrust aggregation
+n_byz_clnts=${6:-3}         
 if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
   load_use_mnist_param="--load"
-  n_clients=10 #$1
-  epochs=5
-  batch_size=32
-  glob_learn_rate=0.05
-  clnt_subset_size=5900
-  srvr_subset_size=1000
-  glob_iters_fl=5
-  local_steps_rbyz=6
-  glob_iters_rbyz=10
+  # Override defaults for MNIST if not explicitly set
+  if [ $# -lt 3 ]; then epochs=3; fi
+  if [ $# -lt 4 ]; then batch_size=32; fi
+  clnt_subset_size=${7:-5900}
+  srvr_subset_size=${8:-1000}
+  glob_iters_fl=${9:-2}
+  local_steps_rbyz=${10:-5}
+  glob_iters_rbyz=${11:-2}
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param=""
-  n_clients=0
-  epochs=30
-  batch_size=100
-  glob_learn_rate=0.05
-  clnt_subset_size=50000
-  srvr_subset_size=50000
-  glob_iters_fl=100
-  local_steps_rbyz=6
-  glob_iters_rbyz=5
+  clnt_subset_size=${7:-4900}
+  srvr_subset_size=${8:-1000}
+  glob_iters_fl=${9:-2}
+  local_steps_rbyz=${10:-5}
+  glob_iters_rbyz=${11:-2}
 fi
-n_byz_clnts=2
-chunk_size=1      # slab size for RByz VDsampling
-label_flip_type=0
-flip_ratio=0.25
-only_flt=1  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+chunk_size=${12:-2}      # slab size for RByz VDsampling
+
+# 0: no label flip, 1: random label flip 
+# 2: targeted label flip setting (1) 3: targeted label flip setting (2) 4: targeted label flip setting (3)
+# references for the settings: CIFAR-10 -> https://arxiv.org/pdf/2007.08432 | MNIST -> https://arxiv.org/pdf/2407.07818v1
+label_flip_type=${13:-2} 
+
+flip_ratio=${14:-1.0}
+only_flt=${15:-0}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+vd_prop=${16:-1.0}  # Proportion of validation data for each client
 
 
 # Calculate clients per machine (even distribution)
@@ -59,8 +63,9 @@ cleanup() {
   # Kill remote client processes on all machines
   echo "Killing remote client processes..."
   for host in "${remote_hosts[@]}"; do
-    ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs kill -9 2>/dev/null || true" &
-    ssh $remote_user@$host "ps aux | grep profiler | grep -v grep | awk '{print \$2}' | xargs kill -2 2>/dev/null || true" &
+    echo "Stopping remote profiler on $host..."
+    ssh $remote_user@$host "ps aux | grep profiler | grep -v grep | awk '{print \$2}' | xargs -r kill -2 2>/dev/null; sleep 0.5" 
+    ssh $remote_user@$host "ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs -r kill -9 2>/dev/null || true" &
   done
   
   exit 0
@@ -89,7 +94,7 @@ echo "Starting server locally..."
 taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --only_flt $only_flt & 
+  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --only_flt $only_flt --vd_prop $vd_prop & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
@@ -119,7 +124,7 @@ for i in "${!remote_hosts[@]}"; do
     # Start profiling CPU
     ssh $remote_user@$host "cd $results_path && \
       echo \"Starting CPU profiling on $host\" && \
-      build/profiler" &
+      build/profiler C $only_flt" &
 
     ssh $remote_user@$host "cd $remote_script_path && \
       core_id=0; \
@@ -137,11 +142,10 @@ for i in "${!remote_hosts[@]}"; do
 done
 
 cd $results_path
-build/profiler &
+build/profiler S $only_flt &
 CPU_TRACKER_PID=$!
 
 # Wait for the local server process
 wait $SRVR_PID
-
-#sleep 999999
+cleanup
 

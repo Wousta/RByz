@@ -183,3 +183,83 @@ std::vector<torch::Tensor> krum_attack(
 
     return v_attack;
 }
+
+
+/**
+ * Executes a label flip attack based on the specified parameters.
+ * 
+ * This function implements various label flipping attack strategies against federated learning systems.
+ * It supports both random and targeted label flipping attacks with different intensity settings.
+ * 
+ * @param use_mnist: true if using MNIST dataset, false for CIFAR-10
+ * @param t_params: training input parameters containing attack settings:
+ *                  - label_flip_type: type of attack to execute (see attack types below)
+ *                  - flip_ratio: proportion of labels to flip (0.0 to 1.0)
+ * @param mngr: dataset manager interface to perform label flipping operations
+ * 
+ * Attack Types:
+ * - NO_ATTACK (0): No label flipping is performed
+ * - RANDOM_FLIP (1): Random label flipping attack where labels are randomly reassigned
+ * - TARGETED_FLIP_1 (2): Targeted attack setting 1 - High confusion pairs
+ *   * MNIST: 8 → 0 (source class frequently misclassified as target in clean training)
+ *   * CIFAR-10: 5 (dog) → 3 (cat) (source class frequently misclassified as target)
+ * - TARGETED_FLIP_2 (3): Targeted attack setting 2 - Low confusion pairs  
+ *   * MNIST: 1 → 5 (source class infrequently misclassified as target in clean training)
+ *   * CIFAR-10: 0 (airplane) → 2 (bird) (source class infrequently misclassified as target)
+ * - TARGETED_FLIP_3 (4): Targeted attack setting 3 - Medium confusion pairs
+ *   * MNIST: 4 → 9 (moderate confusion between source and target classes)
+ *   * CIFAR-10: 1 (automobile) → 9 (truck) (moderate confusion between source and target)
+ *
+ * Sources for labels chosen: CIFAR-10 -> https://arxiv.org/pdf/2007.08432 | MNIST -> https://arxiv.org/pdf/2407.07818v1
+ * 
+ * The targeted flip attacks represent three diverse attack conditions:
+ * 1. High natural confusion: source ->target pairs where misclassification frequently occurs naturally
+ * 2. Low natural confusion: source -> target pairs where misclassification rarely occurs naturally  
+ * 3. Medium natural confusion: source -> target pairs with moderate natural misclassification rates
+ * 
+ * These settings allow evaluation of attack effectiveness under different levels of natural
+ * class similarity, providing insights into adversarial robustness across various scenarios.
+ * 
+ * @throws std::runtime_error if an unknown label_flip_type is provided
+ * 
+ * @note Uses fixed random seed (42) for reproducible attack execution
+ * @note Only affects malicious/Byzantine clients as determined by the federated learning setup
+ */
+void label_flip_attack(bool use_mnist, TrainInputParams &t_params, IRegDatasetMngr &mngr) {
+  std::mt19937 rng(42); // Fixed seed for reproducibility
+  int label_flip_type = t_params.label_flip_type;
+  float flip_ratio = t_params.flip_ratio;
+
+  // Define target mappings: [setting][dataset][source, target]
+  // dataset: 0=MNIST, 1=CIFAR-10
+  const int target_mappings[3][2][2] = {
+    {{8, 0}, {5, 3}}, // TARGETED_FLIP_1
+    {{1, 5}, {0, 2}}, // TARGETED_FLIP_2  
+    {{4, 9}, {1, 9}}  // TARGETED_FLIP_3
+  };
+
+  switch (label_flip_type) {
+    case NO_ATTACK:
+      Logger::instance().log("No attack executed\n");
+      break;
+    case RANDOM_FLIP:
+      Logger::instance().log("Executing random label flip attack\n");
+      mngr.flipLabelsRandom(flip_ratio, rng);
+      break;
+    case TARGETED_FLIP_1:
+    case TARGETED_FLIP_2:
+    case TARGETED_FLIP_3: {
+      int setting = label_flip_type - TARGETED_FLIP_1; // Convert to 0-based index (2->0, 3->1, 4->2)
+      int dataset = use_mnist ? 0 : 1;
+      int source = target_mappings[setting][dataset][0];
+      int target = target_mappings[setting][dataset][1];
+      
+      Logger::instance().log("Executing targeted label flip attack (setting " + 
+                           std::to_string(label_flip_type) + ")\n");
+      mngr.flipLabelsTargeted(source, target, flip_ratio, rng);
+      break;
+    }
+    default:
+      throw std::runtime_error("Unknown label flip type");
+  }
+}

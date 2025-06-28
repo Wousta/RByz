@@ -1,3 +1,4 @@
+#include "attacks.hpp"
 #include "datasetLogic/iRegDatasetMngr.hpp"
 #include "datasetLogic/regCIFAR10Mngr.hpp"
 #include "datasetLogic/regMnistMngr.hpp"
@@ -157,7 +158,7 @@ int main(int argc, char* argv[]) {
     Logger::instance().log("Client: Using MNIST dataset\n");
   } else {
     regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, REG_SZ_DATA_CF10);
-    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, cifar_net);
+    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, resnet);
     Logger::instance().log("Client: Using CIFAR10 dataset\n");
   }
 
@@ -183,6 +184,12 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < 5; i++) {
     Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mngr->getLabel(i)) + 
                            " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
+  }
+
+  if (id <= t_params.n_byz_clnts) {
+    label_flip_attack(use_mnist, t_params, *reg_mngr);
+  } else {
+    Logger::instance().log("Not Byzantine\n");
   }
 
   std::vector<torch::Tensor> w = run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);

@@ -21,6 +21,10 @@ public:
     // Log a message with timestamp. Thread-safe.
     void log(const std::string &message) {
         std::lock_guard<std::mutex> lock(mtx_);
+        if (!logFile_.is_open()) {
+            std::string filename = "logs/execution_" + std::to_string(pid_) + ".log";
+            logFile_.open(filename, std::ios::app);
+        }
         logFile_ << message;
         logFile_.flush();
     }
@@ -49,10 +53,15 @@ public:
         }
     }
 
-    void logRByzAcc(const std::string &message) {
+    void logAcc(int only_flt, const std::string &message) {
         std::lock_guard<std::mutex> lock(mtx_);
-        rbyzAccLogFile_ << message;
-        rbyzAccLogFile_.flush();
+        if (only_flt) {
+            flAccLogFile_ << message;
+            flAccLogFile_.flush();
+        } else {
+            rbyzAccLogFile_ << message;
+            rbyzAccLogFile_.flush();
+        }
     }
 
     void logFLAcc(const std::string &message) {
@@ -104,11 +113,9 @@ private:
 
         // Use the process ID to create a unique log file name.
         pid_ = getpid();
-        std::string filename = "logs/execution_" + std::to_string(pid_) + ".log";
         std::string rbyzAccFilename = accLogsDir + "/R_acc_" + std::to_string(pid_) + ".log";
         std::string flAccFilename = accLogsDir + "/F_acc_" + std::to_string(pid_) + ".log";
 
-        logFile_.open(filename, std::ios::app);
     }
 
     ~Logger() {
