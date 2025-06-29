@@ -64,7 +64,12 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    } while (regMem.srvr_ready_flag != round);
+    } while (regMem.srvr_ready_flag != round || regMem.srvr_ready_flag != SRVR_FINISHED);
+
+    if (regMem.srvr_ready_flag == SRVR_FINISHED) {
+      Logger::instance().log("Client: Server finished, exiting...\n");
+      return w;
+    }
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
 

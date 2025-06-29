@@ -209,7 +209,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
 
       bool timed_out = false;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(2000000); // 2 milliseconds
+      std::chrono::microseconds limit_step_time(200000000); // 200 milliseconds
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         initial_time *= 2; // Exponential backoff

@@ -465,7 +465,7 @@ void RByzAux::runRByzServer(int n_clients,
 
       bool timed_out = false;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(2000000); // 2 milliseconds
+      std::chrono::microseconds limit_step_time(200000000); // 200 milliseconds
       // Wait for the client to finish the round
       while (client.round != round + 1 && !timed_out) {
         std::this_thread::sleep_for(initial_time);
@@ -516,8 +516,8 @@ void RByzAux::runRByzServer(int n_clients,
  */
 void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  std::string log_file = "lstep_" + std::to_string(getpid()) + ".log";
-  Logger::instance().logCustom("./stepTimes", log_file, std::to_string(regMem.id - 1) + "\n");
+  // std::string log_file = "lstep_" + std::to_string(getpid()) + ".log";
+  // Logger::instance().logCustom("./stepTimes", log_file, std::to_string(regMem.id - 1) + "\n");
   
   while (regMem.round.load() < global_rounds) {
 
@@ -536,13 +536,15 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::nanoseconds(10));
-    } while (regMem.srvr_ready_flag != regMem.round.load());
+    } while (regMem.srvr_ready_flag != regMem.round.load() || regMem.srvr_ready_flag != SRVR_FINISHED);
 
-    Logger::instance().log("Client: Reading server weights for round " + std::to_string(regMem.round.load()) + "\n");
+    if (regMem.srvr_ready_flag == SRVR_FINISHED) {
+      Logger::instance().log("Server finished early, exiting...\n");
+      return;
+    }
+
     rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
-
-    Logger::instance().log("Client: Read server weights for round " + std::to_string(regMem.round.load()) + "\n");
-    // Run local training steps, all training data is sampled before training to let server insert VD samples
+    
     Logger::instance().log("Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
     while (regMem.local_step.load() < regMem.CAS.load()) {
       // auto start = std::chrono::high_resolution_clock::now();
