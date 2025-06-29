@@ -61,7 +61,7 @@ pass.txt
 rbyz/.vscode
 Results/build
 Results/logs
-Results/stepTimes*
+Results/keep
 Results/accLogs
 Results/.cache
 Results/*.png

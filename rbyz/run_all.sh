@@ -40,7 +40,7 @@ chunk_size=${12:-2}      # slab size for RByz VDsampling
 # 0: no label flip, 1: random label flip 
 # 2: targeted label flip setting (1) 3: targeted label flip setting (2) 4: targeted label flip setting (3)
 # references for the settings: CIFAR-10 -> https://arxiv.org/pdf/2007.08432 | MNIST -> https://arxiv.org/pdf/2407.07818v1
-label_flip_type=${13:-2} 
+label_flip_type=${13:-2}
 
 flip_ratio=${14:-1.0}
 only_flt=${15:-0}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
@@ -86,8 +86,8 @@ redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
-rm -rf $results_path/logs/*
-rm -rf $results_path/accLogs/*
+#rm -rf $results_path/logs/*
+#rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
