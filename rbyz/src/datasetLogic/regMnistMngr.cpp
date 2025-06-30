@@ -1,4 +1,6 @@
 #include "datasetLogic/regMnistMngr.hpp"
+#include "datasetLogic/regCIFAR10Mngr.hpp"
+#include "datasetLogic/registeredMNIST.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 #include "nets/mnistNet.hpp"
@@ -6,6 +8,7 @@
 
 RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net)
     : BaseRegDatasetMngr<MnistNet>(worker_id, t_params, net),
+      optimizer(model->parameters(), torch::optim::SGDOptions(t_params.global_learn_rate)),
       test_dataset(
           torch::data::datasets::MNIST(
               kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
@@ -43,9 +46,6 @@ std::vector<torch::Tensor>
 RegMnistMngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
   size_t param_count = w_cuda.size();
-
-  torch::optim::SGD optimizer(model->parameters(),
-                              torch::optim::SGDOptions(t_params.global_learn_rate));
 
   if (round % 1 == 0) {
     std::cout << "Training model for round " << round
@@ -108,7 +108,7 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
     // auto image_tensor = example.data.to(torch::kUInt8); 
     // auto reshaped_image = image_tensor.reshape({1,28, 28}).contiguous();
     // std::memcpy(getImage(i), reshaped_image.data_ptr<uint8_t>(), data_info.image_size);
-    auto normalized_image = (example.data.to(torch::kFloat32) - 0.1307) / 0.3081;
+    auto normalized_image = example.data.to(torch::kFloat32);
     auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
     std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
 
@@ -117,5 +117,7 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
     ++i;
   }
 
-  train_dataset = std::make_unique<RegisteredMNIST>(data_info, index_map);
+  train_dataset = RegisteredMNIST(data_info, index_map)
+      .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+      .map(torch::data::transforms::Stack<>());
 }

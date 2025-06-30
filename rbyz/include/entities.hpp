@@ -20,6 +20,7 @@ struct RegMemSrvr {
   std::vector<float *> clnt_ws;
   std::vector<float *> clnt_loss_and_err;
   void *reg_data;
+  void *extra_VD;
 
   RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
       : srvr_w(reinterpret_cast<float *>(malloc(reg_sz_data))),

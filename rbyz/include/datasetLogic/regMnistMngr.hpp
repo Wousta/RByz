@@ -18,11 +18,20 @@ private:
   const int IMG_SIZE = 28 * 28; // Size of MNIST image in pixels
   const char *kDataRoot = "./data/mnist";
   const uint32_t DATASET_SIZE = DATASET_SIZE_MNIST;
+  torch::optim::SGD optimizer;
+
+  using TrainDataset = decltype(
+      RegisteredMNIST(std::declval<RegTrainData&>(), 
+                 std::declval<std::unordered_map<size_t, size_t>>())
+                 .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+                 .map(torch::data::transforms::Stack<>()));
+
+  std::optional<TrainDataset> train_dataset;
+
 
   using RegTrainDataLoader =
-      torch::data::StatelessDataLoader<RegisteredMNIST, SubsetSampler>;
+      torch::data::StatelessDataLoader<TrainDataset, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> train_loader;
-  std::unique_ptr<RegisteredMNIST> train_dataset;
 
   using DatasetType =
       decltype(torch::data::datasets::MNIST(kDataRoot, torch::data::datasets::MNIST::Mode::kTest)

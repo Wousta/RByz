@@ -72,7 +72,7 @@ run "cifar_2000_subs" 1
 
 clnt_subset_size=4900
 srvr_subset_size=1000
-run "cifar_2000_subs" 5
+run "cifar_1000_subs" 5
 
 cd "$ORIGINAL_DIR"
 

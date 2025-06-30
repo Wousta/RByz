@@ -190,9 +190,6 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     Logger::instance().log("Server: Running FLtrust training for round " +
                            std::to_string(round) + "\n");
     std::vector<torch::Tensor> g = mngr.runTraining(round, w);
-    Logger::instance().log("Accuracy after training: \n");
-    mngr.runTesting();
-
 
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
     // ROUND, BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
@@ -208,10 +205,12 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
           "reading flags from client: " + std::to_string(client) + "\n");
 
       bool timed_out = false;
+      long total_wait_time = 0;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
       std::chrono::microseconds limit_step_time(200000000); // 200 milliseconds
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
+        total_wait_time += initial_time.count();
         initial_time *= 2; // Exponential backoff
         if (initial_time > limit_step_time) {
           timed_out = true;
@@ -219,7 +218,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
                                  " for round " + std::to_string(round) + "\n");
         }
       }
-      Logger::instance().log("    -> Server waited: " + std::to_string(initial_time.count()) + " us for client " + 
+      Logger::instance().log("    -> Server waited: " + std::to_string(total_wait_time) + " us for client " + 
                              std::to_string(client) + "\n");
 
       if (!timed_out) {
@@ -244,7 +243,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
     mngr.updateModelParameters(w);
-
+    Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
     Logger::instance().logAcc(t_params.only_flt, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");

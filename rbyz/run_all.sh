@@ -10,11 +10,11 @@ remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 
 use_mnist=${1:-false}       # First argument: true/false for MNIST vs CIFAR-10
-n_clients=${2:-10}          
-epochs=${3:-5}             
+n_clients=${2:-2}          
+epochs=${3:-4}             
 batch_size=${4:-100}        
 glob_learn_rate=${5:-0.05}  # Global learning rate for FLtrust aggregation
-n_byz_clnts=${6:-3}         
+n_byz_clnts=${6:-0}         
 if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
   load_use_mnist_param="--load"
@@ -23,17 +23,18 @@ if [ "$use_mnist" = true ]; then
   if [ $# -lt 4 ]; then batch_size=32; fi
   clnt_subset_size=${7:-5900}
   srvr_subset_size=${8:-1000}
-  glob_iters_fl=${9:-2}
+  glob_iters_fl=${9:-15}
   local_steps_rbyz=${10:-5}
-  glob_iters_rbyz=${11:-2}
+  glob_iters_rbyz=${11:-5}
 else
   # CIFAR-10 dataset 50000 training images
-  load_use_mnist_param=""
-  clnt_subset_size=${7:-4900}
+  load_use_mnist_param="" 
+  glob_learn_rate=${5:-1.0}
+  clnt_subset_size=${7:-24500}
   srvr_subset_size=${8:-1000}
-  glob_iters_fl=${9:-2}
+  glob_iters_fl=${9:-15}
   local_steps_rbyz=${10:-5}
-  glob_iters_rbyz=${11:-2}
+  glob_iters_rbyz=${11:-5}
 fi
 chunk_size=${12:-2}      # slab size for RByz VDsampling
 
@@ -86,8 +87,8 @@ redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
-#rm -rf $results_path/logs/*
-#rm -rf $results_path/accLogs/*
+rm -rf $results_path/logs/*
+rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."

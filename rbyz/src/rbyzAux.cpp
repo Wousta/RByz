@@ -374,10 +374,12 @@ void RByzAux::runRByzServer(int n_clients,
                                " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
         // Wait for client to finish the step with exponential backoff
+        long total_time_waited = 0;
         std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
         if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
           std::this_thread::sleep_for(initial_time);
-          Logger::instance().log("    -> Server waited initial: " + std::to_string(initial_time.count()) +
+          total_time_waited += initial_time.count();
+          Logger::instance().log("    -> Server waited initial: " + std::to_string(total_time_waited) +
                                  " ms for client " + std::to_string(j) + "\n");
         }
         rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
@@ -387,8 +389,9 @@ void RByzAux::runRByzServer(int n_clients,
         bool advanced = true;
         while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
           std::this_thread::sleep_for(exp_backoff_time);
+          total_time_waited += exp_backoff_time.count();
           exp_backoff_time *= 2; // Exponential backoff
-          if (exp_backoff_time > clnt_data.limit_step_time) {
+          if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.75) {
 
             // Choose lower steps to wait for and increase the limit time
             if(clnt_data.steps_to_finish <= min_steps) {
@@ -416,7 +419,7 @@ void RByzAux::runRByzServer(int n_clients,
           }
           rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
         }
-        Logger::instance().log("    -> Server waited: " + std::to_string(initial_time.count()) + " ns\n");
+        Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
 
         if (advanced) {
           clnt_data.next_step = clnt_data.local_step + 1;
@@ -464,11 +467,13 @@ void RByzAux::runRByzServer(int n_clients,
       }
 
       bool timed_out = false;
+      long total_time_waited = 0;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
       std::chrono::microseconds limit_step_time(200000000); // 200 milliseconds
       // Wait for the client to finish the round
       while (client.round != round + 1 && !timed_out) {
         std::this_thread::sleep_for(initial_time);
+        total_time_waited += initial_time.count();
         initial_time *= 2; // Exponential backoff
         if (initial_time > limit_step_time) {
           timed_out = true;
@@ -476,7 +481,7 @@ void RByzAux::runRByzServer(int n_clients,
                                  " for round " + std::to_string(round) + "\n");
         }
       }
-      Logger::instance().log("    -> Server waited: " + std::to_string(initial_time.count()) + " us for client " + 
+      Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " us for client " + 
                              std::to_string(client.index) + "\n");
 
       if (!timed_out) {
@@ -536,7 +541,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::nanoseconds(10));
-    } while (regMem.srvr_ready_flag != regMem.round.load() || regMem.srvr_ready_flag != SRVR_FINISHED);
+    } while (regMem.srvr_ready_flag != regMem.round.load() && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
       Logger::instance().log("Server finished early, exiting...\n");

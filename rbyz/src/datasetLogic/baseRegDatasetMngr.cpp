@@ -190,44 +190,37 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   current_buffer.losses.clear();
 
   for (const auto &batch : data_loader) {
-    size_t batch_size = batch.size();
-
-    std::vector<torch::Tensor> data_vec, target_vec;
-    for (const auto &example : batch) {
-      data_vec.push_back(example.data);
-      target_vec.push_back(example.target);
+    for (int i = 0; i < batch.data.size(0); ++i) {
       f_pass_data.forward_pass_indices[global_sample_idx] =
           *getOriginalIndex(global_sample_idx);
       global_sample_idx++;
     }
 
-    auto batch_data = torch::stack(data_vec);
-    auto batch_targets = torch::stack(target_vec);
-
+    auto data_cpu = batch.data;
+    auto targets_cpu = batch.target;
     torch::Tensor data, targets;
     if (device.is_cuda()) {
       // Create CUDA tensors with the same shape and type
-      data =
-          torch::empty_like(batch_data, torch::TensorOptions().device(device));
-      targets = torch::empty_like(batch_targets,
-                                  torch::TensorOptions().device(device));
+      data = torch::empty_like(data_cpu, torch::TensorOptions().device(device));
+      targets =
+          torch::empty_like(targets_cpu, torch::TensorOptions().device(device));
 
       // Asynchronously copy data from CPU to GPU
-      cudaMemcpyAsync(data.data_ptr<float>(), batch_data.data_ptr<float>(),
-                      batch_data.numel() * sizeof(float),
-                      cudaMemcpyHostToDevice, memcpy_stream_A);
+      cudaMemcpyAsync(data.data_ptr<float>(), data_cpu.template data_ptr<float>(),
+                      data_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice,
+                      memcpy_stream_A);
 
       cudaMemcpyAsync(targets.data_ptr<int64_t>(),
-                      batch_targets.data_ptr<int64_t>(),
-                      batch_targets.numel() * sizeof(int64_t),
+                      targets_cpu.template data_ptr<int64_t>(),
+                      targets_cpu.numel() * sizeof(int64_t),
                       cudaMemcpyHostToDevice, memcpy_stream_B);
 
       // Ensure copy is complete before proceeding
       cudaDeviceSynchronize();
     } else {
-      // For CPU, just use the pre-allocated tensors
-      data = batch_data;
-      targets = batch_targets;
+      // For CPU, just use the original tensors
+      data = data_cpu;
+      targets = targets_cpu;
     }
 
     // Switch to evaluation mode for writing forward pass results
@@ -352,22 +345,14 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(
   inference_buffer.losses.clear();
 
   for (const auto &batch : data_loader) {
-    // Combine all data and targets in the batch into single tensors
-    std::vector<torch::Tensor> data_vec, target_vec;
-
-    for (const auto &example : batch) {
-      data_vec.push_back(example.data);
-      target_vec.push_back(example.target);
-
+    for (int i = 0; i < batch.data.size(0); ++i) {
       f_pass_data.forward_pass_indices[global_sample_idx] =
           *getOriginalIndex(global_sample_idx);
       global_sample_idx++;
     }
 
-    // Stack the tensors to create a single batch tensor
-    auto data_cpu = torch::stack(data_vec);
-    auto targets_cpu = torch::stack(target_vec);
-
+    auto data_cpu = batch.data;
+    auto targets_cpu = batch.target;
     torch::Tensor data, targets;
     if (device.is_cuda()) {
       // Create CUDA tensors with the same shape and type
@@ -376,12 +361,12 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(
           torch::empty_like(targets_cpu, torch::TensorOptions().device(device));
 
       // Asynchronously copy data from CPU to GPU
-      cudaMemcpyAsync(data.data_ptr<float>(), data_cpu.data_ptr<float>(),
+      cudaMemcpyAsync(data.data_ptr<float>(), data_cpu.template data_ptr<float>(),
                       data_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice,
                       memcpy_stream_A);
 
       cudaMemcpyAsync(targets.data_ptr<int64_t>(),
-                      targets_cpu.data_ptr<int64_t>(),
+                      targets_cpu.template data_ptr<int64_t>(),
                       targets_cpu.numel() * sizeof(int64_t),
                       cudaMemcpyHostToDevice, memcpy_stream_B);
 
