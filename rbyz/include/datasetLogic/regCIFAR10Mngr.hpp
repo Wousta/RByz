@@ -19,7 +19,6 @@ private:
   const int IMG_SIZE = 32 * 32 * 3;
   const std::string kDataRoot = "./data/cifar10";
   const double learning_rate_decay_factor = 1.0 / 3.0;
-  double learning_rate = 0.001;
   uint32_t train_dataset_size = 0;
   std::unordered_map<size_t, size_t> index_map;
   torch::optim::Adam optimizer;
@@ -27,10 +26,10 @@ private:
   using TrainDataset = decltype(
       RegCIFAR10(std::declval<RegTrainData&>(), 
                  std::declval<std::unordered_map<size_t, size_t>>())
-      // .map(ConstantPad(4))
-      // .map(RandomHorizontalFlip())
-      // .map(RandomCrop({32, 32}))
-      .map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+      .map(ConstantPad(4))
+      .map(RandomHorizontalFlip())
+      .map(RandomCrop({32, 32}))
+      //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
       .map(torch::data::transforms::Stack<>()));
   
   std::optional<TrainDataset> train_dataset;
@@ -41,15 +40,15 @@ private:
 
   using DatasetType =
       decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
-                .map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+                //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
                 .map(torch::data::transforms::Stack<>()));
   DatasetType test_dataset;
 
   using BuildDataset = decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild)
-                // .map(ConstantPad(4))
-                // .map(RandomHorizontalFlip())
-                // .map(RandomCrop({32, 32}))
-                .map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+                .map(ConstantPad(4))
+                .map(RandomHorizontalFlip())
+                .map(RandomCrop({32, 32}))
+                //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
                 .map(torch::data::transforms::Stack<>()));
   BuildDataset build_dataset;
 

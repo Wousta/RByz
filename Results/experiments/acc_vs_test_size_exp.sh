@@ -7,7 +7,8 @@ ORIGINAL_DIR=$(pwd)
 # Common parameters
 clients=10
 epochs=5
-learning_rate=0.05
+glob_learning_rate=0.05
+local_learn_rate=0.05
 byz_clients=2
 chunk_size=2
 label_flip_type=2
@@ -29,7 +30,7 @@ run() {
         vd_prop=$(awk "BEGIN {printf \"%.1f\", 0.1 * $i}")
         echo "VD proportion: $vd_prop"
         
-        ./run_all.sh $use_mnist $clients $epochs $batch_size $learning_rate $byz_clients \
+        ./run_all.sh $use_mnist $clients $epochs $batch_size $glob_learning_rate $local_learn_rate $byz_clients \
             $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop
 

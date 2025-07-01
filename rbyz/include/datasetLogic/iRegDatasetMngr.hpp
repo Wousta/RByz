@@ -16,6 +16,7 @@ public:
   const int64_t kLogInterval = 10;
   int64_t subset_size = 0;
   size_t test_dataset_size;
+  double learning_rate;
   float loss;
   float test_loss;
   float error_rate;
@@ -27,7 +28,7 @@ public:
   IRegDatasetMngr(int worker_id, TrainInputParams &t_params)
       : worker_id(worker_id), t_params(t_params),
         num_workers(t_params.num_workers), kTrainBatchSize(t_params.batch_size),
-        kNumberOfEpochs(t_params.epochs) {
+        kNumberOfEpochs(t_params.epochs), learning_rate(t_params.local_learn_rate) {
           if (worker_id == 0) {
             subset_size = t_params.srvr_subset_size;
           } else {

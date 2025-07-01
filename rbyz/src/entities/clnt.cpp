@@ -127,6 +127,7 @@ int main(int argc, char* argv[]) {
     lyra::opt(t_params.epochs, "epochs")["--epochs"]("number of epochs") |
     lyra::opt(t_params.batch_size, "batch_size")["--batch_size"]("batch size") |
     lyra::opt(t_params.global_learn_rate, "global_learn_rate")["--global_learn_rate"]("global learning rate") |
+    lyra::opt(t_params.local_learn_rate, "local_learn_rate")["--local_learn_rate"]("global learning rate") |
     lyra::opt(t_params.clnt_subset_size, "clnt_subset_size")["--clnt_subset_size"]("client subset size") |
     lyra::opt(t_params.srvr_subset_size, "srvr_subset_size")["--srvr_subset_size"]("server subset size") |
     lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |

@@ -8,7 +8,7 @@
 
 RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net)
     : BaseRegDatasetMngr<MnistNet>(worker_id, t_params, net),
-      optimizer(model->parameters(), torch::optim::SGDOptions(t_params.global_learn_rate)),
+      optimizer(model->parameters(), torch::optim::SGDOptions(learning_rate)),
       test_dataset(
           torch::data::datasets::MNIST(
               kDataRoot, torch::data::datasets::MNIST::Mode::kTest)

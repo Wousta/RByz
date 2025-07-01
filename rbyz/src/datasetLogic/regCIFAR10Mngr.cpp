@@ -7,15 +7,15 @@
 
 RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net)
     : BaseRegDatasetMngr<ResNet<ResidualBlock>>(worker_id, t_params, net),
-      optimizer(model->parameters(), torch::optim::AdamOptions(0.001)),
+      optimizer(model->parameters(), torch::optim::AdamOptions(learning_rate)),
       build_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild)
-                      //  .map(ConstantPad(4))
-                      //  .map(RandomHorizontalFlip())
-                      //  .map(RandomCrop({32, 32}))
-                       .map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+                       .map(ConstantPad(4))
+                       .map(RandomHorizontalFlip())
+                       .map(RandomCrop({32, 32}))
+                       //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
                        .map(torch::data::transforms::Stack<>())),
       test_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
-                       .map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+                       //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
                        .map(torch::data::transforms::Stack<>())) {
 
   train_dataset_size = build_dataset.size().value();
@@ -43,7 +43,7 @@ RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
   size_t param_count = w_cuda.size();
 
-  if (round % 2 == 0 && round > 0) {
+  if (round % 2 == 0 && round > 1) {
     learning_rate *= learning_rate_decay_factor;
     static_cast<torch::optim::AdamOptions&>(optimizer.param_groups().front()
         .options()).lr(learning_rate);
@@ -117,10 +117,10 @@ void RegCIFAR10Mngr::init() {
   buildRegisteredDataset(indices);
 
   train_dataset = RegCIFAR10(data_info, index_map)
-      // .map(ConstantPad(4))
-      // .map(RandomHorizontalFlip())
-      // .map(RandomCrop({32, 32}))
-      .map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+      .map(ConstantPad(4))
+      .map(RandomHorizontalFlip())
+      .map(RandomCrop({32, 32}))
+      //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
       .map(torch::data::transforms::Stack<>());
 
   auto loader_temp = torch::data::make_data_loader(

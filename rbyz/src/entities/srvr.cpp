@@ -326,6 +326,7 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.epochs, "epochs")["--epochs"]("number of epochs") |
       lyra::opt(t_params.batch_size, "batch_size")["--batch_size"]("batch size") |
       lyra::opt(t_params.global_learn_rate, "global_learn_rate")["--global_learn_rate"]("global learning rate") |
+      lyra::opt(t_params.local_learn_rate, "local_learn_rate")["--local_learn_rate"]("global learning rate") |
       lyra::opt(t_params.clnt_subset_size, "clnt_subset_size")["--clnt_subset_size"]("client subset size") |
       lyra::opt(t_params.srvr_subset_size, "srvr_subset_size")["--srvr_subset_size"]("server subset size") |
       lyra::opt(t_params.global_iters_fl, "global_iters_fl")["--global_iters_fl"]("global iterations FL") |
@@ -352,6 +353,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Byz clients = " << t_params.n_byz_clnts << "\n";
   std::cout << "Batch size = " << t_params.batch_size << "\n";
   std::cout << "Global learn rate = " << t_params.global_learn_rate << "\n";
+  std::cout << "Local learn rate = " << t_params.local_learn_rate << "\n";
   std::cout << "Client subset size = " << t_params.clnt_subset_size << "\n";
   std::cout << "Server subset size = " << t_params.srvr_subset_size << "\n";
   std::cout << "Global iterations FL = " << t_params.global_iters_fl << "\n";
@@ -377,7 +379,13 @@ int main(int argc, char *argv[]) {
   } else {
     reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, resnet);
 
-    regMem = std::make_unique<RegMemSrvr>(n_clients, REG_SZ_DATA_CF10, reg_mngr->data_info.reg_data);
+    std::vector<torch::Tensor> dummy = reg_mngr->getInitialWeights();
+    uint64_t reg_sz_data = 0;
+    for (const auto& tensor : dummy) {
+      reg_sz_data += tensor.numel() * sizeof(float);
+    }
+
+    regMem = std::make_unique<RegMemSrvr>(n_clients, reg_sz_data, reg_mngr->data_info.reg_data);
     regMem->dataset_size = DATASET_SIZE_CF10;
     Logger::instance().log("Server: Using CIFAR10 dataset\n");
   }

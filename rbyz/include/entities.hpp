@@ -127,6 +127,7 @@ struct TrainInputParams {
   int epochs;
   int batch_size;
   float global_learn_rate;
+  double local_learn_rate;
   int clnt_subset_size;
   int srvr_subset_size;
   int global_iters_fl;
