@@ -259,7 +259,7 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     loss_mean.backward();
     optimizer.step();
 
-    if (batch_idx % kLogInterval == 0 && worker_id % 3 == 0) {
+    if (batch_idx % kLogInterval == 0 && worker_id < 5) {
       std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
                   batch_idx * data.size(0), subset_size,
                   loss_mean.template item<float>());
@@ -408,13 +408,12 @@ BaseRegDatasetMngr<NetType>::getClientsSamplesCount(uint32_t clnt_subset_size,
                                                     uint32_t srvr_subset_size,
                                                     uint32_t dataset_size) {
   Logger::instance().log("Getting samples count for each client\n");
-  int num_clients = num_workers - 1; // Exclude server
-  std::vector<size_t> samples_count(num_clients, 0);
+  std::vector<size_t> samples_count(n_clients, 0);
 
   // Allocate indices to workers
   float srvr_proportion = static_cast<float>(srvr_subset_size) / dataset_size;
-  float clnt_proportion = (1 - srvr_proportion) / (num_clients);
-  for (size_t i = 0; i < num_clients; i++) {
+  float clnt_proportion = (1 - srvr_proportion) / (n_clients);
+  for (size_t i = 0; i < n_clients; i++) {
     std::vector<size_t> worker_indices;
     for (const auto &[label, indices] : label_to_indices) {
       size_t total_samples = indices.size();
@@ -426,7 +425,7 @@ BaseRegDatasetMngr<NetType>::getClientsSamplesCount(uint32_t clnt_subset_size,
       size_t start =
           static_cast<size_t>(std::ceil(samples_srvr + i * samples_clnt));
       size_t end;
-      if (i == num_clients - 1) {
+      if (i == n_clients - 1) {
         end = static_cast<size_t>(
             std::ceil(samples_srvr + (i + 1) * samples_clnt));
         end = total_samples; // Last worker gets the remaining samples
@@ -458,7 +457,7 @@ SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
   // Allocate indices to workers
   float srvr_proportion =
       static_cast<float>(srvr_subset_size) / dataset_size_arg;
-  float clnt_proportion = (1 - srvr_proportion) / (num_workers - 1);
+  float clnt_proportion = (1 - srvr_proportion) / (n_clients);
 
   std::vector<size_t> worker_indices;
   for (const auto &[label, indices] : label_to_indices) {
@@ -476,7 +475,7 @@ SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
     } else {
       start = static_cast<size_t>(
           std::ceil(samples_srvr + (worker_id_arg - 1) * samples_clnt));
-      if (worker_id_arg == num_workers - 1) {
+      if (worker_id_arg == n_clients) {
         end = total_samples; // Last worker gets the remaining samples
       } else {
         end = start + samples_clnt;

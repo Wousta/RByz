@@ -150,7 +150,7 @@ int main(int argc, char* argv[]) {
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
 
-  t_params.num_workers = n_clients + 1; // +1 for server
+  t_params.n_clients = n_clients;
   MnistNet mnist_net;
   Cifar10Net cifar_net;
   std::array<int64_t, 3> layers{2, 2, 2};
@@ -173,7 +173,7 @@ int main(int argc, char* argv[]) {
 
   // connect to server
   // Sleep to not overload the server when all clients connect
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 100));
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 500));
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
 
@@ -209,6 +209,7 @@ int main(int argc, char* argv[]) {
   
   RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
+    Logger::instance().log("Client: Running RByz\n");
     rbyz_aux.runRByzClient(w, *regMem);
   }
 

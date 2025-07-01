@@ -61,7 +61,7 @@ class RegMnistSplitter {
             std::vector<size_t> indices;
 
             // Fill indices in steps of chunk_sz, ensuring last_index + chunk_sz < end_idx
-            for (size_t idx = start_idx; idx + chunk_sz < end_idx; idx += chunk_sz) {
+            for (size_t idx = start_idx; idx + chunk_sz <= end_idx; idx += chunk_sz) {
                 indices.push_back(idx);
             }
             
@@ -116,6 +116,7 @@ class RegMnistSplitter {
 
         double step_last = static_cast<double>(total_offsets_last - 1) / (num_offsets_last - 1);
         for (size_t i = 0; i < num_offsets_last; ++i) {
+            step_last = i == num_offsets_last - 1 ? step_last - 1 : step_last;
             size_t offset_index = static_cast<size_t>(i * step_last);
             last_clnt_chunks.push_back(offset_index * chunk_sz_bytes);
         }

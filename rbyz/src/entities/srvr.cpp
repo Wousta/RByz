@@ -362,7 +362,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Only FLTrust = " << (t_params.only_flt ? "true" : "false") << "\n";
   std::cout << "VD proportion = " << t_params.vd_proportion << "\n";
 
-  t_params.num_workers = n_clients + 1; // +1 for server
+  t_params.n_clients = n_clients; // +1 for server
   MnistNet mnist_net;
   Cifar10Net cifar_net;
   std::array<int64_t, 3> layers{2, 2, 2};

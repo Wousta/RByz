@@ -352,6 +352,7 @@ void RByzAux::runRByzServer(int n_clients,
     }
   
     // Signal to clients that the server is ready
+    Logger::instance().log("Writing flag\n");
     regMem.srvr_ready_flag = round;
     Logger::instance().log("Server: wrote ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
 

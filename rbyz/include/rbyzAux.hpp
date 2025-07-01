@@ -40,9 +40,21 @@ public:
         local_steps(t_params.local_steps_rbyz),
         global_rounds(t_params.global_iters_rbyz) {
           if (t_params.use_mnist) {
-            step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
+            if (t_params.n_clients == 10) {
+              step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
+            } else {
+              for (int i = 0; i < t_params.n_clients; i++) {
+                step_times.push_back({2144});
+              }
+            }
           } else {
-            step_times = {{29389}, {29387}, {29386}, {29388}, {29390}, {29384}, {29388}, {29387}, {29387}, {29387}};
+            if (t_params.n_clients == 10) {
+              step_times = {{29389}, {29387}, {29386}, {29388}, {29390}, {29384}, {29388}, {29387}, {29387}, {29387}};
+            } else {
+              for (int i = 0; i < t_params.n_clients; i++) {
+                step_times.push_back({29389}); 
+              }
+            }
           }
         }
 

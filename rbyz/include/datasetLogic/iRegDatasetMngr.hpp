@@ -9,7 +9,7 @@ class IRegDatasetMngr {
 public:
   const int worker_id;
   TrainInputParams t_params;
-  const int num_workers;
+  const int n_clients;
   const int64_t kTrainBatchSize;
   const int64_t kNumberOfEpochs;
   const int64_t kTestBatchSize = 1000;
@@ -27,7 +27,7 @@ public:
 
   IRegDatasetMngr(int worker_id, TrainInputParams &t_params)
       : worker_id(worker_id), t_params(t_params),
-        num_workers(t_params.num_workers), kTrainBatchSize(t_params.batch_size),
+        n_clients(t_params.n_clients), kTrainBatchSize(t_params.batch_size),
         kNumberOfEpochs(t_params.epochs), learning_rate(t_params.local_learn_rate) {
           if (worker_id == 0) {
             subset_size = t_params.srvr_subset_size;

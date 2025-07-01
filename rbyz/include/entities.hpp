@@ -122,7 +122,7 @@ struct ClientDataRbyz {
 
 struct TrainInputParams {
   bool use_mnist = false;
-  int num_workers;
+  int n_clients;
   int n_byz_clnts;
   int epochs;
   int batch_size;
