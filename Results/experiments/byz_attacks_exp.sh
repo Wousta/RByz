@@ -7,7 +7,7 @@ trap 'echo "Script interrupted. Exiting..."; exit 1' INT TERM
 ORIGINAL_DIR=$(pwd)
 
 # Common parameters
-clients=10
+clients=50
 epochs=5
 glob_learning_rate=0.05
 local_learn_rate=0.05

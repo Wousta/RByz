@@ -21,17 +21,19 @@ private:
   const double learning_rate_decay_factor = 1.0 / 3.0;
   uint32_t train_dataset_size = 0;
   std::unordered_map<size_t, size_t> index_map;
-  torch::optim::Adam optimizer;
+  //torch::optim::Adam optimizer;
+  torch::optim::SGD optimizer; 
+  torch::optim::StepLR scheduler;
 
   using TrainDataset = decltype(
       RegCIFAR10(std::declval<RegTrainData&>(), 
                  std::declval<std::unordered_map<size_t, size_t>>())
       .map(ConstantPad(4))
-      .map(RandomHorizontalFlip())
       .map(RandomCrop({32, 32}))
-      //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+      .map(RandomHorizontalFlip())
+      .map(torch::data::transforms::Normalize<>({0.4914, 0.4822, 0.4465}, 
+                                                         {0.2023, 0.1994, 0.2010}))
       .map(torch::data::transforms::Stack<>()));
-  
   std::optional<TrainDataset> train_dataset;
 
   using RegTrainDataLoader =
@@ -40,27 +42,18 @@ private:
 
   using DatasetType =
       decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
-                //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+                .map(torch::data::transforms::Normalize<>({0.4914, 0.4822, 0.4465}, 
+                                                                  {0.2023, 0.1994, 0.2010}))
                 .map(torch::data::transforms::Stack<>()));
   DatasetType test_dataset;
-
-  using BuildDataset = decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild)
-                .map(ConstantPad(4))
-                .map(RandomHorizontalFlip())
-                .map(RandomCrop({32, 32}))
-                //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
-                .map(torch::data::transforms::Stack<>()));
-  BuildDataset build_dataset;
-
-  using BuildDataLoaderType =
-      torch::data::StatelessDataLoader<BuildDataset,
-                                       torch::data::samplers::RandomSampler>;
-  std::unique_ptr<BuildDataLoaderType> build_loader;
 
   using TestDataLoaderType =
       torch::data::StatelessDataLoader<DatasetType,
                                        torch::data::samplers::RandomSampler>;
   std::unique_ptr<TestDataLoaderType> test_loader;
+
+  using BuildDataset = decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild));
+  std::optional<BuildDataset> build_dataset;
 
   void buildLabelToIndicesMap() override;
   void buildRegisteredDataset(const std::vector<size_t> &indices);

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <vector>
 
 #include "datasetLogic/regCIFAR10Mngr.hpp"
@@ -7,24 +8,20 @@
 
 RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net)
     : BaseRegDatasetMngr<ResNet<ResidualBlock>>(worker_id, t_params, net),
-      optimizer(model->parameters(), torch::optim::AdamOptions(learning_rate)),
-      build_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild)
-                       .map(ConstantPad(4))
-                       .map(RandomHorizontalFlip())
-                       .map(RandomCrop({32, 32}))
-                       //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
-                       .map(torch::data::transforms::Stack<>())),
+      //optimizer(model->parameters(), torch::optim::AdamOptions(learning_rate)),
+      optimizer(model->parameters(), torch::optim::SGDOptions(learn_rate)
+          .momentum(0.9) 
+          .weight_decay(1e-4)), 
+      scheduler(optimizer, 82, 0.1),
+      build_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild)),
       test_dataset(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
-                       //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+                       .map(torch::data::transforms::Normalize<>({0.4914, 0.4822, 0.4465}, 
+                                                                          {0.2023, 0.1994, 0.2010}))
                        .map(torch::data::transforms::Stack<>())) {
 
-  train_dataset_size = build_dataset.size().value();
+  train_dataset_size = build_dataset->size().value();
   Logger::instance().log("CIFAR10Mngr: train_dataset_size = " +
                          std::to_string(train_dataset_size) + "\n");
-  auto build_loader_temp = torch::data::make_data_loader(
-      build_dataset,
-      torch::data::DataLoaderOptions().batch_size(1));
-  build_loader = std::move(build_loader_temp);
 
   test_dataset_size = test_dataset.size().value();
   auto test_loader_temp = torch::data::make_data_loader(
@@ -43,11 +40,11 @@ RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
   size_t param_count = w_cuda.size();
 
-  if (round % 2 == 0 && round > 1) {
-    learning_rate *= learning_rate_decay_factor;
-    static_cast<torch::optim::AdamOptions&>(optimizer.param_groups().front()
-        .options()).lr(learning_rate);
-  }
+  // if (round % 5 == 0 && round > 1) {
+  //   learning_rate *= learning_rate_decay_factor;
+  //   static_cast<torch::optim::AdamOptions&>(optimizer.param_groups().front()
+  //       .options()).lr(learn_rate);
+  // }
 
   if (round % 1 == 0) {
     std::cout << "Training model for round " << round
@@ -60,6 +57,7 @@ RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
 
   for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
     train(epoch, optimizer, *train_loader);
+    scheduler.step();
   }
 
   if (device.is_cuda()) {
@@ -71,38 +69,52 @@ RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
 
 void RegCIFAR10Mngr::buildLabelToIndicesMap() {
   label_to_indices.clear();
-  size_t i = 0;
-  for (auto &example : *build_loader) {
-    int64_t label = example.target.item<int64_t>();
-    label_to_indices[label].push_back(i++);
+
+  for (size_t i = 0; i < train_dataset_size; i++) {
+    int64_t label = build_dataset->get(i).target.item<int64_t>();
+    label_to_indices[label].push_back(i);
+  }
+
+  std::mt19937 rng(42); // Fixed seed for reproducible shuffling
+  for (auto &pair : label_to_indices) {
+    std::shuffle(pair.second.begin(), pair.second.end(), rng);
   }
 }
 
 void RegCIFAR10Mngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
   index_map.reserve(indices.size());
-  std::set<size_t> indices_set(indices.begin(), indices.end());
+  std::vector<int> labels(10, 0);
 
-  int og_idx = 0;
-  int reg_idx = 0;
-  for (auto &example : *build_loader) {
+  size_t i = 0;  // Counter for the registered memory
+  for (const auto& original_idx : indices) {
+    auto example = build_dataset->get(original_idx);
     int64_t label = example.target.item<int64_t>();
+    labels[label]++;
 
-    if (indices_set.find(og_idx) != indices_set.end()) {
-      *getOriginalIndex(reg_idx) = static_cast<uint32_t>(og_idx);
-      *getLabel(reg_idx) = static_cast<int64_t>(label);
+    *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
+    *getLabel(i) = label;
 
-      auto normalized_image = (example.data.to(torch::kFloat32)); //- 0.5) / 0.5;
-      auto image_tensor = normalized_image.reshape({3, 32, 32}).contiguous();
-      std::memcpy(getImage(reg_idx), image_tensor.data_ptr<float>(),
+      auto img = (example.data.to(torch::kFloat32)); //- 0.5) / 0.5;
+      auto reshaped_img = img.reshape({3, 32, 32}).contiguous();
+      std::memcpy(getImage(i), reshaped_img.data_ptr<float>(),
                   data_info.image_size);
 
-      // Map original index to registered index for retrieval
-      index_map[og_idx] = reg_idx;
-      reg_idx++;
-    }
-
-    og_idx++;
+    // Map original index to registered index for retrieval
+    index_map[original_idx] = i;
+    ++i;
   }
+
+  Logger::instance().log("buildRegisteredDataset Labels per class processed: " +
+                        std::to_string(labels[0]) + ", " +
+                        std::to_string(labels[1]) + ", " +
+                        std::to_string(labels[2]) + ", " +
+                        std::to_string(labels[3]) + ", " +
+                        std::to_string(labels[4]) + ", " +
+                        std::to_string(labels[5]) + ", " +
+                        std::to_string(labels[6]) + ", " +
+                        std::to_string(labels[7]) + ", " +
+                        std::to_string(labels[8]) + ", " +
+                        std::to_string(labels[9]) + "\n");
 }
 
 void RegCIFAR10Mngr::init() {
@@ -118,9 +130,10 @@ void RegCIFAR10Mngr::init() {
 
   train_dataset = RegCIFAR10(data_info, index_map)
       .map(ConstantPad(4))
-      .map(RandomHorizontalFlip())
       .map(RandomCrop({32, 32}))
-      //.map(torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}))
+      .map(RandomHorizontalFlip())
+      .map(torch::data::transforms::Normalize<>({0.4914, 0.4822, 0.4465}, 
+                                                        {0.2023, 0.1994, 0.2010}))
       .map(torch::data::transforms::Stack<>());
 
   auto loader_temp = torch::data::make_data_loader(
@@ -128,4 +141,7 @@ void RegCIFAR10Mngr::init() {
       train_sampler, // Reuse the same sampler
       torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
   train_loader = std::move(loader_temp);
+
+  // Build dataset no longer needed, destroy
+  build_dataset.reset();
 }

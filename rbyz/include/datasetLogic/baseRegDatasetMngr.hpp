@@ -9,6 +9,7 @@
 #include <ATen/core/TensorBody.h>
 #include <cuda_runtime.h>
 #include <future>
+#include <utility>
 #include <vector>
 
 template <typename NetType> class BaseRegDatasetMngr : public IRegDatasetMngr {
@@ -78,7 +79,7 @@ public:
   }
 
 protected:
-  std::unordered_map<int64_t, std::vector<size_t>> label_to_indices;
+  std::map<int64_t, std::vector<size_t>> label_to_indices;
   size_t forward_pass_size;
   size_t error_start;
   NetType model;
@@ -108,7 +109,7 @@ protected:
   torch::Device init_device();
   SubsetSampler get_subset_sampler(
       int worker_id, size_t dataset_size, int64_t subset_size, uint32_t srvr_subset_size,
-      const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices);
+      const std::map<int64_t, std::vector<size_t>> &label_to_indices);
   std::vector<torch::Tensor>
   calculateUpdateCuda(const std::vector<torch::Tensor> &w_cuda);
   std::vector<torch::Tensor>

@@ -5,6 +5,8 @@
 #include <torch/torch.h>
 #include <vector>
 
+#define INACTIVE -1
+
 class IRegDatasetMngr {
 public:
   const int worker_id;
@@ -16,19 +18,23 @@ public:
   const int64_t kLogInterval = 10;
   int64_t subset_size = 0;
   size_t test_dataset_size;
-  double learning_rate;
+  double learn_rate;
   float loss;
   float test_loss;
   float error_rate;
   float train_accuracy = 0.0; // Initialize train accuracy
   float test_accuracy = 0.0;  // Initialize test accuracy
+  float src_class_recall = 0.0;
+  int src_class = INACTIVE;  // Source class for targeted attacks, INACTIVE if not applicable
+  int target_class = INACTIVE;
+  int missclassed_samples = 0;
   RegTrainData data_info;
   ForwardPassData f_pass_data;
 
   IRegDatasetMngr(int worker_id, TrainInputParams &t_params)
       : worker_id(worker_id), t_params(t_params),
         n_clients(t_params.n_clients), kTrainBatchSize(t_params.batch_size),
-        kNumberOfEpochs(t_params.epochs), learning_rate(t_params.local_learn_rate) {
+        kNumberOfEpochs(t_params.epochs), learn_rate(t_params.local_learn_rate) {
           if (worker_id == 0) {
             subset_size = t_params.srvr_subset_size;
           } else {

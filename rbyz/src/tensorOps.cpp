@@ -31,6 +31,7 @@ std::vector<torch::Tensor> reconstruct_tensor_vector(
     const std::vector<torch::Tensor>& reference_tensors) {
     
     std::vector<torch::Tensor> result;
+    result.reserve(reference_tensors.size());
     int64_t offset = 0;
     
     // Reconstruct each tensor using the shapes from reference_tensors

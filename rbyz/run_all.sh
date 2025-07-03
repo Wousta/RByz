@@ -9,10 +9,10 @@ remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 
-use_mnist=${1:-true}       # First argument: true/false for MNIST vs CIFAR-10
-n_clients=${2:-50}          
-epochs=${3:-5}             
-batch_size=${4:-100}        
+use_mnist=${1:-false}       # First argument: true/false for MNIST vs CIFAR-10
+n_clients=${2:-10}          
+epochs=${3:-10}             
+batch_size=${4:-128}        
 glob_learn_rate=${5:-0.05}  # Global learning rate for FLtrust aggregation
 local_learn_rate=${6:-0.05}  
 n_byz_clnts=${7:-0}         
@@ -22,19 +22,19 @@ if [ "$use_mnist" = true ]; then
   # Override defaults for MNIST if not explicitly set
   if [ $# -lt 3 ]; then epochs=3; fi
   if [ $# -lt 4 ]; then batch_size=32; fi
-  clnt_subset_size=${8:-1196}
-  srvr_subset_size=${9:-200}
-  glob_iters_fl=${10:-4}
+  clnt_subset_size=${8:-5900}
+  srvr_subset_size=${9:-1000}
+  glob_iters_fl=${10:-40}
   local_steps_rbyz=${11:-5}
   glob_iters_rbyz=${12:-5}
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param="" 
-  glob_learn_rate=${5:-1.0}
-  local_learn_rate=${6:-0.001}  
+  glob_learn_rate=${5:-0.5}
+  local_learn_rate=${6:-0.01}  
   clnt_subset_size=${8:-4900}
   srvr_subset_size=${9:-1000}
-  glob_iters_fl=${10:-15}
+  glob_iters_fl=${10:-200}
   local_steps_rbyz=${11:-5}
   glob_iters_rbyz=${12:-5}
 fi
@@ -46,7 +46,7 @@ chunk_size=${13:-1}      # slab size for RByz VDsampling
 label_flip_type=${14:-2}
 
 flip_ratio=${15:-1.0}
-only_flt=${16:-0}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+only_flt=${16:-1}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
 vd_prop=${17:-1.0}  # Proportion of validation data for each client
 
 

@@ -365,7 +365,7 @@ int main(int argc, char *argv[]) {
   t_params.n_clients = n_clients; // +1 for server
   MnistNet mnist_net;
   Cifar10Net cifar_net;
-  std::array<int64_t, 3> layers{2, 2, 2};
+  std::array<int64_t, 3> layers{3, 3, 3};
   ResNet<ResidualBlock> resnet(layers, NUM_CLASSES);
   std::unique_ptr<RegMemSrvr> regMem;
   std::unique_ptr<IRegDatasetMngr> reg_mngr;
@@ -453,8 +453,12 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom("", filename, "$ END OF EXECUTION $\n");
   reg_mngr->runTesting();
   std::string final_data_file = (t_params.only_flt) ? "F_final_data.log" : "R_final_data.log";
+  std::string recall_msg = std::to_string(reg_mngr->src_class) + " " + std::to_string(reg_mngr->target_class) + " " +
+                           std::to_string(reg_mngr->missclassed_samples) + " " + std::to_string(reg_mngr->src_class_recall) + "\n";
+
   Logger::instance().logCustom("", final_data_file, std::to_string(t_params.vd_proportion) + "\n");
   Logger::instance().logCustom("", final_data_file, std::to_string(reg_mngr->test_accuracy) + "\n");
+  Logger::instance().logCustom("", final_data_file, recall_msg);
   Logger::instance().logCustom("", final_data_file, std::to_string(elapsed) + "\n");
   Logger::instance().logCustom("", final_data_file, "$ END OF EXECUTION $\n");
 

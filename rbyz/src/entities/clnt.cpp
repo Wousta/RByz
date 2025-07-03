@@ -77,9 +77,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
     std::vector<torch::Tensor> g = mngr.runTraining(round, w);
 
-    Logger::instance().log("Weight updates:\n");
-    printTensorSlices(g, 0, 5);
-
     // Send the updated weights back to the server
     torch::Tensor all_tensors = flatten_tensor_vector(g);
     size_t total_bytes_g = all_tensors.numel() * sizeof(float);
@@ -153,7 +150,7 @@ int main(int argc, char* argv[]) {
   t_params.n_clients = n_clients;
   MnistNet mnist_net;
   Cifar10Net cifar_net;
-  std::array<int64_t, 3> layers{2, 2, 2};
+  std::array<int64_t, 3> layers{3, 3, 3};
   ResNet<ResidualBlock> resnet(layers, NUM_CLASSES);
   std::unique_ptr<IRegDatasetMngr> reg_mngr;
   std::unique_ptr<RegMemClnt> regMem;
@@ -163,8 +160,15 @@ int main(int argc, char* argv[]) {
     reg_mngr = std::make_unique<RegMnistMngr>(id, t_params, mnist_net);
     Logger::instance().log("Client: Using MNIST dataset\n");
   } else {
-    regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, REG_SZ_DATA_CF10);
     reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, resnet);
+
+    std::vector<torch::Tensor> dummy = reg_mngr->getInitialWeights();
+    uint64_t reg_sz_data = 0;
+    for (const auto& tensor : dummy) {
+      reg_sz_data += tensor.numel() * sizeof(float);
+    }
+
+    regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, reg_sz_data);
     Logger::instance().log("Client: Using CIFAR10 dataset\n");
   }
 
@@ -173,7 +177,7 @@ int main(int argc, char* argv[]) {
 
   // connect to server
   // Sleep to not overload the server when all clients connect
-  std::this_thread::sleep_for(std::chrono::milliseconds(id * 500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(id * 200));
   RcConn conn;
   int ret = conn.connect(addr_info, reg_info);
 

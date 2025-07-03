@@ -56,7 +56,8 @@ torch::Tensor ResNetImpl<Block>::forward(torch::Tensor x) {
     out = out.view({out.size(0), -1});
     out = fc->forward(out);
 
-    return torch::log_softmax(out, /*dim=*/1); //out;
+    //return torch::log_softmax(out, /*dim=*/1); //out;
+    return out; // No log_softmax for now, as we use CrossEntropyLoss which applies softmax internally
 }
 
 template<typename Block>

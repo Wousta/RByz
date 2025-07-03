@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <random>
 #include <torch/types.h>
+#include <vector>
 
 template <typename NetType>
 BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, TrainInputParams &t_params,
@@ -85,7 +86,7 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCuda(
   std::vector<torch::Tensor> result;
   result.reserve(w_cuda.size());
 
-  for (size_t i = 0; i < params.size(); ++i) {
+  for (size_t i = 0; i < params.size(); i++) {
     // Subtract on GPU
     auto update = params[i].clone().detach() - w_cuda[i];
 
@@ -126,32 +127,63 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
   torch::NoGradGuard no_grad;
   model->eval();
   double test_loss = 0;
-  int32_t correct = 0;
-  int32_t total_samples = 0; // Track actual samples processed
+  int correct = 0;
+  int total_samples = 0; // Track actual samples processed
+  int TPi = 0; // True Positives for source class
+  int FNi = 0; // False Negatives for source class
+  missclassed_samples = 0;
 
   for (const auto &batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     auto output = model->forward(data);
-    test_loss += torch::nll_loss(output, targets,
-                                 /*weight=*/{}, torch::Reduction::Sum)
-                     .template item<float>();
-    // test_loss += torch::nn::functional::cross_entropy(output, targets, 
-    // torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kSum)).template item<float>();
+    // test_loss += torch::nll_loss(output, targets,
+    //                              /*weight=*/{}, torch::Reduction::Sum)
+    //                  .template item<float>();
+    test_loss += torch::nn::functional::cross_entropy(output, targets, 
+    torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kSum)).template item<float>();
     auto pred = output.argmax(1);
     correct += pred.eq(targets).sum().template item<int64_t>();
     total_samples += targets.size(0); // Add actual batch size
+
+    if (src_class != INACTIVE) {
+      // Calculate source class recall
+      for (int i = 0; i < targets.size(0); ++i) {
+        int64_t true_label = targets[i].template item<int64_t>();
+        int64_t predicted_label = pred[i].template item<int64_t>();
+
+        if (true_label == src_class && predicted_label == target_class) {
+          missclassed_samples++;
+        }
+
+        if (true_label == src_class) {
+          if (predicted_label == src_class) {
+            TPi++;
+          } else {
+            FNi++;
+          }
+        }
+      }
+    }
   }
 
-  test_loss /= total_samples;  // Use actual samples processed
-  this->test_loss = test_loss; // Store for later use
+  test_loss /= total_samples; 
+  this->test_loss = test_loss; 
   this->test_accuracy =
-      static_cast<float>(correct) / total_samples; // Store train accuracy
+      static_cast<float>(correct) * 100 / total_samples; 
+
+  
 
   std::ostringstream oss;
   oss << "\n  Test set: Average loss: " << std::fixed << std::setprecision(4)
       << test_loss << " | Accuracy: " << std::fixed << std::setprecision(3)
-      << test_accuracy << " (" << correct << "/" << total_samples
-      << ")"; // Show actual counts for verification
+      << test_accuracy << " (" << correct << "/" << total_samples << ")";
+      
+  if (src_class != INACTIVE) {
+    src_class_recall = static_cast<float>(TPi * 100) / (TPi + FNi);
+    oss << " | Source class recall: " << std::fixed << std::setprecision(3)
+        << src_class_recall << " (TP: " << TPi << ", FN: " << FNi << ")";
+  }
+
   Logger::instance().log(oss.str() + "\n");
   Logger::instance().log("  Testing done\n");
 }
@@ -189,8 +221,10 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   current_buffer.targets.clear();
   current_buffer.losses.clear();
 
+  std::vector<int> labels(10, 0);
   for (const auto &batch : data_loader) {
     for (int i = 0; i < batch.data.size(0); ++i) {
+      labels[batch.target[i].template item<int64_t>()]++;
       f_pass_data.forward_pass_indices[global_sample_idx] =
           *getOriginalIndex(global_sample_idx);
       global_sample_idx++;
@@ -237,10 +271,10 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     // Clear gradients from previous iteration
     optimizer.zero_grad();
     auto output = model->forward(data);
-    // auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
-    // torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
-    auto individual_losses =
-        torch::nll_loss(output, targets, {}, torch::Reduction::None);
+    auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
+    torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
+    // auto individual_losses =
+    //     torch::nll_loss(output, targets, {}, torch::Reduction::None);
 
     current_buffer.outputs.push_back(output);
     current_buffer.targets.push_back(targets);
@@ -254,12 +288,13 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
      * You still get the same training behavior
      * You keep your individual losses for analysis
      */
-    auto loss_mean = individual_losses.mean();
+    //auto loss_mean = individual_losses.mean();
+    auto loss_mean = torch::nn::functional::cross_entropy(output, targets);
     AT_ASSERT(!std::isnan(loss_mean.template item<float>()));
     loss_mean.backward();
     optimizer.step();
 
-    if (batch_idx % kLogInterval == 0 && worker_id < 5) {
+    if (batch_idx % kLogInterval == 0 && worker_id < 3) {
       std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
                   batch_idx * data.size(0), subset_size,
                   loss_mean.template item<float>());
@@ -267,6 +302,18 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
 
     batch_idx++;
   }
+
+  Logger::instance().log("Labels per class processed: " +
+                         std::to_string(labels[0]) + ", " +
+                         std::to_string(labels[1]) + ", " +
+                         std::to_string(labels[2]) + ", " +
+                         std::to_string(labels[3]) + ", " +
+                         std::to_string(labels[4]) + ", " +
+                         std::to_string(labels[5]) + ", " +
+                         std::to_string(labels[6]) + ", " +
+                         std::to_string(labels[7]) + ", " +
+                         std::to_string(labels[8]) + ", " +
+                         std::to_string(labels[9]) + "\n");
 
   // Wait for any remaining async operations
   if (device.is_cuda()) {
@@ -380,8 +427,12 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(
 
     // Run forward pass
     auto output = model->forward(data);
-    auto individual_losses =
-        torch::nll_loss(output, targets, {}, torch::Reduction::None);
+    // auto individual_losses =
+    //     torch::nll_loss(output, targets, {}, torch::Reduction::None);
+    auto individual_losses = torch::nn::functional::cross_entropy(
+        output, targets, 
+        torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone)
+    );
 
     inference_buffer.outputs.push_back(output);
     inference_buffer.targets.push_back(targets);
@@ -452,7 +503,39 @@ BaseRegDatasetMngr<NetType>::getClientsSamplesCount(uint32_t clnt_subset_size,
 template <typename NetType>
 SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
     int worker_id_arg, size_t dataset_size_arg, int64_t subset_size_arg, uint32_t srvr_subset_size,
-    const std::unordered_map<int64_t, std::vector<size_t>> &label_to_indices) {
+    const std::map<int64_t, std::vector<size_t>> &label_to_indices) {
+
+  if (subset_size_arg == dataset_size_arg) {
+    std::vector<size_t> worker_indices(dataset_size_arg);
+    std::iota(worker_indices.begin(), worker_indices.end(), 0);
+    return SubsetSampler(worker_indices);
+  }
+  if (t_params.srvr_subset_size + t_params.clnt_subset_size * n_clients > dataset_size_arg) {
+    std::mt19937 rng(worker_id_arg);
+    std::vector<size_t> worker_indices;
+    for (const auto &[label, indices] : label_to_indices) {
+      std::vector<size_t> shuffled_indices = indices;
+      std::shuffle(shuffled_indices.begin(), shuffled_indices.end(), rng);
+
+      if (worker_id_arg == 0) {
+        // Server gets the first portion
+        size_t samples_srvr = shuffled_indices.size() * 0.9;
+        worker_indices.insert(worker_indices.end(), shuffled_indices.begin(),
+                              shuffled_indices.begin() + samples_srvr);
+      } else {
+        // Clients get the remaining samples
+        size_t samples_clnt = shuffled_indices.size() * 0.9;
+        worker_indices.insert(worker_indices.end(), shuffled_indices.begin(),
+                              shuffled_indices.begin() + samples_clnt);
+      }
+    }
+
+    Logger::instance().log("AYY Worker " + std::to_string(worker_id_arg) +
+                           " using indices of size: " +
+                           std::to_string(worker_indices.size()) + "\n");
+    std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
+    return SubsetSampler(worker_indices);
+  }
 
   // Allocate indices to workers
   float srvr_proportion =
@@ -462,6 +545,7 @@ SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
   std::vector<size_t> worker_indices;
   for (const auto &[label, indices] : label_to_indices) {
     size_t total_samples = indices.size();
+    
     size_t samples_srvr =
         static_cast<size_t>(std::ceil(total_samples * srvr_proportion));
     size_t samples_clnt =
@@ -573,7 +657,7 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
           correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0)
         Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx < 2) {
+      if (curr_idx < 20) {
         Logger::instance().log(
             "Processed sample " + std::to_string(curr_idx) +
             " with original index: " +
@@ -706,6 +790,10 @@ void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label,
   if (source_label == target_label) {
     throw std::invalid_argument("Source and target labels must be different");
   }
+
+  // For source class recall during testing
+  src_class = source_label;
+  target_class = target_label;
 
   // Find all samples with the source label
   std::vector<size_t> source_indices = findSamplesWithLabel(source_label);
