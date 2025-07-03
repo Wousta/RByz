@@ -7,7 +7,6 @@
 #include <ctime>
 #include <random>
 #include <algorithm>
-#include <numeric>
 
 /**
  * @brief Class to split the registered MNIST dataset into n_clients.
@@ -18,36 +17,88 @@
 class RegMnistSplitter {
     private:
     const int n_clients;
-    const int chunk_sz;
-    const float vd_proportion;
+    const int samples_per_chunk;
+    const float clnt_vd_proportion;                 // Proportion of the client dataset that will be overwritten with server data
+    int samples_per_vd_split = 0;
     uint32_t chunk_sz_bytes;
-    int vd_test_size;
     IRegDatasetMngr& mngr;
     std::vector<ClientDataRbyz>& clnt_data_vec;
-    std::vector<std::vector<size_t>> vd_indexes;              // Vector of indices for the start of each VD
-    std::vector<size_t> clnt_chunks;                          // Vector of offsets for the clients till n-1
-    std::vector<size_t> last_clnt_chunks;                     // Offsets for the last client (has remainder of the dataset split)
+    std::vector<std::vector<size_t>> vd_indexes;    // Vector of indices for the start of each VD
+    std::vector<size_t> clnt_chunks;                // Vector of offsets for the clients till n-1
 
     // Vector of integers corresponding to the indices in vd_indexes and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
     std::vector<int> prev_indexes_arrangement;  
     std::mt19937 rng;
 
-    public:
-    RegMnistSplitter(int chunk_sz, float vd_proportion, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
-        : n_clients(clnt_data_vec.size()), chunk_sz(chunk_sz), vd_proportion(vd_proportion), mngr(mngr),
-          clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
-          rng((static_cast<unsigned int>(std::time(nullptr)))) {
-
-        for (int i = 0; i < n_clients; i++) {
-            prev_indexes_arrangement[i] = i;
+    /**
+     * @brief Initializes client chunk offsets for test data injection.
+     * 
+     * Calculates and distributes chunk offsets evenly across the client dataset based
+     * on the clnt_vd_proportion passed. These offsets determine where server data will be injected
+     * into client datasets during RByz operations. The offsets are distributed uniformly
+     * to ensure even coverage across the client's data space.
+     * 
+     * @throws std::runtime_error if clnt_vd_proportion exceeds 0.25 (25% limit)
+     *
+     * @return The number of samples in total to be inserted to each client.
+     */
+    void initializeClientChunkOffsets() {
+        if (clnt_vd_proportion > 0.25) {
+            throw std::runtime_error("clnt_vd_proportion must be <= 0.25, max 25%' overwrite of the client dataset");
         }
 
-        // Split the server registered data into n_clients VDs
+        chunk_sz_bytes = mngr.data_info.get_sample_size() * samples_per_chunk;
+        int total_offsets = clnt_data_vec[0].dataset_size / chunk_sz_bytes;
+        int num_offsets = total_offsets * clnt_vd_proportion;     
+        clnt_chunks.reserve(num_offsets);
+
+        // (total_offsets - 1) / (num_offsets - 1) ensures the last offset lands exactly at the end of the available range.
+        double step = static_cast<double>(total_offsets - 1) / (num_offsets - 1);
+        for (size_t i = 0; i < num_offsets; i++) {
+            size_t offset_index = static_cast<size_t>(i * step);
+            clnt_chunks.push_back(offset_index * chunk_sz_bytes);
+        }
+
+        Logger::instance().log("Client offsets initialized with " + std::to_string(clnt_chunks.size()) + 
+                            " offsets for " + std::to_string(n_clients) + " clients\n");
+
+        // Samples per VD split is the number of test samples the server can insert into each client at most
+        samples_per_vd_split = num_offsets * samples_per_chunk;
+    }
+
+    /**
+     * @brief Initializes validation dataset (VD) partitions.
+     * 
+     * Divides the server's registered dataset into n_clients equal sections and creates
+     * sampling indices for each partition. Each VD contains indices that start at regular
+     * intervals (samples_per_chunk) within its assigned section. If the samples per VD split
+     * exceeds the number of samples in the section, it wraps around to the start of the section
+     * This may cause to write a lot of repeated samples to the clients if the clnt_vd_proportion is high
+     * But this can be mitigated by refreshing the server VD dataset often.
+     * 
+     * The last client receives any remaining samples to handle cases where the dataset
+     * size is not perfectly divisible by n_clients.
+     * 
+     * @param samples_per_vd_split The number of samples each client will receive in their VD.
+     */
+    void initializeValidationDatasetPartitions() {
+        // Split the server registered data into n_clients VD sections
         size_t vd_size = mngr.data_info.num_samples / n_clients;
 
-        Logger::instance().log("Splitting registered dataset into " + std::to_string(n_clients) + " VDs of size " + std::to_string(vd_size) + "\n");
+        if (vd_size < samples_per_chunk) {
+            throw std::runtime_error("Not enough samples in the server VD with the given clnt_vd_proportion. "
+                                    "Increase the registered dataset size or decrease the clnt_vd_proportion.");
+        }
 
+        if (samples_per_vd_split == 0) {
+            throw std::runtime_error("samples_per_vd_split cannot be zero, check the clnt_vd_proportion and samples_per_chunk values.");
+        }
+
+        Logger::instance().log("Splitting registered dataset into " + std::to_string(n_clients) + 
+                            " VDs of size " + std::to_string(samples_per_vd_split) + "\n");
+
+        // Initialize server VD indexes, it contains the dataset sample indices for each client split
         for (int i = 0; i < n_clients; i++) {
             size_t start_idx = i * vd_size;
             size_t end_idx;
@@ -59,75 +110,45 @@ class RegMnistSplitter {
             }
 
             std::vector<size_t> indices;
+            indices.reserve(samples_per_vd_split);
 
-            // Fill indices in steps of chunk_sz, ensuring last_index + chunk_sz < end_idx
-            for (size_t idx = start_idx; idx + chunk_sz <= end_idx; idx += chunk_sz) {
+            int indices_put = 0;
+            size_t idx = start_idx;
+            while (indices_put < samples_per_vd_split) {
+                // If we reach the end of the current VD split, wrap around to the start
+                if (idx + samples_per_chunk >= end_idx) {
+                    idx = start_idx;
+                }
+
                 indices.push_back(idx);
+                idx += samples_per_chunk;
+                indices_put++;
             }
             
             vd_indexes[i] = indices;
-            Logger::instance().log("Client " + std::to_string(i) + " image offset: " + std::to_string(vd_indexes[i][0]) + " size: " + std::to_string(vd_indexes[i].size()) + "\n");
+            Logger::instance().log("Client " + std::to_string(i) + " image index: " + 
+                                std::to_string(vd_indexes[i][0]) + " size: " + 
+                                std::to_string(vd_indexes[i].size()) + "\n");
+        }
+    }
+
+    public:
+    RegMnistSplitter(int samples_per_chunk, float clnt_vd_proportion, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
+        : n_clients(clnt_data_vec.size()), samples_per_chunk(samples_per_chunk), clnt_vd_proportion(clnt_vd_proportion), mngr(mngr),
+          clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
+          rng((static_cast<unsigned int>(std::time(nullptr)))) {
+
+        // Used to select the VD splits for each client
+        for (int i = 0; i < n_clients; i++) {
+            prev_indexes_arrangement[i] = i;
         }
 
-        // For each VD, only a part of the data will be used
-        vd_test_size = vd_indexes[0].size() * vd_proportion;
-        for (const auto& indices : vd_indexes) {
-            if (indices.size() < vd_test_size) {
-                vd_test_size = indices.size();
-            }
-        }
-
-        if (vd_test_size < chunk_sz) {
-            throw std::runtime_error("VD split size cannot be less than " + std::to_string(chunk_sz) + 
-                                     " VD split size: " + std::to_string(vd_test_size));
-        }
-
-        size_t sample_size = mngr.data_info.get_sample_size();
-        size_t num_samples_clnt = clnt_data_vec[0].dataset_size /sample_size;
-        size_t num_samples_last_clnt = clnt_data_vec.back().dataset_size / sample_size;
-        double chunks_proportion = vd_test_size / static_cast<double>(num_samples_clnt);
-        double chunks_proportion_last = vd_test_size / static_cast<double>(num_samples_last_clnt);
-
-        // chunks will be the size of two SGLs, (Scatter Gather Lists)
-        chunk_sz_bytes = sample_size * chunk_sz;
-
-        size_t total_offsets = clnt_data_vec[0].dataset_size / chunk_sz_bytes;
-        size_t total_offsets_last = clnt_data_vec.back().dataset_size / chunk_sz_bytes;
-        size_t num_offsets = total_offsets * std::min(0.25, chunks_proportion);
-        size_t num_offsets_last = total_offsets_last * std::min(0.25, chunks_proportion_last);
-
-        if (num_offsets <= 2 || num_offsets_last <= 2) {
-            throw std::runtime_error("Not enough offsets for the clients, please increase the dataset size or decrease the number of clients");
-        }
-
-        Logger::instance().log("Total offsets: " + std::to_string(total_offsets) + 
-                               " Total offsets last client: " + std::to_string(total_offsets_last) + "\n");
-
-        clnt_chunks.reserve(num_offsets);
-        last_clnt_chunks.reserve(num_offsets_last);
-
-        // Evenly distribute offsets
-        // (total_offsets - 1) / (num_offsets - 1) ensures the last offset lands exactly at the end of the available range.
-        double step = static_cast<double>(total_offsets - 1) / (num_offsets - 1);
-        for (size_t i = 0; i < num_offsets; ++i) {
-            size_t offset_index = static_cast<size_t>(i * step);
-            clnt_chunks.push_back(offset_index * chunk_sz_bytes);
-        }
-
-        double step_last = static_cast<double>(total_offsets_last - 1) / (num_offsets_last - 1);
-        for (size_t i = 0; i < num_offsets_last; ++i) {
-            step_last = i == num_offsets_last - 1 ? step_last - 1 : step_last;
-            size_t offset_index = static_cast<size_t>(i * step_last);
-            last_clnt_chunks.push_back(offset_index * chunk_sz_bytes);
-        }
-
-        Logger::instance().log("Client offsets initialized with " + std::to_string(clnt_chunks.size()) + 
-                               " offsets for first " + std::to_string(n_clients - 1) + " clients and " +
-                               std::to_string(last_clnt_chunks.size()) + " offsets for last client\n");
+        initializeClientChunkOffsets();
+        initializeValidationDatasetPartitions();
     }
 
     int getSamplesPerChunk() const {
-        return chunk_sz;
+        return samples_per_chunk;
     }
 
     uint32_t getChunkSize() const {
@@ -182,15 +203,24 @@ class RegMnistSplitter {
         return true;
     }
 
-    std::vector<size_t> getServerIndices(int clnt_idx, std::vector<int> derangement) {
+    /**
+     * @brief Gets the server indices for a given client index based on the derangement.
+     * 
+     * This function retrieves the indices of the server's validation dataset (VD) that will be sent to a specific client.
+     * The indices are shuffled and a proportion of them is selected based on srvr_vd_proportion.
+     * 
+     * @param clnt_idx The index of the client for which to get the server indices.
+     * @param derangement The derangement vector that determines the current arrangement of VD samples.
+     * @param srvr_vd_proportion The proportion of server VD samples to be sent to the client (default is 1.0).
+     * 
+     * @return A vector containing the selected server indices for the client.
+     */
+    std::vector<size_t> getServerIndices(int clnt_idx, std::vector<int> derangement, float srvr_vd_proportion = 1.0) {
         std::vector<size_t>& all_indices = vd_indexes[derangement[clnt_idx]];
-
-        if (all_indices.size() < vd_test_size) {
-            throw std::runtime_error("getServerIndices: Not enough indices in the VD for client " + std::to_string(clnt_idx));
-        }
+        unsigned long vd_size = all_indices.size() * srvr_vd_proportion;
 
         std::shuffle(all_indices.begin(), all_indices.end(), rng);
-        std::vector<size_t> indexes(all_indices.begin(), all_indices.begin() + vd_test_size);
+        std::vector<size_t> indexes(all_indices.begin(), all_indices.begin() + vd_size);
 
         return indexes;
     }
@@ -200,11 +230,7 @@ class RegMnistSplitter {
             throw std::out_of_range("getClientChunks: Client index out of range");
         }
 
-        if (clnt_idx == n_clients - 1) {
-            return last_clnt_chunks; // Last client has its own offsets
-        } else {
-            return clnt_chunks; // All other clients share the same offsets
-        }
+        return clnt_chunks; 
     }
 
 };
