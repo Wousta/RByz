@@ -807,6 +807,11 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
                          std::to_string(data_info.reg_data_size) + " bytes\n");
 }
 
+template <typename NetType>
+void BaseRegDatasetMngr<NetType>::renewDataset(float proportion, std::optional<int> seed) {
+  
+}
+
 //////////////////////// LABEL FLIPPING ATTCKS ////////////////////////
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio,

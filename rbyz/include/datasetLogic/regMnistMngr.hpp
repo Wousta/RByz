@@ -27,23 +27,25 @@ private:
                  .map(torch::data::transforms::Stack<>()));
 
   std::optional<TrainDataset> train_dataset;
-  using RegTrainDataLoader =
-      torch::data::StatelessDataLoader<TrainDataset, SubsetSampler>;
+  using RegTrainDataLoader = torch::data::StatelessDataLoader<TrainDataset, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> train_loader;
 
-  using DatasetType =
+  // Only for the server
+  using BuildDataset = decltype (torch::data::datasets::MNIST(kDataRoot));
+  std::optional<BuildDataset> build_dataset;
+
+  using TestDataset =
       decltype(torch::data::datasets::MNIST(kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
                    .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
                    .map(torch::data::transforms::Stack<>()));
-  DatasetType test_dataset;
+  TestDataset test_dataset;
 
-  using TestDataLoaderType =
-      torch::data::StatelessDataLoader<DatasetType,
-                                       torch::data::samplers::RandomSampler>;
-  std::unique_ptr<TestDataLoaderType> test_loader;
+  using TestDataLoader = torch::data::StatelessDataLoader<TestDataset, torch::data::samplers::RandomSampler>;
+  std::unique_ptr<TestDataLoader> test_loader;
 
   void buildLabelToIndicesMap() override;
   void buildRegisteredDataset(const std::vector<size_t> &indices);
+  void init();
 
 public:
   RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net);
@@ -57,4 +59,6 @@ public:
   }
 
   inline void runTesting() override { test(*test_loader); }
+
+  void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override;
 };

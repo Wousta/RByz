@@ -9,6 +9,7 @@
 #include <ATen/core/TensorBody.h>
 #include <cuda_runtime.h>
 #include <future>
+#include <torch/data/datasets/base.h>
 #include <utility>
 #include <vector>
 
@@ -21,6 +22,7 @@ public:
   runTraining(int round, const std::vector<torch::Tensor> &w) override = 0;
   virtual void runTesting() override = 0;
   virtual void runInference(const std::vector<torch::Tensor> &w) override = 0;
+  virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override;
 
   std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
                                              uint32_t srvr_subset_size,
@@ -79,7 +81,9 @@ public:
   }
 
 protected:
+  uint64_t renew_idx = 0; // Index for build dataset when renewing samples for RByz
   std::map<int64_t, std::vector<size_t>> label_to_indices;
+  std::vector<size_t> indices; // Indices of samples in the registered dataset
   size_t forward_pass_size;
   size_t error_start;
   NetType model;

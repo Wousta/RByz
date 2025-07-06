@@ -36,21 +36,20 @@ private:
       .map(torch::data::transforms::Stack<>()));
   std::optional<TrainDataset> train_dataset;
 
-  using RegTrainDataLoader =
-      torch::data::StatelessDataLoader<TrainDataset, SubsetSampler>;
+  using RegTrainDataLoader = torch::data::StatelessDataLoader<TrainDataset, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> train_loader;
 
-  using DatasetType =
+  using TestDataset =
       decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kTest)
                 .map(torch::data::transforms::Normalize<>({0.4914, 0.4822, 0.4465}, 
                                                                   {0.2023, 0.1994, 0.2010}))
                 .map(torch::data::transforms::Stack<>()));
-  DatasetType test_dataset;
+  TestDataset test_dataset;
 
-  using TestDataLoaderType =
-      torch::data::StatelessDataLoader<DatasetType,
+  using TestDataLoader =
+      torch::data::StatelessDataLoader<TestDataset,
                                        torch::data::samplers::SequentialSampler>;
-  std::unique_ptr<TestDataLoaderType> test_loader;
+  std::unique_ptr<TestDataLoader> test_loader;
 
   using BuildDataset = decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild));
   std::optional<BuildDataset> build_dataset;
@@ -72,4 +71,6 @@ public:
   }
 
   inline void runTesting() override { test(*test_loader); }
+
+  void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override;
 };

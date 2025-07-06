@@ -50,6 +50,7 @@ public:
   runTraining(int round, const std::vector<torch::Tensor> &w) = 0;
   virtual void runTesting() = 0;
   virtual void runInference(const std::vector<torch::Tensor> &w) = 0;
+  virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) = 0;
 
   virtual std::vector<torch::Tensor> getInitialWeights() = 0;
   virtual std::vector<torch::Tensor>
