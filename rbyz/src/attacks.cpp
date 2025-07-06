@@ -1,4 +1,6 @@
 #include "../include/attacks.hpp"
+#include "global/globalConstants.hpp"
+
 
 // These functions are translated from https://github.com/encryptogroup/SAFEFL/blob/main/attacks.py
 

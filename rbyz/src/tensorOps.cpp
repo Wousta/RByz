@@ -5,20 +5,7 @@
 #include <vector>
 #include <sstream>
 
-/**
- * Flatten a vector of tensors into a single tensor.
- */
-torch::Tensor flatten_tensor_vector(const std::vector<torch::Tensor>& tensor_vec) {
-    std::vector<torch::Tensor> flattened_tensors;
-
-    for (const auto& tensor : tensor_vec) {
-        flattened_tensors.push_back(tensor.reshape(-1));
-    }
-
-    auto all_tensors = torch::cat(flattened_tensors).contiguous();
-    
-    return all_tensors;
-}
+namespace tops {
 
 /**
  * Reconstruct a vector of tensors from a flattened tensor.
@@ -65,7 +52,6 @@ void printTensorSlices(const std::vector<torch::Tensor>& model_weights, int star
         // Handle the end_idx
         if (end_idx < 0 || end_idx > tensor.numel()) {
             end_idx = tensor.numel();
-            oss << "Max length of this tensor is: " << end_idx << "\n";
         }
         
         // Make sure indices are valid
@@ -95,3 +81,52 @@ void printTensorSlices(const std::vector<torch::Tensor>& model_weights, int star
     
     Logger::instance().log(oss.str());
 }
+
+void memcpyTensorVec(float *dest, std::vector<torch::Tensor> &src, size_t size) {
+  if (src.empty()) {
+    Logger::instance().log("No tensors to copy, returning.\n");
+    return;
+  }
+
+  auto all_tensors = flatten_tensor_vector(src);
+  size_t total_bytes = all_tensors.numel() * sizeof(float);
+
+  if (total_bytes != size) {
+    throw std::runtime_error("[memcpyTensorVec] Size mismatch: expected " + std::to_string(size) +
+                             ", but got " + std::to_string(total_bytes));
+  }
+
+  float *src_float = all_tensors.data_ptr<float>();
+  std::memcpy(dest, src_float, total_bytes);
+}
+
+void memcpyTensor(float *dest, torch::Tensor &src, size_t size) {
+  if (src.numel() == 0) {
+    Logger::instance().log("Source tensor is empty, returning.\n");
+    return;
+  }
+
+  size_t total_bytes = src.numel() * sizeof(float);
+  if (total_bytes != size) {
+    throw std::runtime_error("[memcpyTensor] Size mismatch: expected " + std::to_string(size) +
+                             ", but got " + std::to_string(total_bytes));
+  }
+
+  float *src_float = src.data_ptr<float>();
+  std::memcpy(dest, src_float, total_bytes);
+}
+
+void writeToTensorVec(std::vector<torch::Tensor> &dest, float *src, size_t size) {
+  if (dest.empty()) {
+    Logger::instance().log("No tensors to read, returning.\n");
+    return;
+  }
+
+  size_t num_elements = size / sizeof(float);
+  torch::Tensor flat_tensor = torch::from_blob(
+      src, {static_cast<long>(num_elements)}, torch::kFloat32
+  ).clone();
+  dest = reconstruct_tensor_vector(flat_tensor, dest);
+}
+
+} // namespace tops

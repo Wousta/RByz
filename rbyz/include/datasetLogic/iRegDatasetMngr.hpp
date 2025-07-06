@@ -13,11 +13,13 @@ public:
   TrainInputParams t_params;
   const int n_clients;
   const int64_t kTrainBatchSize;
-  const int64_t kNumberOfEpochs;
   const int64_t kTestBatchSize = 1000;
   const int64_t kLogInterval = 10;
+  const int overwrite_poisoned;
+  int64_t kNumberOfEpochs;
   int64_t subset_size = 0;
   size_t test_dataset_size;
+  size_t train_dataset_size;
   double learn_rate;
   float loss;
   float test_loss;
@@ -28,12 +30,13 @@ public:
   int src_class = INACTIVE;  // Source class for targeted attacks, INACTIVE if not applicable
   int target_class = INACTIVE;
   int missclassed_samples = 0;
+  bool attack_is_targeted_flip = false;
   RegTrainData data_info;
   ForwardPassData f_pass_data;
 
   IRegDatasetMngr(int worker_id, TrainInputParams &t_params)
       : worker_id(worker_id), t_params(t_params),
-        n_clients(t_params.n_clients), kTrainBatchSize(t_params.batch_size),
+        n_clients(t_params.n_clients), kTrainBatchSize(t_params.batch_size), overwrite_poisoned(t_params.overwrite_poisoned),
         kNumberOfEpochs(t_params.epochs), learn_rate(t_params.local_learn_rate) {
           if (worker_id == 0) {
             subset_size = t_params.srvr_subset_size;

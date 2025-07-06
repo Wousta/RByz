@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "datasetLogic/regCIFAR10Mngr.hpp"
@@ -7,6 +8,8 @@
 #include "logger.hpp"
 
 RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net)
+//RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net)
+    // : BaseRegDatasetMngr<Cifar10Net>(worker_id, t_params, net),
     : BaseRegDatasetMngr<ResNet<ResidualBlock>>(worker_id, t_params, net),
       //optimizer(model->parameters(), torch::optim::AdamOptions(learning_rate)),
       optimizer(model->parameters(), torch::optim::SGDOptions(learn_rate)
@@ -24,12 +27,26 @@ RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet
                          std::to_string(train_dataset_size) + "\n");
 
   test_dataset_size = test_dataset.size().value();
-  auto test_loader_temp = torch::data::make_data_loader(
+  auto test_loader_temp = torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
       test_dataset,
       torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
   test_loader = std::move(test_loader_temp);
 
   init();
+
+  int label_flip_type = t_params.label_flip_type;
+  if (label_flip_type && label_flip_type != RANDOM_FLIP) {
+    const int target_mappings[3][2] = {
+      {5, 3}, // TARGETED_FLIP_1
+      {0, 2}, // TARGETED_FLIP_2  
+      {1, 9}  // TARGETED_FLIP_3
+    };
+
+    int setting = label_flip_type - TARGETED_FLIP_1; // Convert to 0-based index (2->0, 3->1, 4->2)
+    src_class = target_mappings[setting][0];
+    target_class = target_mappings[setting][1];
+    attack_is_targeted_flip = true;
+  }
 
   Logger::instance().log("CIFAR10 Registered memory dataset prepared with " +
                          std::to_string(data_info.num_samples) + " samples\n");
@@ -38,7 +55,6 @@ RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet
 std::vector<torch::Tensor>
 RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
-  size_t param_count = w_cuda.size();
 
   // if (round % 5 == 0 && round > 1) {
   //   learning_rate *= learning_rate_decay_factor;
@@ -84,11 +100,18 @@ void RegCIFAR10Mngr::buildLabelToIndicesMap() {
 void RegCIFAR10Mngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
   index_map.reserve(indices.size());
   std::vector<int> labels(10, 0);
+  std::vector<size_t> poisoned_labels;
 
   size_t i = 0;  // Counter for the registered memory
   for (const auto& original_idx : indices) {
     auto example = build_dataset->get(original_idx);
     int64_t label = example.target.item<int64_t>();
+
+    // Put them at the end of the dataset if they are poisoned
+    if (attack_is_targeted_flip && !overwrite_poisoned && label == src_class) {
+      poisoned_labels.push_back(original_idx);
+      continue;
+    }
     labels[label]++;
 
     *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
@@ -101,6 +124,24 @@ void RegCIFAR10Mngr::buildRegisteredDataset(const std::vector<size_t> &indices) 
 
     // Map original index to registered index for retrieval
     index_map[original_idx] = i;
+    ++i;
+  }
+
+  for (const auto &poisoned_idx : poisoned_labels) {
+    auto example = build_dataset->get(poisoned_idx);
+    int64_t label = example.target.item<int64_t>();
+    labels[label]++;
+
+    *getOriginalIndex(i) = static_cast<uint32_t>(poisoned_idx);
+    *getLabel(i) = label;
+
+    auto img = (example.data.to(torch::kFloat32)); //- 0.5) / 0.5;
+    auto reshaped_img = img.reshape({3, 32, 32}).contiguous();
+    std::memcpy(getImage(i), reshaped_img.data_ptr<float>(),
+                data_info.image_size);
+
+    // Map original index to registered index for retrieval
+    index_map[poisoned_idx] = i;
     ++i;
   }
 

@@ -10,9 +10,6 @@ inline constexpr uint64_t REG_SZ_DATA_MNIST = 87360;    // Size of the parameter
 inline constexpr int DATASET_SIZE_MNIST = 60000;
 
 // CIFAR10
-//inline constexpr uint64_t REG_SZ_DATA_CF10 = 5368488;    // Size of the parameter vector w for CIFAR-10
-//inline constexpr uint64_t REG_SZ_DATA_CF10 = 248024;    // Size of the parameter vector w for CIFAR-10
-inline constexpr uint64_t REG_SZ_DATA_CF10 = 782952;      // Size of the parameter vector w for CIFAR-10 RESNET
 inline constexpr int DATASET_SIZE_CF10 = 50000;
 
 // RBYZ
@@ -21,15 +18,21 @@ inline constexpr int MEM_OCCUPIED = 1;
 inline constexpr int SRVR_READY_RBYZ = -1;
 inline constexpr int SRVR_FINISHED_RBYZ = -2;
 
+// Byz attack settings
+inline constexpr int NO_ATTACK = 0;
+inline constexpr int RANDOM_FLIP = 1;
+inline constexpr int TARGETED_FLIP_1 = 2;
+inline constexpr int TARGETED_FLIP_2 = 3;
+inline constexpr int TARGETED_FLIP_3 = 4;
+
 // addr_locs of buffers
-inline constexpr int SRVR_READY_IDX = 0;
-inline constexpr int SRVR_W_IDX = 1;
-inline constexpr int CLNT_READY_IDX = 2;
-inline constexpr int CLNT_W_IDX = 3;
-inline constexpr int CLNT_LOSS_AND_ERR_IDX = 4;
-inline constexpr int CLNT_CAS_IDX = 5;
-inline constexpr int CLNT_LOCAL_STEP_IDX = 6;
-inline constexpr int CLNT_ROUND_IDX = 7;
-inline constexpr int REG_DATASET_IDX = 8;
-inline constexpr int CLNT_FORWARD_PASS_IDX = 9;
-inline constexpr int CLNT_FORWARD_PASS_INDICES_IDX = 10;
+inline constexpr int SRVR_W_IDX = 0;
+inline constexpr int CLNT_W_IDX = 1;
+inline constexpr int SRVR_READY_IDX = 2;
+inline constexpr int CLNT_READY_IDX = 3;
+inline constexpr int CLNT_CAS_IDX = 4;
+inline constexpr int CLNT_LOCAL_STEP_IDX = 5;
+inline constexpr int CLNT_ROUND_IDX = 6;
+inline constexpr int REG_DATASET_IDX = 7;
+inline constexpr int CLNT_FORWARD_PASS_IDX = 8;
+inline constexpr int CLNT_FORWARD_PASS_INDICES_IDX = 9;

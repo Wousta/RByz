@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <float.h>
 
 #include <algorithm>
@@ -42,11 +43,10 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
   // Configure memory registration for each client
   for (int i = 0; i < n_clients; i++) {
     // Register memory addresses
-    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));
     reg_info[i].addr_locs.push_back(castI(regMem.srvr_w));
-    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
-    reg_info[i].addr_locs.push_back(castI(regMem.clnt_loss_and_err[i]));
+    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));
+    reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
@@ -55,10 +55,9 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
 
     // Set memory sizes
-    reg_info[i].data_sizes.push_back(MIN_SZ);
+    reg_info[i].data_sizes.push_back(regMem.reg_sz_data);
     reg_info[i].data_sizes.push_back(regMem.reg_sz_data);
     reg_info[i].data_sizes.push_back(MIN_SZ);
-    reg_info[i].data_sizes.push_back(regMem.reg_sz_data);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
@@ -146,7 +145,6 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
     Logger::instance().logCustom("", filename, message);
   }
 
-  // Normalize trust scores
   float sum_trust = 0.0f;
   for (float score : trust_scores) {
     sum_trust += score;
@@ -169,21 +167,16 @@ std::vector<torch::Tensor>
 run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr,
                  RegMemSrvr &regMem, std::vector<ClientDataRbyz> &clntsData) {
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
-  printTensorSlices(w, 0, 5);
-  Logger::instance().log("\nInitial run of minstrain done\n");
+
+  tops::printTensorSlices(w, 0, 5);
+  Logger::instance().log("\nInitial weights gathered\n");
   std::vector<float> log_TS_vec(n_clients, 0.0f);
 
   for (int round = 1; round <= t_params.global_iters_fl; round++) {
-    auto all_tensors = flatten_tensor_vector(w);
     std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
+    tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
 
-    // Copy to shared memory
-    size_t total_bytes = all_tensors.numel() * sizeof(float);
-    float *global_w = all_tensors.data_ptr<float>();
-    std::memcpy(regMem.srvr_w, global_w, total_bytes);
-
-    // Set the flag to indicate that the weights are ready for the clients to
-    // read
+    // Set the flag to indicate that the weights are ready for the clients to read
     regMem.srvr_ready_flag = round;
 
     // Run local training
@@ -223,8 +216,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
 
       if (!timed_out) {
         size_t numel_server = regMem.reg_sz_data / sizeof(float);
-        torch::Tensor flat_tensor =
-            torch::from_blob(regMem.clnt_ws[client],
+        torch::Tensor flat_tensor = torch::from_blob(regMem.clnt_ws[client],
                             {static_cast<long>(numel_server)}, torch::kFloat32).clone();
 
         clnt_updates.push_back(flat_tensor);
@@ -233,11 +225,11 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     }
 
     // AGGREGATION PHASE //////////////////////
-    torch::Tensor flat_srvr_update = flatten_tensor_vector(g);
+    torch::Tensor flat_srvr_update = tops::flatten_tensor_vector(g);
     torch::Tensor aggregated_update =
         aggregate_updates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params.only_flt);
     std::vector<torch::Tensor> aggregated_update_vec =
-        reconstruct_tensor_vector(aggregated_update, w);
+        tops::reconstruct_tensor_vector(aggregated_update, w);
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
@@ -269,17 +261,9 @@ void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
                                                                         regMem.dataset_size);
 
   for (int i = 0; i < n_clients; i++) {
-    // Allocate memory for client weights and metrics
     regMem.clnt_ws[i] = reinterpret_cast<float *>(malloc(regMem.reg_sz_data));
-    regMem.clnt_loss_and_err[i] = reinterpret_cast<float *>(malloc(MIN_SZ));
-
-    // Set up client data structure
-    clnt_data_vec[i].index = i;
-
-    // Shared memory locations with FLtrust
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
-    clnt_data_vec[i].loss = regMem.clnt_loss_and_err[i];
-    clnt_data_vec[i].error_rate = regMem.clnt_loss_and_err[i] + 1;
+    clnt_data_vec[i].index = i;
 
     // Calculate memory sizes for client data
     size_t num_samples = clnts_samples_count[i];
@@ -333,8 +317,11 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.local_steps_rbyz, "local_steps_rbyz")["--local_steps_rbyz"]("local steps RByz") |
       lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz") |
       lyra::opt(t_params.chunk_size, "chunk_size")["--chunk_size"]("chunk size for VDsampling") |
+      lyra::opt(t_params.label_flip_type, "label_flip_type")["--label_flip_type"]("Label flip type: 0 - no flip, 1 - random flip, 2-4 - targeted flips") |
+      lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
       lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz") |
-      lyra::opt(t_params.vd_proportion, "vd_prop")["--vd_prop"]("Proportion of validation data for each client");
+      lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of validation data for each client") |
+      lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples");
 
   auto result = cli.parse({argc, argv});
   if (!result) {
@@ -360,7 +347,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Local steps RByz = " << t_params.local_steps_rbyz << "\n";
   std::cout << "Global iterations RByz = " << t_params.global_iters_rbyz << "\n";
   std::cout << "Only FLTrust = " << (t_params.only_flt ? "true" : "false") << "\n";
-  std::cout << "VD proportion = " << t_params.vd_proportion << "\n";
+  std::cout << "VD proportion = " << t_params.clnt_vd_proportion << "\n";
 
   t_params.n_clients = n_clients; // +1 for server
   MnistNet mnist_net;
@@ -372,23 +359,21 @@ int main(int argc, char *argv[]) {
 
   if (t_params.use_mnist) {
     reg_mngr = std::make_unique<RegMnistMngr>(0, t_params, mnist_net);
-
-    regMem = std::make_unique<RegMemSrvr>(n_clients, REG_SZ_DATA_MNIST, reg_mngr->data_info.reg_data);
-    regMem->dataset_size = DATASET_SIZE_MNIST;
     Logger::instance().log("Server: Using MNIST dataset\n");
   } else {
+    // reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, cifar_net);
     reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, resnet);
-
-    std::vector<torch::Tensor> dummy = reg_mngr->getInitialWeights();
-    uint64_t reg_sz_data = 0;
-    for (const auto& tensor : dummy) {
-      reg_sz_data += tensor.numel() * sizeof(float);
-    }
-
-    regMem = std::make_unique<RegMemSrvr>(n_clients, reg_sz_data, reg_mngr->data_info.reg_data);
-    regMem->dataset_size = DATASET_SIZE_CF10;
     Logger::instance().log("Server: Using CIFAR10 dataset\n");
   }
+
+  std::vector<torch::Tensor> dummy_w = reg_mngr->getInitialWeights();
+  uint64_t reg_sz_data = 0;
+  for (const auto& tensor : dummy_w) {
+    reg_sz_data += tensor.numel() * sizeof(float);
+  }
+
+  regMem = std::make_unique<RegMemSrvr>(n_clients, reg_sz_data, reg_mngr->data_info.reg_data);
+  regMem->dataset_size = reg_mngr->train_dataset_size;
   regMem->srvr_subset_size = t_params.srvr_subset_size;
   regMem->clnt_subset_size = t_params.clnt_subset_size;
 
@@ -456,7 +441,7 @@ int main(int argc, char *argv[]) {
   std::string recall_msg = std::to_string(reg_mngr->src_class) + " " + std::to_string(reg_mngr->target_class) + " " +
                            std::to_string(reg_mngr->missclassed_samples) + " " + std::to_string(reg_mngr->src_class_recall) + "\n";
 
-  Logger::instance().logCustom("", final_data_file, std::to_string(t_params.vd_proportion) + "\n");
+  Logger::instance().logCustom("", final_data_file, std::to_string(t_params.clnt_vd_proportion) + "\n");
   Logger::instance().logCustom("", final_data_file, std::to_string(reg_mngr->test_accuracy) + "\n");
   Logger::instance().logCustom("", final_data_file, recall_msg);
   Logger::instance().logCustom("", final_data_file, std::to_string(elapsed) + "\n");

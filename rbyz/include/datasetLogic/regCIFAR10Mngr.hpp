@@ -14,12 +14,12 @@ using transform::RandomCrop;
 using transform::RandomHorizontalFlip;
 
 class RegCIFAR10Mngr : public BaseRegDatasetMngr<ResNet<ResidualBlock>> {
+// class RegCIFAR10Mngr : public BaseRegDatasetMngr<Cifar10Net> {
 private:
   // Size of CIFAR-10 image in pixels (3 channels)
   const int IMG_SIZE = 32 * 32 * 3;
   const std::string kDataRoot = "./data/cifar10";
   const double learning_rate_decay_factor = 1.0 / 3.0;
-  uint32_t train_dataset_size = 0;
   std::unordered_map<size_t, size_t> index_map;
   //torch::optim::Adam optimizer;
   torch::optim::SGD optimizer; 
@@ -49,7 +49,7 @@ private:
 
   using TestDataLoaderType =
       torch::data::StatelessDataLoader<DatasetType,
-                                       torch::data::samplers::RandomSampler>;
+                                       torch::data::samplers::SequentialSampler>;
   std::unique_ptr<TestDataLoaderType> test_loader;
 
   using BuildDataset = decltype(RegCIFAR10(kDataRoot, RegCIFAR10::Mode::kBuild));
@@ -60,6 +60,7 @@ private:
   void init();
 
 public:
+  // RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net);
   RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net);
   ~RegCIFAR10Mngr() = default;
 

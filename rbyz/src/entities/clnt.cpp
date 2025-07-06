@@ -23,11 +23,10 @@
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
 void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, IRegDatasetMngr& mngr) {
-  reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(regMem.srvr_w));
-  reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(regMem.clnt_w));
-  reg_info.addr_locs.push_back(castI(regMem.loss_and_err));
+  reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
+  reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
   reg_info.addr_locs.push_back(castI(&regMem.CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
@@ -35,10 +34,9 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, IRegDatasetMngr& 
   reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass));
   reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
 
-  reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(MIN_SZ);
-  reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
@@ -74,19 +72,19 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
 
     // Read the weights from the server and run training
-    rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
+    rdma_ops.exec_rdma_read(regMem.reg_sz_data, SRVR_W_IDX);
+    tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
+
+    mngr.updateModelParameters(w);
+    Logger::instance().log("After aggregating\n");
+    mngr.runTesting();
     std::vector<torch::Tensor> g = mngr.runTraining(round, w);
+    Logger::instance().log("OGH\n");
+    mngr.runTesting();
 
     // Send the updated weights back to the server
-    torch::Tensor all_tensors = flatten_tensor_vector(g);
-    size_t total_bytes_g = all_tensors.numel() * sizeof(float);
-    if(total_bytes_g != (size_t)regMem.reg_sz_data) {
-      throw std::runtime_error("reg_sz_data and total_bytes sent do not match!!");
-    }
-    float* all_tensors_float = all_tensors.data_ptr<float>();
-    std::memcpy(regMem.clnt_w, all_tensors_float, total_bytes_g);
-    unsigned int total_bytes_g_int = static_cast<unsigned int>(regMem.reg_sz_data);
-    rdma_ops.exec_rdma_write(total_bytes_g_int, CLNT_W_IDX);
+    tops::memcpyTensorVec(regMem.clnt_w, g, regMem.reg_sz_data);
+    rdma_ops.exec_rdma_write(regMem.reg_sz_data, CLNT_W_IDX);
 
     // Update the ready flag
     regMem.clnt_ready_flag = round;
@@ -95,7 +93,8 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
   }
 
-  mngr.updateModelParameters(w);
+  Logger::instance().log("HUHH\n");
+  mngr.runTesting();
 
   return w;
 }
@@ -148,6 +147,7 @@ int main(int argc, char* argv[]) {
   addr_info.port = strdup(port.c_str());
 
   t_params.n_clients = n_clients;
+  t_params.use_mnist = use_mnist;
   MnistNet mnist_net;
   Cifar10Net cifar_net;
   std::array<int64_t, 3> layers{3, 3, 3};
@@ -156,21 +156,21 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<RegMemClnt> regMem;
 
   if (use_mnist) {
-    regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, REG_SZ_DATA_MNIST);
     reg_mngr = std::make_unique<RegMnistMngr>(id, t_params, mnist_net);
     Logger::instance().log("Client: Using MNIST dataset\n");
   } else {
+    // reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, cifar_net);
     reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, resnet);
-
-    std::vector<torch::Tensor> dummy = reg_mngr->getInitialWeights();
-    uint64_t reg_sz_data = 0;
-    for (const auto& tensor : dummy) {
-      reg_sz_data += tensor.numel() * sizeof(float);
-    }
-
-    regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, reg_sz_data);
     Logger::instance().log("Client: Using CIFAR10 dataset\n");
   }
+
+  std::vector<torch::Tensor> dummy_w = reg_mngr->getInitialWeights();
+  uint64_t reg_sz_data = 0;
+  for (const auto& tensor : dummy_w) {
+    reg_sz_data += tensor.numel() * sizeof(float);
+  }
+
+  regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, reg_sz_data);
 
   registerClntMemory(reg_info, *regMem, *reg_mngr);
   Logger::instance().log("Client: Registered memory for client " + std::to_string(id) + "\n");

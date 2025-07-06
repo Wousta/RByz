@@ -36,8 +36,8 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
               float srvr_loss,
               float srvr_error_rate) {
   // loss and error of client to update
-  float w_loss = clnt_data.loss_clnt;
-  float w_err = clnt_data.error_rate_clnt;
+  float w_loss = clnt_data.loss;
+  float w_err = clnt_data.error_rate;
 
   Logger::instance().log("        -> Client " + std::to_string(clnt_data.index) + 
                          " loss: " + std::to_string(w_loss) + 
@@ -46,13 +46,13 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   // Find minimum loss and error among all clients
   float min_w_loss = w_loss;
   float min_w_err = w_err;
-  for (ClientDataRbyz& clnt_data : clnt_data_vec) {
-    if (*clnt_data.loss < min_w_loss) {
-      min_w_loss = *clnt_data.loss;
+  for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
+    if (clnt_data.loss < min_w_loss) {
+      min_w_loss = clnt_data.loss;
     }
 
-    if (*clnt_data.error_rate < min_w_err) {
-      min_w_err = *clnt_data.error_rate;
+    if (clnt_data.error_rate < min_w_err) {
+      min_w_err = clnt_data.error_rate;
     }
   }
 
@@ -79,7 +79,6 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
                                 const torch::Tensor& flat_w,
                                 const std::vector<ClientDataRbyz> &clnt_data_vec,
                                 const std::vector<uint32_t>& clnt_indices) {
-
   // Normalize the client updates
   std::vector<torch::Tensor> normalized_updates;
   normalized_updates.reserve(client_updates.size());
@@ -93,13 +92,17 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
     normalized_updates.push_back(normalized_update);
   }
 
+  Logger::instance().log("Normalized client updates:\n");
+  for (const auto &update : normalized_updates) {
+    Logger::instance().log(update.slice(0, 0, std::min<size_t>(update.numel(), 5)).toString() + "\n");
+  } 
+
   float trust_scores[client_updates.size()];
   for (int i = 0; i < client_updates.size(); i++) {
     // Byzantine clients are skipped, so we have to keep track of good clients indices clnt_indices[i]
     trust_scores[i] = clnt_data_vec[clnt_indices[i]].trust_score;
   }
 
-  // Normalize trust scores
   float sum_trust = 0.0f;
   for (float score : trust_scores) {
     sum_trust += score;
@@ -232,7 +235,9 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
       if (processed_samples == 0 && clnt_data.index == 0) {
         Logger::instance().log("Processing first sample of client 0: idx " + std::to_string(clnt_idx) + 
                               " loss: " + std::to_string(clnt_loss_total) + 
-                              " error: " + std::to_string(clnt_error_total) + "\n");
+                              " error: " + std::to_string(clnt_error_total) + 
+                              " | Server loss: " + std::to_string(srvr_loss_total) +
+                              " Server error: " + std::to_string(srvr_error_total) + "\n");
       }
 
       processed_samples++;
@@ -266,8 +271,8 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
     }
   }
 
-  clnt_data.loss_clnt = clnt_loss_total / inserted_indices_set.size();
-  clnt_data.error_rate_clnt = clnt_error_total / inserted_indices_set.size();
+  clnt_data.loss = clnt_loss_total / inserted_indices_set.size();
+  clnt_data.error_rate = clnt_error_total / inserted_indices_set.size();
   clnt_data.loss_srvr = srvr_loss_total / inserted_indices_set.size();
   clnt_data.error_rate_srvr = srvr_error_total / inserted_indices_set.size();
 
@@ -282,8 +287,8 @@ bool RByzAux::processVDOut(ClientDataRbyz& clnt_data, bool check_byz) {
   }
 
   Logger::instance().log(" Client " + std::to_string(clnt_data.index) + 
-                         " VD proc results - Loss: " + std::to_string(clnt_data.loss_clnt) + 
-                         ", Error Rate: " + std::to_string(clnt_data.error_rate_clnt) + 
+                         " VD proc results - Loss: " + std::to_string(clnt_data.loss) + 
+                         ", Error Rate: " + std::to_string(clnt_data.error_rate) + 
                           " | Server Loss: " + std::to_string(clnt_data.loss_srvr) +
                           ", Server Error Rate: " + std::to_string(clnt_data.error_rate_srvr) + "\n");
   
@@ -326,6 +331,12 @@ void RByzAux::runRByzServer(int n_clients,
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   int total_steps = t_params.global_iters_fl;
 
+  Logger::instance().log("Initial test RBYZ\n");
+  mngr.runTesting();
+
+  // // Set manager epochs to 1, the epochs will be controled by RByz
+  // mngr.kNumberOfEpochs = 1;
+
   // Initialization for timeouts
   std::vector<int> test_step(n_clients, local_steps);
   int min_steps = std::ceil(local_steps * 0.5); // Minimum steps to consider a client valid
@@ -334,27 +345,24 @@ void RByzAux::runRByzServer(int n_clients,
   std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
-  RegMnistSplitter splitter(t_params.chunk_size, t_params.vd_proportion, mngr, clnt_data_vec);
+  RegMnistSplitter splitter(t_params, mngr, clnt_data_vec);
   
   // RBYZ training loop
   for (int round = 0; round < global_rounds; round++) {
     Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
 
-    auto flat_w = flatten_tensor_vector(w);
-    size_t total_bytes = flat_w.numel() * sizeof(float);
-    float *global_w = flat_w.data_ptr<float>();
-    std::memcpy(regMem.srvr_w, global_w, total_bytes);
+    // This avoids having to flatten again before aggregation
+    auto flat_w = tops::flatten_tensor_vector(w);
+    tops::memcpyTensor(regMem.srvr_w, flat_w, regMem.reg_sz_data);
 
     // Before each round, write the server's VD to the clients to test after first local step
     if (round == 0) {
       writeServerVD(splitter, clnt_data_vec);
       initTimeoutTime(clnt_data_vec);
     }
-  
+
     // Signal to clients that the server is ready
-    Logger::instance().log("Writing flag\n");
     regMem.srvr_ready_flag = round;
-    Logger::instance().log("Server: wrote ready flag: " + std::to_string(regMem.srvr_ready_flag) + "\n");
 
     // For each client run N rounds of RByz
     for (int srvr_step = 0; srvr_step < local_steps; srvr_step++) {
@@ -434,6 +442,9 @@ void RByzAux::runRByzServer(int n_clients,
       std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
 
+    // Run inference on the server before comparing with clients
+    mngr.runInference(w);
+
     for (ClientDataRbyz& clnt_data : clnt_data_vec) {
       if (clnt_data.is_byzantine) {
         continue;
@@ -454,6 +465,7 @@ void RByzAux::runRByzServer(int n_clients,
                               " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
     }
 
+    // For the experiments
     logTrustScores(clnt_data_vec, t_params.only_flt);
 
     std::vector<torch::Tensor> clnt_updates;
@@ -500,7 +512,10 @@ void RByzAux::runRByzServer(int n_clients,
     // Aggregation
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
     std::vector<torch::Tensor> aggregated_update_vec =
-        reconstruct_tensor_vector(aggregated_update, w);
+        tops::reconstruct_tensor_vector(aggregated_update, w);
+
+    Logger::instance().log("Pre Aggregation akuracy:\n");
+    mngr.runTesting();
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
@@ -522,11 +537,13 @@ void RByzAux::runRByzServer(int n_clients,
  */
 void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  // std::string log_file = "lstep_" + std::to_string(getpid()) + ".log";
-  // Logger::instance().logCustom("./stepTimes", log_file, std::to_string(regMem.id - 1) + "\n");
+  Logger::instance().log("Client: Starting RByz with accuracy\n");
+  mngr.runTesting();
+
+  // // Set manager epochs to 1, the epochs will be controled by RByz
+  // mngr.kNumberOfEpochs = 1; 
   
   while (regMem.round.load() < global_rounds) {
-
     if (regMem.round.load() == 2) {
       Logger::instance().log("POST: first mnist samples\n");
       for (int i = 0; i < 5; i++) {
@@ -549,7 +566,13 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
       return;
     }
 
-    rdma_ops.read_mnist_update(w, regMem.srvr_w, regMem.reg_sz_data, SRVR_W_IDX);
+    rdma_ops.exec_rdma_read(regMem.reg_sz_data, SRVR_W_IDX);
+    tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
+    Logger::instance().log("Round " + std::to_string(regMem.round.load()) + " weights received:\n");
+
+    mngr.updateModelParameters(w);
+    Logger::instance().log("After aggregating: \n");
+    mngr.runTesting();
     
     Logger::instance().log("Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
     while (regMem.local_step.load() < regMem.CAS.load()) {
@@ -566,12 +589,8 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     }
 
     // Write the weights to the registered memory and write to the server
-    torch::Tensor flat_w = flatten_tensor_vector(w);
-    size_t total_bytes_g = flat_w.numel() * sizeof(float);
-    float* flat_w_float = flat_w.data_ptr<float>();
-    std::memcpy(regMem.clnt_w, flat_w_float, total_bytes_g);
-    unsigned int total_bytes_w_int = static_cast<unsigned int>(regMem.reg_sz_data);
-    rdma_ops.exec_rdma_write(total_bytes_w_int, CLNT_W_IDX);
+    tops::memcpyTensorVec(regMem.clnt_w, w, regMem.reg_sz_data); 
+    rdma_ops.exec_rdma_write(regMem.reg_sz_data, CLNT_W_IDX);
 
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);

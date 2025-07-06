@@ -68,13 +68,14 @@ torch::Device BaseRegDatasetMngr<NetType>::init_device() {
 template <typename NetType>
 std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::getInitialWeights() {
   std::vector<torch::Tensor> initialWeights;
+  // Must be at CPU at the beginning
   for (const auto &param : model->parameters()) {
-    // Must be at CPU at the beginning
     initialWeights.push_back(param.clone().detach().to(torch::kCPU));
   }
 
-  Logger::instance().log("Obtained initial random weights from model\n");
-  printTensorSlices(initialWeights, 0, 5);
+  for (const auto &buffer : model->buffers()) {
+    initialWeights.push_back(buffer.clone().detach().to(torch::kCPU));
+  }
 
   return initialWeights;
 }
@@ -83,6 +84,7 @@ template <typename NetType>
 std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCuda(
     const std::vector<torch::Tensor> &w_cuda) {
   std::vector<torch::Tensor> params = model->parameters();
+  std::vector<torch::Tensor> buffers = model->buffers();
   std::vector<torch::Tensor> result;
   result.reserve(w_cuda.size());
 
@@ -97,25 +99,49 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCuda(
                     memcpy_stream_A);
     result.push_back(cpu_update);
   }
-  cudaDeviceSynchronize();
 
+  for (size_t i = 0; i < buffers.size(); i++) {
+    // Subtract on GPU
+    auto update = buffers[i].clone().detach() - w_cuda[params.size() + i];
+    auto cpu_update = torch::empty_like(update, torch::kCPU);
+
+    // Copy result to CPU
+    if (update.dtype() == torch::kFloat32) {
+      cudaMemcpyAsync(cpu_update.data_ptr<float>(), update.data_ptr<float>(),
+                      update.numel() * sizeof(float), cudaMemcpyDeviceToHost,
+                      memcpy_stream_A);
+    } else if (update.dtype() == torch::kInt64) {
+      cudaMemcpyAsync(cpu_update.data_ptr<int64_t>(), update.data_ptr<int64_t>(),
+                      update.numel() * sizeof(int64_t), cudaMemcpyDeviceToHost,
+                      memcpy_stream_B);
+    } else {
+      cpu_update.copy_(update);
+    }
+    result.push_back(cpu_update);
+  }
+
+  cudaDeviceSynchronize();
   return result;
 }
 
 template <typename NetType>
 std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCPU(
     const std::vector<torch::Tensor> &w) {
+  std::vector<torch::Tensor> params = model->parameters();
+  std::vector<torch::Tensor> buffers = model->buffers();
   std::vector<torch::Tensor> result;
-  size_t param_count = w.size();
-  result.reserve(param_count);
-
-  std::vector<torch::Tensor> model_weights;
-  model_weights.reserve(param_count);
-  for (const auto &param : model->parameters()) {
-    model_weights.push_back(param.clone().detach());
+  result.reserve(w.size());
+  
+  for (size_t i = 0; i < params.size(); i++) {
+    // Subtract on CPU
+    auto update = params[i].clone().detach() - w[i];
+    result.push_back(update);
   }
-  for (size_t i = 0; i < model_weights.size(); ++i) {
-    result.push_back(model_weights[i] - w[i]);
+
+  for (size_t i = 0; i < buffers.size(); i++) {
+    // Subtract on CPU
+    auto update = buffers[i].clone().detach() - w[params.size() + i];
+    result.push_back(update);
   }
 
   return result;
@@ -133,6 +159,24 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
   int FNi = 0; // False Negatives for source class
   missclassed_samples = 0;
 
+  int batch_idx = 0;
+
+  Logger::instance().log("  Testing:\n");
+  auto params = model->parameters();
+  float total_sum = 0.0f;
+  for (const auto& param : params) {
+      total_sum += param.sum().template item<float>();
+  }
+  Logger::instance().log("Model parameters checksum: " + std::to_string(total_sum) + "\n");
+
+  auto buffers = model->buffers();
+  Logger::instance().log("ResNet Buffers count: " + std::to_string(buffers.size()) + "\n");
+  float buffer_sum = 0.0f;
+  for (const auto& buffer : buffers) {
+      buffer_sum += buffer.sum().template item<float>();
+  }
+  Logger::instance().log("  Buffers checksum: " + std::to_string(buffer_sum) + "\n");
+
   for (const auto &batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
     auto output = model->forward(data);
@@ -147,6 +191,7 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
 
     if (src_class != INACTIVE) {
       // Calculate source class recall
+      Logger::instance().log("Calculating source class recall for class " + std::to_string(src_class) + "\n");
       for (int i = 0; i < targets.size(0); ++i) {
         int64_t true_label = targets[i].template item<int64_t>();
         int64_t predicted_label = pred[i].template item<int64_t>();
@@ -336,27 +381,50 @@ template <typename NetType>
 std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
     const std::vector<torch::Tensor> &w) {
   std::vector<torch::Tensor> params = model->parameters();
+  std::vector<torch::Tensor> buffers = model->buffers();
   size_t param_count = params.size();
+  size_t buffer_count = buffers.size();
   std::vector<torch::Tensor> w_cuda;
 
   if (device.is_cuda()) {
-    w_cuda.reserve(param_count);
+    // Copy parameters and buffers to CUDA tensors first
+    w_cuda.reserve(param_count + buffer_count);
     for (const auto &param : w) {
       auto cuda_tensor = torch::empty_like(param, torch::kCUDA);
-      cudaMemcpyAsync(cuda_tensor.data_ptr<float>(), param.data_ptr<float>(),
-                      param.numel() * sizeof(float), cudaMemcpyHostToDevice,
-                      memcpy_stream_A);
+
+      if (param.dtype() == torch::kFloat32) {
+        cudaMemcpyAsync(cuda_tensor.data_ptr<float>(), param.data_ptr<float>(),
+                              param.numel() * sizeof(float), cudaMemcpyHostToDevice,
+                              memcpy_stream_A);
+      } else if (param.dtype() == torch::kInt64) {
+        cudaMemcpyAsync(cuda_tensor.data_ptr<int64_t>(), param.data_ptr<int64_t>(),
+                              param.numel() * sizeof(int64_t), cudaMemcpyHostToDevice,
+                              memcpy_stream_B);
+      } else {
+        // For other types, use PyTorch's built-in copy (slower but safe)
+        cuda_tensor.copy_(param);
+      }
+      
       w_cuda.push_back(cuda_tensor);
     }
 
     cudaDeviceSynchronize();
+
     for (size_t i = 0; i < params.size(); ++i) {
       params[i].data().copy_(w_cuda[i]);
+    }
+
+    for (size_t i = 0; i < buffers.size(); ++i) {
+      buffers[i].data().copy_(w_cuda[param_count + i]);
     }
     return w_cuda;
   } else {
     for (size_t i = 0; i < params.size(); ++i) {
       params[i].data().copy_(w[i]);
+    }
+
+    for (size_t i = 0; i < buffers.size(); ++i) {
+      buffers[i].data().copy_(w[param_count + i]);
     }
     return w;
   }
@@ -505,6 +573,7 @@ SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
     int worker_id_arg, size_t dataset_size_arg, int64_t subset_size_arg, uint32_t srvr_subset_size,
     const std::map<int64_t, std::vector<size_t>> &label_to_indices) {
 
+  // These first two ifs were for debugging purposes
   if (subset_size_arg == dataset_size_arg) {
     std::vector<size_t> worker_indices(dataset_size_arg);
     std::iota(worker_indices.begin(), worker_indices.end(), 0);
@@ -657,7 +726,7 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
           correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0)
         Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx < 20) {
+      if (curr_idx < 5) {
         Logger::instance().log(
             "Processed sample " + std::to_string(curr_idx) +
             " with original index: " +
@@ -790,10 +859,6 @@ void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label,
   if (source_label == target_label) {
     throw std::invalid_argument("Source and target labels must be different");
   }
-
-  // For source class recall during testing
-  src_class = source_label;
-  target_class = target_label;
 
   // Find all samples with the source label
   std::vector<size_t> source_indices = findSamplesWithLabel(source_label);

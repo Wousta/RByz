@@ -28,6 +28,4 @@ class RdmaOps {
   
   int exec_rdma_CAS(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx, uint64_t compare_add, uint64_t swap, int conn_idx = 0);
   int exec_rdma_CAS(uint32_t size, uint32_t same_idx, uint64_t compare_add, uint64_t swap, int conn_idx = 0);
-
-  void read_mnist_update(std::vector<torch::Tensor> &update, float *local_w, uint32_t reg_sz_data, int same_idx, int conn_idx = 0);
 };

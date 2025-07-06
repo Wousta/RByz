@@ -38,12 +38,12 @@ class RegMnistSplitter {
      * on the clnt_vd_proportion passed. These offsets determine where server data will be injected
      * into client datasets during RByz operations. The offsets are distributed uniformly
      * to ensure even coverage across the client's data space.
-     * 
-     * @throws std::runtime_error if clnt_vd_proportion exceeds 0.25 (25% limit)
      *
+     * @param overwrite_poisoned If true, the server will overwrite poisoned samples in the client dataset.
+     * @throws std::runtime_error if clnt_vd_proportion exceeds 0.25 (25% limit)
      * @return The number of samples in total to be inserted to each client.
      */
-    void initializeClientChunkOffsets() {
+    void initializeClientChunkOffsets(int overwrite_poisoned) {
         if (clnt_vd_proportion > 0.25) {
             throw std::runtime_error("clnt_vd_proportion must be <= 0.25, max 25%' overwrite of the client dataset");
         }
@@ -53,11 +53,18 @@ class RegMnistSplitter {
         int num_offsets = total_offsets * clnt_vd_proportion;     
         clnt_chunks.reserve(num_offsets);
 
-        // (total_offsets - 1) / (num_offsets - 1) ensures the last offset lands exactly at the end of the available range.
-        double step = static_cast<double>(total_offsets - 1) / (num_offsets - 1);
-        for (size_t i = 0; i < num_offsets; i++) {
-            size_t offset_index = static_cast<size_t>(i * step);
-            clnt_chunks.push_back(offset_index * chunk_sz_bytes);
+        if (overwrite_poisoned) {
+            // (total_offsets - 1) / (num_offsets - 1) ensures the last offset lands exactly at the end of the available range.
+            double step = static_cast<double>(total_offsets - 1) / (num_offsets - 1);
+            for (size_t i = 0; i < num_offsets; i++) {
+                size_t offset_index = static_cast<size_t>(i * step);
+                clnt_chunks.push_back(offset_index * chunk_sz_bytes);
+            }
+        } else{
+            // all the client chunks to overwrite are put together at the top
+            for (size_t i = 0; i < num_offsets; i++) {
+                clnt_chunks.push_back(i * chunk_sz_bytes);
+            }
         }
 
         Logger::instance().log("Client offsets initialized with " + std::to_string(clnt_chunks.size()) + 
@@ -116,7 +123,7 @@ class RegMnistSplitter {
             size_t idx = start_idx;
             while (indices_put < samples_per_vd_split) {
                 // If we reach the end of the current VD split, wrap around to the start
-                if (idx + samples_per_chunk >= end_idx) {
+                if (idx + samples_per_chunk > end_idx) {
                     idx = start_idx;
                 }
 
@@ -133,9 +140,10 @@ class RegMnistSplitter {
     }
 
     public:
-    RegMnistSplitter(int samples_per_chunk, float clnt_vd_proportion, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
-        : n_clients(clnt_data_vec.size()), samples_per_chunk(samples_per_chunk), clnt_vd_proportion(clnt_vd_proportion), mngr(mngr),
-          clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
+    // I dislike how C++ constructors work, java is so much better in this regard, look at this mess
+    RegMnistSplitter(TrainInputParams& t_params, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
+        : n_clients(clnt_data_vec.size()), samples_per_chunk(t_params.chunk_size), clnt_vd_proportion(t_params.clnt_vd_proportion), 
+          mngr(mngr), clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
           rng((static_cast<unsigned int>(std::time(nullptr)))) {
 
         // Used to select the VD splits for each client
@@ -143,7 +151,7 @@ class RegMnistSplitter {
             prev_indexes_arrangement[i] = i;
         }
 
-        initializeClientChunkOffsets();
+        initializeClientChunkOffsets(t_params.overwrite_poisoned);
         initializeValidationDatasetPartitions();
     }
 

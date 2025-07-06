@@ -69,7 +69,7 @@ public:
     out = dropout->forward(torch::relu(fc1->forward(out)));
     out = fc2->forward(out);
 
-    return torch::log_softmax(out, /*dim=*/1);
+    return out;
   }
 
 private:

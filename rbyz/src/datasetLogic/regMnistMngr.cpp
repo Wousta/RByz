@@ -32,12 +32,26 @@ RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet n
   // Init reg data structures and pin memory
   initDataInfo(indices, IMG_SIZE);  
   buildRegisteredDataset(indices);
+  train_dataset_size = train_dataset->size().value();
 
   auto loader_temp =
       torch::data::make_data_loader(*train_dataset,
                                     train_sampler,  // Reuse the same sampler
                                     torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
   train_loader = std::move(loader_temp);
+
+  int label_flip_type = t_params.label_flip_type;
+  if (label_flip_type && label_flip_type != RANDOM_FLIP) {
+    const int target_mappings[3][2] = {
+      {8, 0}, // TARGETED_FLIP_1
+      {1, 5}, // TARGETED_FLIP_2  
+      {4, 9}  // TARGETED_FLIP_3
+    };
+    int setting = label_flip_type - TARGETED_FLIP_1; // Convert to 0-based index (2->0, 3->1, 4->2)
+    src_class = target_mappings[setting][0];
+    target_class = target_mappings[setting][1];
+    attack_is_targeted_flip = true;
+  }
 
   Logger::instance().log("MNIST Registered memory dataset prepared with " +
                          std::to_string(data_info.num_samples) + " samples\n");
@@ -97,13 +111,21 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
   auto plain_mnist = torch::data::datasets::MNIST(kDataRoot);
   std::unordered_map<size_t, size_t> index_map;
   index_map.reserve(indices.size());
+  std::vector<size_t> poisoned_labels;
 
   size_t i = 0;  // Counter for the registered memory
   for (const auto& original_idx : indices) {
     auto example = plain_mnist.get(original_idx);
+    int64_t label = example.target.item<int64_t>();
+
+    // Put them at the end of the dataset if they are poisoned
+    if (attack_is_targeted_flip && !overwrite_poisoned && label == src_class) {
+      poisoned_labels.push_back(original_idx);
+      continue;
+    }
 
     *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
-    *getLabel(i) = static_cast<int64_t>(example.target.item<int64_t>());
+    *getLabel(i) = label;
 
     // UINT8CHANGE
     // auto image_tensor = example.data.to(torch::kUInt8); 
@@ -115,6 +137,25 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
 
     // Map original index to registered index for retrieval
     index_map[original_idx] = i;
+    ++i;
+  }
+
+  for (const auto &poisoned_idx : poisoned_labels) {
+    auto example = plain_mnist.get(poisoned_idx);
+    int64_t label = example.target.item<int64_t>();
+
+    *getOriginalIndex(i) = static_cast<uint32_t>(poisoned_idx);
+    *getLabel(i) = label;
+
+    // UINT8CHANGE
+    // auto image_tensor = example.data.to(torch::kUInt8); 
+    // auto reshaped_image = image_tensor.reshape({1,28, 28}).contiguous();
+    // std::memcpy(getImage(i), reshaped_image.data_ptr<uint8_t>(), data_info.image_size);
+    auto normalized_image = example.data.to(torch::kFloat32);
+    auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
+    std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
+
+    index_map[poisoned_idx] = i;
     ++i;
   }
 

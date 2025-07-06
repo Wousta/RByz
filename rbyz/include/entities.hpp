@@ -2,6 +2,7 @@
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 #include <atomic>
+#include <cstdint>
 #include <vector>
 
 /**
@@ -10,7 +11,7 @@
  */
 struct RegMemSrvr {
   const int n_clients;
-  const uint32_t reg_sz_data;
+  const uint32_t reg_sz_data;     // Size of the registered parameter vector w
   uint32_t srvr_subset_size;
   uint32_t clnt_subset_size;
   uint32_t dataset_size;
@@ -18,15 +19,13 @@ struct RegMemSrvr {
   float *srvr_w;
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
-  std::vector<float *> clnt_loss_and_err;
   void *reg_data;
-  void *extra_VD;
 
   RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
-      : srvr_w(reinterpret_cast<float *>(malloc(reg_sz_data))),
-        reg_sz_data(reg_sz_data), n_clients(n_clients),
-        clnt_ready_flags(n_clients, 0), clnt_ws(n_clients),
-        clnt_loss_and_err(n_clients), reg_data(reg_data) {}
+      : reg_sz_data(reg_sz_data), n_clients(n_clients),
+        clnt_ready_flags(n_clients, 0), clnt_ws(n_clients), reg_data(reg_data) {
+          srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
+        }
 
   ~RegMemSrvr() {
     free(srvr_w);
@@ -37,13 +36,12 @@ struct RegMemSrvr {
  * @brief Holds the client's registered data.
  */
 struct RegMemClnt {
-  const int id;               // For identification purposes, not used in RByz
+  const int id;               
   const uint32_t reg_sz_data; // Size of the registered parameter vector w
   int srvr_ready_flag;
-  float *srvr_w;
   int clnt_ready_flag;
-  float *clnt_w;
-  float *loss_and_err;
+  float *srvr_w;
+  float *clnt_w; 
   alignas(8) std::atomic<int> CAS;
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
@@ -53,7 +51,6 @@ struct RegMemClnt {
         clnt_ready_flag(0), CAS(local_steps_rbyz), local_step(0), round(0) {
     srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
     clnt_w = reinterpret_cast<float *>(malloc(reg_sz_data));
-    loss_and_err = reinterpret_cast<float *>(malloc(MIN_SZ));
   }
 
   ~RegMemClnt() {
@@ -71,8 +68,6 @@ struct ClientDataRbyz {
   bool is_byzantine = false;
   float trust_score = 0.0;
   float *updates;
-  float *loss;       // Unused in RByz, but kept for compatibility
-  float *error_rate; // Unused in RByz, but kept for compatibility
 
   // Handling of slow clients
   bool is_slow = false;
@@ -82,9 +77,21 @@ struct ClientDataRbyz {
   int steps_to_finish = 0;
   std::chrono::milliseconds limit_step_time;
 
+  // VD out data, average errors and losses of the forward pass of the samples inserted by the server to this client
+  // The server will have a different loss and error rate of the samples that it inserted to the client
+  alignas(8) float loss = 777.0f;         // These are high initial values to not mess up the UpdateTrustScore function
+  alignas(8) float error_rate = 777.0f;   // That needs to find the minimum loss and error rate of all clients
+  alignas(8) float loss_srvr;             // These are initialized before checking this client by RByzAux::processVDOut
+  alignas(8) float error_rate_srvr;
+
   // Dataset data
   alignas(8) size_t dataset_size;
   std::unordered_set<size_t> inserted_indices;
+
+  // For RByz
+  alignas(8) std::atomic<int> clnt_CAS; // Used for client's local steps to finish
+  alignas(8) int local_step = 0;
+  alignas(8) int round = 0;
 
   // Forward pass data
   size_t forward_pass_mem_size;
@@ -92,23 +99,12 @@ struct ClientDataRbyz {
   float *forward_pass;
   uint32_t *forward_pass_indices;
 
-  // VD out data
-  alignas(8) float loss_clnt;
-  alignas(8) float error_rate_clnt;
-  alignas(8) float loss_srvr;
-  alignas(8) float error_rate_srvr;
-
-  alignas(8) std::atomic<int> clnt_CAS;
-  alignas(8) int local_step = 0;
-  alignas(8) int round = 0;
-
   ClientDataRbyz()
       : clnt_CAS(0), trust_score(0) {}
 
   ~ClientDataRbyz() {
     // Only free memory that was allocated with malloc/new
     free(updates);
-    free(loss);
     free(forward_pass_indices);
   }
 
@@ -136,7 +132,8 @@ struct TrainInputParams {
   int local_steps_rbyz;
   int global_iters_rbyz;
   int chunk_size;
-  float vd_proportion; // Proportion of validation data for each client
+  float clnt_vd_proportion; // Proportion of validation data for each client
+  int overwrite_poisoned = 1; // Allow VD samples to overwrite poisoned samples
 
   //misc
   int only_flt;

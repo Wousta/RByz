@@ -11,8 +11,8 @@ results_path="/home/bustaman/rbyz/Results"
 
 use_mnist=${1:-false}       # First argument: true/false for MNIST vs CIFAR-10
 n_clients=${2:-10}          
-epochs=${3:-10}             
-batch_size=${4:-128}        
+epochs=${3:-7}             
+batch_size=${4:-64}        
 glob_learn_rate=${5:-0.05}  # Global learning rate for FLtrust aggregation
 local_learn_rate=${6:-0.05}  
 n_byz_clnts=${7:-0}         
@@ -24,30 +24,31 @@ if [ "$use_mnist" = true ]; then
   if [ $# -lt 4 ]; then batch_size=32; fi
   clnt_subset_size=${8:-5900}
   srvr_subset_size=${9:-1000}
-  glob_iters_fl=${10:-40}
+  glob_iters_fl=${10:-8}
   local_steps_rbyz=${11:-5}
   glob_iters_rbyz=${12:-5}
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param="" 
-  glob_learn_rate=${5:-0.5}
-  local_learn_rate=${6:-0.01}  
+  glob_learn_rate=${5:-1.0}
+  local_learn_rate=${6:-0.1}  
   clnt_subset_size=${8:-4900}
   srvr_subset_size=${9:-1000}
   glob_iters_fl=${10:-200}
   local_steps_rbyz=${11:-5}
-  glob_iters_rbyz=${12:-5}
+  glob_iters_rbyz=${12:-20}
 fi
 chunk_size=${13:-1}      # slab size for RByz VDsampling
 
 # 0: no label flip, 1: random label flip 
 # 2: targeted label flip setting (1) 3: targeted label flip setting (2) 4: targeted label flip setting (3)
 # references for the settings: CIFAR-10 -> https://arxiv.org/pdf/2007.08432 | MNIST -> https://arxiv.org/pdf/2407.07818v1
-label_flip_type=${14:-2}
+label_flip_type=${14:-0}
 
 flip_ratio=${15:-1.0}
 only_flt=${16:-1}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
-vd_prop=${17:-1.0}  # Proportion of validation data for each client
+vd_prop=${17:-0.02}  # Proportion of validation data for each client
+overwrite_poisoned=${18:-0}  # Allow VD samples to overwrite poisoned samples (1) or not (0)
 
 
 # Calculate clients per machine (even distribution)
@@ -97,7 +98,8 @@ echo "Starting server locally..."
 taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --only_flt $only_flt --vd_prop $vd_prop & 
+  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio --only_flt $only_flt --vd_prop $vd_prop \
+  --overwrite_poisoned $overwrite_poisoned & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."
@@ -136,7 +138,7 @@ for i in "${!remote_hosts[@]}"; do
         taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
           --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
           --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-          --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio & \
+          --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio --overwrite_poisoned $overwrite_poisoned & \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.1; \

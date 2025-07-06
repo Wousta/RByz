@@ -27,8 +27,6 @@ private:
                  .map(torch::data::transforms::Stack<>()));
 
   std::optional<TrainDataset> train_dataset;
-
-
   using RegTrainDataLoader =
       torch::data::StatelessDataLoader<TrainDataset, SubsetSampler>;
   std::unique_ptr<RegTrainDataLoader> train_loader;
