@@ -46,15 +46,16 @@ public:
         }
   virtual ~IRegDatasetMngr() = default;
 
-  virtual std::vector<torch::Tensor>
-  runTraining(int round, const std::vector<torch::Tensor> &w) = 0;
+  virtual void runTraining() = 0;
   virtual void runTesting() = 0;
   virtual void runInference(const std::vector<torch::Tensor> &w) = 0;
   virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) = 0;
 
-  virtual std::vector<torch::Tensor> getInitialWeights() = 0;
+  virtual std::vector<torch::Tensor>
+  calculateUpdate(const std::vector<torch::Tensor> &w) = 0;
   virtual std::vector<torch::Tensor>
   updateModelParameters(const std::vector<torch::Tensor> &w) = 0;
+  virtual std::vector<torch::Tensor> getInitialWeights() = 0;
   virtual torch::Device getDevice() = 0;
   virtual std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
                                                      uint32_t srvr_subset_size,

@@ -51,8 +51,11 @@ public:
   RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net);
   ~RegMnistMngr() = default;
 
-  std::vector<torch::Tensor>
-  runTraining(int round, const std::vector<torch::Tensor> &w) override;
+  inline void runTraining() override {
+    for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+      train(epoch, optimizer, *train_loader);
+    }
+  }
 
   inline void runInference(const std::vector<torch::Tensor> &w) override {
     runInferenceBase(w, *train_loader);

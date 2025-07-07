@@ -63,8 +63,18 @@ public:
   RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net);
   ~RegCIFAR10Mngr() = default;
 
-  std::vector<torch::Tensor>
-  runTraining(int round, const std::vector<torch::Tensor> &w) override;
+  
+  inline void runTraining() override {
+    // if (round % 5 == 0 && round > 1) {
+    //   learning_rate *= learning_rate_decay_factor;
+    //   static_cast<torch::optim::AdamOptions&>(optimizer.param_groups().front()
+    //       .options()).lr(learn_rate);
+    // }
+    for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
+      train(epoch, optimizer, *train_loader);
+      scheduler.step();
+    }
+  }
 
   inline void runInference(const std::vector<torch::Tensor> &w) override {
     runInferenceBase(w, *train_loader);

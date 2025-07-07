@@ -242,10 +242,8 @@ void label_flip_attack(bool use_mnist, TrainInputParams &t_params, IRegDatasetMn
 
   switch (label_flip_type) {
     case NO_ATTACK:
-      Logger::instance().log("No attack executed\n");
       break;
     case RANDOM_FLIP:
-      Logger::instance().log("Executing random label flip attack\n");
       mngr.flipLabelsRandom(flip_ratio, rng);
       break;
     case TARGETED_FLIP_1:
@@ -256,8 +254,6 @@ void label_flip_attack(bool use_mnist, TrainInputParams &t_params, IRegDatasetMn
       int source = target_mappings[setting][dataset][0];
       int target = target_mappings[setting][dataset][1];
       
-      Logger::instance().log("Executing targeted label flip attack (setting " + 
-                           std::to_string(label_flip_type) + ")\n");
       mngr.flipLabelsTargeted(source, target, flip_ratio, rng);
       break;
     }

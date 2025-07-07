@@ -191,7 +191,6 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
 
     if (src_class != INACTIVE) {
       // Calculate source class recall
-      Logger::instance().log("Calculating source class recall for class " + std::to_string(src_class) + "\n");
       for (int i = 0; i < targets.size(0); ++i) {
         int64_t true_label = targets[i].template item<int64_t>();
         int64_t predicted_label = pred[i].template item<int64_t>();
@@ -339,7 +338,7 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     loss_mean.backward();
     optimizer.step();
 
-    if (batch_idx % kLogInterval == 0 && worker_id < 3) {
+    if (batch_idx % kLogInterval == 0 && worker_id % 5 == 0) {
       std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
                   batch_idx * data.size(0), subset_size,
                   loss_mean.template item<float>());
@@ -579,32 +578,6 @@ SubsetSampler BaseRegDatasetMngr<NetType>::get_subset_sampler(
     std::iota(worker_indices.begin(), worker_indices.end(), 0);
     return SubsetSampler(worker_indices);
   }
-  if (t_params.srvr_subset_size + t_params.clnt_subset_size * n_clients > dataset_size_arg) {
-    std::mt19937 rng(worker_id_arg);
-    std::vector<size_t> worker_indices;
-    for (const auto &[label, indices] : label_to_indices) {
-      std::vector<size_t> shuffled_indices = indices;
-      std::shuffle(shuffled_indices.begin(), shuffled_indices.end(), rng);
-
-      if (worker_id_arg == 0) {
-        // Server gets the first portion
-        size_t samples_srvr = shuffled_indices.size() * 0.9;
-        worker_indices.insert(worker_indices.end(), shuffled_indices.begin(),
-                              shuffled_indices.begin() + samples_srvr);
-      } else {
-        // Clients get the remaining samples
-        size_t samples_clnt = shuffled_indices.size() * 0.9;
-        worker_indices.insert(worker_indices.end(), shuffled_indices.begin(),
-                              shuffled_indices.begin() + samples_clnt);
-      }
-    }
-
-    Logger::instance().log("AYY Worker " + std::to_string(worker_id_arg) +
-                           " using indices of size: " +
-                           std::to_string(worker_indices.size()) + "\n");
-    std::shuffle(worker_indices.begin(), worker_indices.end(), rng);
-    return SubsetSampler(worker_indices);
-  }
 
   // Allocate indices to workers
   float srvr_proportion =
@@ -726,7 +699,7 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
           correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0)
         Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx < 5) {
+      if (curr_idx < 10) {
         Logger::instance().log(
             "Processed sample " + std::to_string(curr_idx) +
             " with original index: " +
@@ -809,7 +782,7 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
 
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::renewDataset(float proportion, std::optional<int> seed) {
-  
+
 }
 
 //////////////////////// LABEL FLIPPING ATTCKS ////////////////////////
@@ -928,7 +901,7 @@ template <typename NetType>
 std::vector<size_t>
 BaseRegDatasetMngr<NetType>::findSamplesWithLabel(int label) {
   std::vector<size_t> indices;
-  indices.reserve(data_info.num_samples / 10); // Rough estimate for MNIST
+  indices.reserve(data_info.num_samples / 10); // Rough estimate for MNIST and CIFAR-10
 
   for (size_t i = 0; i < data_info.num_samples; ++i) {
     if (*getLabel(i) == label) {

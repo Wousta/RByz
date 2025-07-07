@@ -18,8 +18,16 @@ public:
   BaseRegDatasetMngr(int worker_id, TrainInputParams &t_params, NetType net);
   virtual ~BaseRegDatasetMngr();
 
-  virtual std::vector<torch::Tensor>
-  runTraining(int round, const std::vector<torch::Tensor> &w) override = 0;
+  inline std::vector<torch::Tensor>
+  calculateUpdate(const std::vector<torch::Tensor> &w) override {
+    if (device.is_cuda()) {
+      return calculateUpdateCuda(w);
+    } else {
+      return calculateUpdateCPU(w);
+    }
+  }
+
+  virtual void runTraining() override = 0;
   virtual void runTesting() override = 0;
   virtual void runInference(const std::vector<torch::Tensor> &w) override = 0;
   virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override;

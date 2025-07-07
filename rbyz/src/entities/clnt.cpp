@@ -75,12 +75,13 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
     rdma_ops.exec_rdma_read(regMem.reg_sz_data, SRVR_W_IDX);
     tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
 
-    mngr.updateModelParameters(w);
-    Logger::instance().log("After aggregating\n");
-    mngr.runTesting();
-    std::vector<torch::Tensor> g = mngr.runTraining(round, w);
-    Logger::instance().log("OGH\n");
-    mngr.runTesting();
+    if (round % 1 == 0) {
+      Logger::instance().log("FLtrust training round " + std::to_string(round) + "\n");
+      std::cout << "FLtrust training round " << round << " epochs: " << mngr.kNumberOfEpochs << "\n";
+    }
+    std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
+    mngr.runTraining();
+    std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
 
     // Send the updated weights back to the server
     tops::memcpyTensorVec(regMem.clnt_w, g, regMem.reg_sz_data);
@@ -92,8 +93,8 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
 
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
   }
-
-  Logger::instance().log("HUHH\n");
+  
+  Logger::instance().log("Client: Finished all rounds of FLtrust\n");
   mngr.runTesting();
 
   return w;
@@ -131,7 +132,8 @@ int main(int argc, char* argv[]) {
     lyra::opt(t_params.global_iters_rbyz, "global_iters_rbyz")["--global_iters_rbyz"]("global iterations RByz") |
     lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz") |
     lyra::opt(t_params.label_flip_type, "label_flip_type")["--label_flip_type"]("Label flip type: 0 - random, 1 - targeted, 2 - corrupt images") |
-    lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0");
+    lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
+    lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -196,20 +198,15 @@ int main(int argc, char* argv[]) {
                            " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
   }
 
+  // Label flipping at the beginning
   if (id <= t_params.n_byz_clnts) {
+    Logger::instance().log("Executing attack type " +  std::to_string(t_params.label_flip_type) + "\n");
     label_flip_attack(use_mnist, t_params, *reg_mngr);
   } else {
     Logger::instance().log("Not Byzantine\n");
   }
 
   std::vector<torch::Tensor> w = run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);
-  // Label flipping for Byzantine clients
-  // if (id <= N_BYZ_CLNTS) {
-  //   Logger::instance().log("Client " + std::to_string(id) + " is Byzantine, flipping labels\n");
-  //   std::mt19937 rng(42);
-  //   registered_mnist->flipLabelsRandom(0.15f, rng);           // Flip 15% randomly
-  //   registered_mnist->flipLabelsTargeted(7, 1, 0.30f, rng);   // Flip 30% of 7s to 1s
-  // } 
   
   RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {

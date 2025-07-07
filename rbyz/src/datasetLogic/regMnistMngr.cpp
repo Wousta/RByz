@@ -6,14 +6,13 @@
 #include "logger.hpp"
 #include "nets/mnistNet.hpp"
 #include "tensorOps.hpp"
+#include <string>
 #include <vector>
 
 void RegMnistMngr::init() {
   // To refresh VD samples in RByz
-  if (worker_id == 0) {
-    Logger::instance().log("Using refresh dataset for server\n");
-    build_dataset = torch::data::datasets::MNIST(kDataRoot);
-  }
+  build_dataset = torch::data::datasets::MNIST(kDataRoot);
+  train_dataset_size = build_dataset->size().value();
 
   // Needed for subset sampler to partition the dataset
   buildLabelToIndicesMap();
@@ -25,13 +24,18 @@ void RegMnistMngr::init() {
   // Init reg data structures and pin memory
   initDataInfo(indices, IMG_SIZE);  
   buildRegisteredDataset(indices);
-  train_dataset_size = train_dataset->size().value();
 
   auto loader_temp =
       torch::data::make_data_loader(*train_dataset,
                                     train_sampler,  // Reuse the same sampler
                                     torch::data::DataLoaderOptions().batch_size(kTrainBatchSize));
   train_loader = std::move(loader_temp);
+
+  if (worker_id != 0) {
+    // Build dataset no longer needed except for server for refresh VD samples in RByz
+    build_dataset.reset();
+  }
+    
 }
 
 RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net)
@@ -49,7 +53,9 @@ RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet n
       torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
   test_loader = std::move(test_loader_temp);
 
-  init();
+  Logger::instance().log("MNISTMngr: label_flip_type = " + std::to_string(t_params.label_flip_type) +
+                          ", overwrite_poisoned = " + std::to_string(t_params.overwrite_poisoned) +
+                          ", worker id = " + std::to_string(worker_id) + "\n");
 
   int label_flip_type = t_params.label_flip_type;
   if (label_flip_type && label_flip_type != RANDOM_FLIP) {
@@ -64,38 +70,10 @@ RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet n
     attack_is_targeted_flip = true;
   }
 
+  init();
+
   Logger::instance().log("MNIST Registered memory dataset prepared with " +
                          std::to_string(data_info.num_samples) + " samples\n");
-}
-
-std::vector<torch::Tensor>
-RegMnistMngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
-  std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
-  size_t param_count = w_cuda.size();
-
-  if (round % 1 == 0) {
-    std::cout << "Training model for round " << round
-              << " epochs: " << kNumberOfEpochs << "\n";
-  }
-
-  Logger::instance().log("MNIST Training model for step " + std::to_string(round) +
-                         " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
-
-  for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, optimizer, *train_loader);
-  }
-
-  // if (round % 2 == 0) {
-  //   Logger::instance().log("Testing model after training round " +
-  //   std::to_string(round) + "\n"); test(model, device, *test_loader,
-  //   test_dataset_size);
-  // }
-
-  if (device.is_cuda()) {
-    return calculateUpdateCuda(w_cuda);
-  } else {
-    return calculateUpdateCPU(w);
-  }
 }
 
 void RegMnistMngr::buildLabelToIndicesMap() {
@@ -133,11 +111,11 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
     auto example = build_dataset->get(original_idx);
     int64_t label = example.target.item<int64_t>();
 
-    // Put them at the end of the dataset if they are poisoned
-    if (attack_is_targeted_flip && !overwrite_poisoned && label == src_class && worker_id != 0) {
-      poisoned_labels.push_back(original_idx);
-      continue;
-    }
+    // // Put them at the end of the dataset if they are poisoned
+    // if (!overwrite_poisoned && label == src_class && worker_id != 0 && worker_id <= t_params.n_byz_clnts) {
+    //   poisoned_labels.push_back(original_idx);
+    //   continue;
+    // }
 
     *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
     *getLabel(i) = label;

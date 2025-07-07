@@ -180,9 +180,13 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     regMem.srvr_ready_flag = round;
 
     // Run local training
-    Logger::instance().log("Server: Running FLtrust training for round " +
-                           std::to_string(round) + "\n");
-    std::vector<torch::Tensor> g = mngr.runTraining(round, w);
+    if (round % 1 == 0) {
+      Logger::instance().log("FLtrust training round " + std::to_string(round) + "\n");
+      std::cout << "FLtrust training round " << round << " epochs: " << mngr.kNumberOfEpochs << "\n";
+    }
+    std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
+    mngr.runTraining();
+    std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
 
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
     // ROUND, BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
@@ -254,12 +258,11 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
 void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
                           std::vector<ClientDataRbyz> &clnt_data_vec,
                           IRegDatasetMngr &mngr) {
-
   size_t sample_size = mngr.data_info.get_sample_size();
   std::vector<size_t> clnts_samples_count = mngr.getClientsSamplesCount(regMem.clnt_subset_size,
                                                                         regMem.srvr_subset_size,
                                                                         regMem.dataset_size);
-
+                                                    
   for (int i = 0; i < n_clients; i++) {
     regMem.clnt_ws[i] = reinterpret_cast<float *>(malloc(regMem.reg_sz_data));
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
@@ -321,6 +324,8 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
       lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz") |
       lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of validation data for each client") |
+      lyra::opt(t_params.vd_prop_write, "vd_prop_write")["--vd_prop_write"]("Proportion of total chunks writable on client to write each time the test is renewed") |
+      lyra::opt(t_params.test_renewal_freq, "test_renewal_freq")["--test_renewal_freq"]("Frequency of test renewal (every n rounds)") |
       lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples");
 
   auto result = cli.parse({argc, argv});
@@ -348,6 +353,11 @@ int main(int argc, char *argv[]) {
   std::cout << "Global iterations RByz = " << t_params.global_iters_rbyz << "\n";
   std::cout << "Only FLTrust = " << (t_params.only_flt ? "true" : "false") << "\n";
   std::cout << "VD proportion = " << t_params.clnt_vd_proportion << "\n";
+  std::cout << "VD proportion write = " << t_params.vd_prop_write << "\n";
+  std::cout << "Test renewal frequency = " << t_params.test_renewal_freq << "\n";
+  std::cout << "Overwrite poisoned samples = " << (t_params.overwrite_poisoned ? "true" : "false") << "\n";
+  std::cout << "Label flip type = " << t_params.label_flip_type << "\n";
+  std::cout << "Label flip ratio = " << t_params.flip_ratio << "\n";
 
   t_params.n_clients = n_clients; // +1 for server
   MnistNet mnist_net;
@@ -400,7 +410,6 @@ int main(int argc, char *argv[]) {
     Logger::instance().log("Server: Running RByz\n");
     Logger::instance().openRByzAccLog();
   }
-  auto start = std::chrono::high_resolution_clock::now();
 
   std::string filename;
   int rounds;
@@ -415,17 +424,12 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom("", filename, std::to_string(n_clients) + "\n");
 
   std::cout << "SRVR Running FLTrust\n";
+  auto start = std::chrono::high_resolution_clock::now();
   std::vector<torch::Tensor> w = run_fltrust_srvr(
       n_clients, t_params, *reg_mngr, *regMem, clnt_data_vec);
-  // auto end = std::chrono::high_resolution_clock::now();
-  // Logger::instance().log("Total time taken: " +
-  //                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(end
-  //                        - start).count()) + " seconds\n");
 
   // Global rounds of RByz
   RdmaOps rdma_ops(conns);
-  Logger::instance().log("Initial test of the model before RByz\n");
-
   RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
       rbyz_aux.runRByzServer(n_clients, w, *regMem, clnt_data_vec);
@@ -438,13 +442,21 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom("", filename, "$ END OF EXECUTION $\n");
   reg_mngr->runTesting();
   std::string final_data_file = (t_params.only_flt) ? "F_final_data.log" : "R_final_data.log";
-  std::string recall_msg = std::to_string(reg_mngr->src_class) + " " + std::to_string(reg_mngr->target_class) + " " +
-                           std::to_string(reg_mngr->missclassed_samples) + " " + std::to_string(reg_mngr->src_class_recall) + "\n";
 
-  Logger::instance().logCustom("", final_data_file, std::to_string(t_params.clnt_vd_proportion) + "\n");
-  Logger::instance().logCustom("", final_data_file, std::to_string(reg_mngr->test_accuracy) + "\n");
+  std::string acc_msg = "Accuracy " + std::to_string(reg_mngr->test_accuracy) + "\n";
+  std::string time_msg = "Time " + std::to_string(elapsed) + "\n";
+  std::string vd_msg = "VD_data " + std::to_string(t_params.clnt_vd_proportion) + " " +
+                      std::to_string(t_params.vd_prop_write) + " " +
+                      std::to_string(t_params.test_renewal_freq) + "\n";
+  std::string recall_msg = "Recall_data " + std::to_string(reg_mngr->src_class) + " " + 
+                           std::to_string(reg_mngr->target_class) + " " +
+                           std::to_string(reg_mngr->missclassed_samples) + " " + 
+                           std::to_string(reg_mngr->src_class_recall) + "\n";
+
+  Logger::instance().logCustom("", final_data_file, acc_msg);
+  Logger::instance().logCustom("", final_data_file, time_msg);
+  Logger::instance().logCustom("", final_data_file, vd_msg);
   Logger::instance().logCustom("", final_data_file, recall_msg);
-  Logger::instance().logCustom("", final_data_file, std::to_string(elapsed) + "\n");
   Logger::instance().logCustom("", final_data_file, "$ END OF EXECUTION $\n");
 
   rbyz_aux.awaitTermination(clnt_data_vec, t_params.global_iters_rbyz);

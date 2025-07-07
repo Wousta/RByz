@@ -63,8 +63,6 @@ RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet
       torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
   test_loader = std::move(test_loader_temp);
 
-  init();
-
   int label_flip_type = t_params.label_flip_type;
   if (label_flip_type && label_flip_type != RANDOM_FLIP) {
     const int target_mappings[3][2] = {
@@ -79,39 +77,10 @@ RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet
     attack_is_targeted_flip = true;
   }
 
+  init();
+
   Logger::instance().log("CIFAR10 Registered memory dataset prepared with " +
                          std::to_string(data_info.num_samples) + " samples\n");
-}
-
-std::vector<torch::Tensor>
-RegCIFAR10Mngr::runTraining(int round, const std::vector<torch::Tensor> &w) {
-  std::vector<torch::Tensor> w_cuda = updateModelParameters(w);
-
-  // if (round % 5 == 0 && round > 1) {
-  //   learning_rate *= learning_rate_decay_factor;
-  //   static_cast<torch::optim::AdamOptions&>(optimizer.param_groups().front()
-  //       .options()).lr(learn_rate);
-  // }
-
-  if (round % 1 == 0) {
-    std::cout << "Training model for round " << round
-              << " epochs: " << kNumberOfEpochs << "\n";
-  }
-
-  Logger::instance().log("CIFAR10 Training model for step " +
-                         std::to_string(round) +
-                         " epochs: " + std::to_string(kNumberOfEpochs) + "\n");
-
-  for (size_t epoch = 1; epoch <= kNumberOfEpochs; ++epoch) {
-    train(epoch, optimizer, *train_loader);
-    scheduler.step();
-  }
-
-  if (device.is_cuda()) {
-    return calculateUpdateCuda(w_cuda);
-  } else {
-    return calculateUpdateCPU(w_cuda);
-  }
 }
 
 void RegCIFAR10Mngr::buildLabelToIndicesMap() {

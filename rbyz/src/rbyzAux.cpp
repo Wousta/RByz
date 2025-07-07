@@ -92,11 +92,6 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
     normalized_updates.push_back(normalized_update);
   }
 
-  Logger::instance().log("Normalized client updates:\n");
-  for (const auto &update : normalized_updates) {
-    Logger::instance().log(update.slice(0, 0, std::min<size_t>(update.numel(), 5)).toString() + "\n");
-  } 
-
   float trust_scores[client_updates.size()];
   for (int i = 0; i < client_updates.size(); i++) {
     // Byzantine clients are skipped, so we have to keep track of good clients indices clnt_indices[i]
@@ -124,7 +119,7 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
 }
 
 void RByzAux::writeServerVD(RegMnistSplitter& splitter,
-                            std::vector<ClientDataRbyz>& clnt_data_vec) {
+                            std::vector<ClientDataRbyz>& clnt_data_vec, float proportion) {
 
   std::vector<int> derangement = splitter.generateDerangement();
 
@@ -136,7 +131,7 @@ void RByzAux::writeServerVD(RegMnistSplitter& splitter,
     }
 
     std::vector<size_t> srvr_indices = splitter.getServerIndices(i, derangement);
-    std::vector<size_t> clnt_chunks = splitter.getClientChunks(clnt_data_vec[i].index);
+    std::vector<size_t> clnt_chunks = splitter.getClientChunks(clnt_data_vec[i].index, proportion);
 
     size_t srvr_idx = 0;
     for (size_t j = 0; j < clnt_chunks.size(); j++) {
@@ -334,8 +329,8 @@ void RByzAux::runRByzServer(int n_clients,
   Logger::instance().log("Initial test RBYZ\n");
   mngr.runTesting();
 
-  // // Set manager epochs to 1, the epochs will be controled by RByz
-  // mngr.kNumberOfEpochs = 1;
+  // Set manager epochs to 1, the epochs will be controled by RByz
+  mngr.kNumberOfEpochs = 1;
 
   // Initialization for timeouts
   std::vector<int> test_step(n_clients, local_steps);
@@ -357,8 +352,13 @@ void RByzAux::runRByzServer(int n_clients,
 
     // Before each round, write the server's VD to the clients to test after first local step
     if (round == 0) {
-      writeServerVD(splitter, clnt_data_vec);
       initTimeoutTime(clnt_data_vec);
+    }
+
+    if (round % t_params.test_renewal_freq == 0) {
+      Logger::instance().log("Server: Renewing test samples for round " + std::to_string(round) + "\n");
+      mngr.renewDataset();
+      writeServerVD(splitter, clnt_data_vec, t_params.vd_prop_write);
     }
 
     // Signal to clients that the server is ready
@@ -434,10 +434,6 @@ void RByzAux::runRByzServer(int n_clients,
           clnt_data.next_step = clnt_data.local_step + 1;
         }
       }
-
-      // Log accuracy and round to Results
-      total_steps++;
-      Logger::instance().logAcc(t_params.only_flt, std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
 
       std::cout << "\n    ---  Step " << srvr_step << " of round " << round << " completed  ---\n";
     }
@@ -523,6 +519,10 @@ void RByzAux::runRByzServer(int n_clients,
     mngr.updateModelParameters(w);
     mngr.runTesting();
 
+    // Log accuracy and round to Results
+    total_steps++;
+    Logger::instance().logAcc(t_params.only_flt, std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
+
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
   }
@@ -540,8 +540,8 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("Client: Starting RByz with accuracy\n");
   mngr.runTesting();
 
-  // // Set manager epochs to 1, the epochs will be controled by RByz
-  // mngr.kNumberOfEpochs = 1; 
+  // Set manager epochs to 1, the epochs will be controled by RByz
+  mngr.kNumberOfEpochs = 1; 
   
   while (regMem.round.load() < global_rounds) {
     if (regMem.round.load() == 2) {
@@ -570,7 +570,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
     Logger::instance().log("Round " + std::to_string(regMem.round.load()) + " weights received:\n");
 
-    mngr.updateModelParameters(w);
+    std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
     Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
     
@@ -580,16 +580,20 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
       int step = regMem.local_step.load();
       Logger::instance().log(" ...... Client: Running step " + std::to_string(step) + " of RByz in round " + std::to_string(regMem.round.load()) + "\n");
 
-      w = mngr.runTraining(step, w);
+      if (mngr.worker_id % 5 == 0)
+        std::cout << "RByz training epochs: " << mngr.kNumberOfEpochs << "\n";
+      mngr.runTraining();
+
       regMem.local_step.store(step + 1);
       // auto end = std::chrono::high_resolution_clock::now();
       // std::string time = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
       // Logger::instance().logCustom("./stepTimes", log_file, time + "\n");
       // Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
     }
-
-    // Write the weights to the registered memory and write to the server
-    tops::memcpyTensorVec(regMem.clnt_w, w, regMem.reg_sz_data); 
+    
+    // Write the updates to the registered memory and write to the server
+    std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
+    tops::memcpyTensorVec(regMem.clnt_w, g, regMem.reg_sz_data); 
     rdma_ops.exec_rdma_write(regMem.reg_sz_data, CLNT_W_IDX);
 
     regMem.round.store(regMem.round.load() + 1);

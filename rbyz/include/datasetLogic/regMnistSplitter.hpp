@@ -7,6 +7,7 @@
 #include <ctime>
 #include <random>
 #include <algorithm>
+#include <vector>
 
 /**
  * @brief Class to split the registered MNIST dataset into n_clients.
@@ -53,6 +54,12 @@ class RegMnistSplitter {
         int num_offsets = total_offsets * clnt_vd_proportion;     
         clnt_chunks.reserve(num_offsets);
 
+        Logger::instance().log("Total offsets: " + std::to_string(total_offsets) + 
+                            ", datset size: " + std::to_string(clnt_data_vec[0].dataset_size) +
+                            ", num_offsets: " + std::to_string(num_offsets) + 
+                            ", chunk_sz_bytes: " + std::to_string(chunk_sz_bytes) + 
+                            ", samples per chunk: " + std::to_string(samples_per_chunk) + "\n");
+
         if (overwrite_poisoned) {
             // (total_offsets - 1) / (num_offsets - 1) ensures the last offset lands exactly at the end of the available range.
             double step = static_cast<double>(total_offsets - 1) / (num_offsets - 1);
@@ -86,8 +93,6 @@ class RegMnistSplitter {
      * 
      * The last client receives any remaining samples to handle cases where the dataset
      * size is not perfectly divisible by n_clients.
-     * 
-     * @param samples_per_vd_split The number of samples each client will receive in their VD.
      */
     void initializeValidationDatasetPartitions() {
         // Split the server registered data into n_clients VD sections
@@ -213,32 +218,39 @@ class RegMnistSplitter {
 
     /**
      * @brief Gets the server indices for a given client index based on the derangement.
-     * 
      * This function retrieves the indices of the server's validation dataset (VD) that will be sent to a specific client.
-     * The indices are shuffled and a proportion of them is selected based on srvr_vd_proportion.
-     * 
      * @param clnt_idx The index of the client for which to get the server indices.
      * @param derangement The derangement vector that determines the current arrangement of VD samples.
-     * @param srvr_vd_proportion The proportion of server VD samples to be sent to the client (default is 1.0).
-     * 
      * @return A vector containing the selected server indices for the client.
      */
-    std::vector<size_t> getServerIndices(int clnt_idx, std::vector<int> derangement, float srvr_vd_proportion = 1.0) {
-        std::vector<size_t>& all_indices = vd_indexes[derangement[clnt_idx]];
-        unsigned long vd_size = all_indices.size() * srvr_vd_proportion;
-
-        std::shuffle(all_indices.begin(), all_indices.end(), rng);
-        std::vector<size_t> indexes(all_indices.begin(), all_indices.begin() + vd_size);
-
-        return indexes;
+    std::vector<size_t> getServerIndices(int clnt_idx, std::vector<int> derangement) {
+        return vd_indexes[derangement[clnt_idx]];
     }
 
-    std::vector<size_t> getClientChunks(int clnt_idx) {
+    /**
+     * @brief Gets the client chunks for a given client index. I proportion < 1.0, it returns a random subset of the chunks.
+     * @param clnt_idx The index of the client for which to get the chunks.
+     * @param proportion The proportion of chunks to return (default is 1.0, meaning all chunks).
+     * @return A vector containing the selected chunks for the client.
+     */
+    std::vector<size_t> getClientChunks(int clnt_idx, float proportion = 1.0) {
         if (clnt_idx < 0 || clnt_idx >= n_clients) {
-            throw std::out_of_range("getClientChunks: Client index out of range");
+            throw std::out_of_range("[getClientChunks] Client index out of range");
         }
 
-        return clnt_chunks; 
+        if (proportion < 0.0 || proportion > 1.0) {
+            throw std::invalid_argument("[getClientChunks] Proportion must be between 0 and 1");
+        }
+
+        if (proportion == 1.0) {
+            return clnt_chunks;
+        }
+
+        std::shuffle(clnt_chunks.begin(), clnt_chunks.end(), rng);
+        size_t num_chunks = std::max(static_cast<size_t>(clnt_chunks.size() * proportion), 1UL);
+        std::vector<size_t> clnt_chunks_subset(clnt_chunks.begin(), clnt_chunks.begin() + num_chunks);
+
+        return clnt_chunks_subset; 
     }
 
 };

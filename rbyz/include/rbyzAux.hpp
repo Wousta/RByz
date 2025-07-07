@@ -27,7 +27,7 @@ private:
                     const std::vector<uint32_t> &clnt_indices);
 
   void writeServerVD(RegMnistSplitter &splitter,
-                     std::vector<ClientDataRbyz> &clnt_data);
+                     std::vector<ClientDataRbyz> &clnt_data, float proportion);
 
   bool processVDOut(ClientDataRbyz &clnt_data, bool check_byz);
   void initTimeoutTime(std::vector<ClientDataRbyz> &clnt_data_vec);
