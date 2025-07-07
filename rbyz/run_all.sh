@@ -13,8 +13,8 @@ use_mnist=${1:-true}       # First argument: true/false for MNIST vs CIFAR-10
 n_clients=${2:-10}          
 epochs=${3:-5}             
 batch_size=${4:-64}        
-glob_learn_rate=${5:-0.05}  # Global learning rate for FLtrust aggregation
-local_learn_rate=${6:-0.05}  
+glob_learn_rate=${5:-0.01}  # Global learning rate for FLtrust aggregation
+local_learn_rate=${6:-0.01}  
 n_byz_clnts=${7:-2}         
 if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
@@ -26,7 +26,7 @@ if [ "$use_mnist" = true ]; then
   srvr_subset_size=${9:-1000}
   glob_iters_fl=${10:-3}
   local_steps_rbyz=${11:-5}
-  glob_iters_rbyz=${12:-50}
+  glob_iters_rbyz=${12:-60}
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param="" 
@@ -47,9 +47,9 @@ label_flip_type=${14:-1}
 
 flip_ratio=${15:-0.25}
 only_flt=${16:-0}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
-vd_prop=${17:-0.01}  # Proportion of validation data for each client (proportion of total chunks writable on client)
-vd_prop_write=${18:-1.0}  # Proportion of total chunks writable on client to write each time the test is renewed
-test_renewal_freq=${19:-55}  # Frequency of test renewal (every n rounds)
+vd_prop=${17:-0.20}  # Proportion of validation data for each client (proportion of total chunks writable on client)
+vd_prop_write=${18:-0.1}  # Proportion of total chunks writable on client to write each time the test is renewed
+test_renewal_freq=${19:-5}  # Frequency of test renewal (every n rounds)
 overwrite_poisoned=${20:-0}  # Allow VD samples to overwrite poisoned samples (1) or not (0)
 
 

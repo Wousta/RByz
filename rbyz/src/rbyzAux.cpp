@@ -59,7 +59,7 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   Logger::instance().log("        -> Minimum loss: " + std::to_string(min_w_loss) + 
                          ", Minimum error rate: " + std::to_string(min_w_err) + "\n");
 
-  float no_bias = 0.01;  // Tweak until satisfied
+  float no_bias = 0.001;  // Tweak until satisfied
   float max_loss = std::max(0.0f, srvr_loss - w_loss);
   float loss_Calc = max_loss / (srvr_loss - min_w_loss + no_bias);
   float max_err = std::max(0.0f, srvr_error_rate - w_err);
@@ -357,7 +357,7 @@ void RByzAux::runRByzServer(int n_clients,
 
     if (round % t_params.test_renewal_freq == 0) {
       Logger::instance().log("Server: Renewing test samples for round " + std::to_string(round) + "\n");
-      mngr.renewDataset();
+      mngr.renewDataset(0.5);
       writeServerVD(splitter, clnt_data_vec, t_params.vd_prop_write);
     }
 
@@ -509,9 +509,6 @@ void RByzAux::runRByzServer(int n_clients,
     torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
-
-    Logger::instance().log("Pre Aggregation akuracy:\n");
-    mngr.runTesting();
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
