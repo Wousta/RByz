@@ -76,21 +76,9 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
 }
 
 torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& client_updates,
-                                const torch::Tensor& flat_w,
                                 const std::vector<ClientDataRbyz> &clnt_data_vec,
                                 const std::vector<uint32_t>& clnt_indices) {
-  // Normalize the client updates
-  std::vector<torch::Tensor> normalized_updates;
-  normalized_updates.reserve(client_updates.size());
-  float server_norm = torch::norm(flat_w, 2).item<float>();
-
   Logger::instance().log("\nComputing aggregation data ================\n");
-
-  for (const auto &client_update : client_updates) {
-    float client_norm = torch::norm(client_update, 2).item<float>();
-    torch::Tensor normalized_update = client_update * (server_norm / client_norm);
-    normalized_updates.push_back(normalized_update);
-  }
 
   float trust_scores[client_updates.size()];
   for (int i = 0; i < client_updates.size(); i++) {
@@ -103,10 +91,10 @@ torch::Tensor RByzAux::aggregate_updates(const std::vector<torch::Tensor>& clien
     sum_trust += score;
   }
 
-  torch::Tensor aggregated_update = torch::zeros_like(flat_w);
+  torch::Tensor aggregated_update = torch::zeros_like(client_updates[0]);
   if (sum_trust > 0) {
     for (int i = 0; i < client_updates.size(); i++) {
-      aggregated_update += normalized_updates[i] * trust_scores[i];
+      aggregated_update += client_updates[i] * trust_scores[i];
     }
 
     aggregated_update /= sum_trust;
@@ -323,6 +311,7 @@ void RByzAux::runRByzServer(int n_clients,
                     RegMemSrvr& regMem,
                     std::vector<ClientDataRbyz>& clnt_data_vec) {
   
+  std::string acc_file = (t_params.only_flt) ? "F_acc.log" : "R_acc.log";
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   int total_steps = t_params.global_iters_fl;
 
@@ -346,9 +335,8 @@ void RByzAux::runRByzServer(int n_clients,
   for (int round = 0; round < global_rounds; round++) {
     Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
 
-    // This avoids having to flatten again before aggregation
-    auto flat_w = tops::flatten_tensor_vector(w);
-    tops::memcpyTensor(regMem.srvr_w, flat_w, regMem.reg_sz_data);
+    // Write the current model weights to the server registered memory 
+    tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
 
     // Before each round, write the server's VD to the clients to test after first local step
     if (round == 0) {
@@ -439,7 +427,7 @@ void RByzAux::runRByzServer(int n_clients,
     }
 
     // Run inference on the server before comparing with clients
-    mngr.runInference(w);
+    mngr.runInference();
 
     for (ClientDataRbyz& clnt_data : clnt_data_vec) {
       if (clnt_data.is_byzantine) {
@@ -506,19 +494,20 @@ void RByzAux::runRByzServer(int n_clients,
     }
 
     // Aggregation
-    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, flat_w, clnt_data_vec, clnt_indices);
+    torch::Tensor aggregated_update = aggregate_updates(clnt_updates, clnt_data_vec, clnt_indices);
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
 
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
+    Logger::instance().log("After aggregating round " + std::to_string(round) + ":\n");
     mngr.updateModelParameters(w);
     mngr.runTesting();
 
     // Log accuracy and round to Results
     total_steps++;
-    Logger::instance().logAcc(t_params.only_flt, std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
+    Logger::instance().logCustom("", acc_file, std::to_string(total_steps) + " " + std::to_string(mngr.test_accuracy) + "\n");
 
     std::cout << "\n///////////////// Server: Round " << round << " completed /////////////////\n";
     Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
@@ -568,7 +557,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     Logger::instance().log("Round " + std::to_string(regMem.round.load()) + " weights received:\n");
 
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
-    Logger::instance().log("After aggregating: \n");
+    Logger::instance().log("After aggregating round " + std::to_string(regMem.round.load()) + ":\n");
     mngr.runTesting();
     
     Logger::instance().log("Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");

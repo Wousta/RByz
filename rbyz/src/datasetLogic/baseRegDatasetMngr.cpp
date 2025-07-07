@@ -431,8 +431,7 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
 
 template <typename NetType>
 template <typename DataLoader>
-void BaseRegDatasetMngr<NetType>::runInferenceBase(
-    const std::vector<torch::Tensor> &w, DataLoader &data_loader) {
+void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
   // Wait for any pending forward pass processing
   if (pending_forward_pass.load()) {
     Logger::instance().log(
@@ -443,7 +442,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(
 
   torch::NoGradGuard no_grad; // Prevent gradient calculation
   model->eval();              // Set model to evaluation mode
-  updateModelParameters(w);
 
   Logger::instance().log("  Running inference on registered dataset\n");
 
@@ -699,7 +697,7 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
           correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0)
         Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx < 10) {
+      if (curr_idx < 3) {
         Logger::instance().log(
             "Processed sample " + std::to_string(curr_idx) +
             " with original index: " +

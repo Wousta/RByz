@@ -29,7 +29,7 @@ public:
 
   virtual void runTraining() override = 0;
   virtual void runTesting() override = 0;
-  virtual void runInference(const std::vector<torch::Tensor> &w) override = 0;
+  virtual void runInference() override = 0;
   virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override;
 
   std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
@@ -134,8 +134,7 @@ protected:
              DataLoader &data_loader);
 
   template <typename DataLoader>
-  void runInferenceBase(const std::vector<torch::Tensor> &w,
-                        DataLoader &registered_loader);
+  void runInferenceBase(DataLoader &registered_loader);
 
   // Registered dataset specific methods
   inline char *getBasePointerForIndex(size_t image_idx) const {

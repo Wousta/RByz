@@ -76,8 +76,8 @@ public:
     }
   }
 
-  inline void runInference(const std::vector<torch::Tensor> &w) override {
-    runInferenceBase(w, *train_loader);
+  inline void runInference() override {
+    runInferenceBase(*train_loader);
   }
 
   inline void runTesting() override { test(*test_loader); }

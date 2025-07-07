@@ -166,6 +166,7 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
 std::vector<torch::Tensor>
 run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr,
                  RegMemSrvr &regMem, std::vector<ClientDataRbyz> &clntsData) {
+  std::string filename = (t_params.only_flt) ? "F_acc.log" : "R_acc.log";
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
 
   tops::printTensorSlices(w, 0, 5);
@@ -242,6 +243,8 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
     Logger::instance().logAcc(t_params.only_flt, std::to_string(round) + " " +
+                                  std::to_string(mngr.test_accuracy) + "\n");
+    Logger::instance().logCustom("", filename, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
   }
 
@@ -411,17 +414,23 @@ int main(int argc, char *argv[]) {
     Logger::instance().openRByzAccLog();
   }
 
-  std::string filename;
+  std::string ts_file;
+  std::string acc_file;
+  std::string final_data_file;
   int rounds;
   if (t_params.only_flt) {
-    filename = "F_trust_scores.log";
+    ts_file = "F_trust_scores.log";
+    final_data_file = "F_final_data.log";
+    acc_file = "F_acc.log";
     rounds = t_params.global_iters_fl;
   } else {
-    filename = "R_trust_scores.log";
+    ts_file = "R_trust_scores.log";
+    final_data_file = "R_final_data.log";
+    acc_file = "R_acc.log";
     rounds = t_params.global_iters_rbyz + t_params.global_iters_fl;
   }
-  Logger::instance().logCustom("", filename, std::to_string(rounds) + "\n");
-  Logger::instance().logCustom("", filename, std::to_string(n_clients) + "\n");
+  Logger::instance().logCustom("", ts_file, std::to_string(rounds) + "\n");
+  Logger::instance().logCustom("", ts_file, std::to_string(n_clients) + "\n");
 
   std::cout << "SRVR Running FLTrust\n";
   auto start = std::chrono::high_resolution_clock::now();
@@ -439,9 +448,7 @@ int main(int argc, char *argv[]) {
   long elapsed = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
   Logger::instance().log("Total time taken: " + std::to_string(elapsed) + " seconds\n");
 
-  Logger::instance().logCustom("", filename, "$ END OF EXECUTION $\n");
   reg_mngr->runTesting();
-  std::string final_data_file = (t_params.only_flt) ? "F_final_data.log" : "R_final_data.log";
 
   std::string acc_msg = "Accuracy " + std::to_string(reg_mngr->test_accuracy) + "\n";
   std::string time_msg = "Time " + std::to_string(elapsed) + "\n";
@@ -457,6 +464,9 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom("", final_data_file, time_msg);
   Logger::instance().logCustom("", final_data_file, vd_msg);
   Logger::instance().logCustom("", final_data_file, recall_msg);
+
+  Logger::instance().logCustom("", acc_file, "$ END OF EXECUTION $\n");
+  Logger::instance().logCustom("", ts_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom("", final_data_file, "$ END OF EXECUTION $\n");
 
   rbyz_aux.awaitTermination(clnt_data_vec, t_params.global_iters_rbyz);
