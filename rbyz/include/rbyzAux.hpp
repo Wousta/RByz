@@ -11,10 +11,13 @@ class RByzAux {
 private:
   const int local_steps;
   const int global_rounds;
+  const bool byz_clnt;
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
   std::vector<std::vector<int64_t>> step_times;
+  std::mt19937 rng;
+  std::bernoulli_distribution coin_flip{0.5};  // 50% chance
 
   void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
                 ClientDataRbyz &clnt_data, float srvr_loss,
@@ -37,7 +40,9 @@ public:
   RByzAux(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params)
       : rdma_ops(rdma_ops), mngr(mngr), t_params(t_params),
         local_steps(t_params.local_steps_rbyz),
-        global_rounds(t_params.global_iters_rbyz) {
+        global_rounds(t_params.global_iters_rbyz),
+        byz_clnt(mngr.worker_id <= t_params.n_byz_clnts),
+        rng(std::random_device{}()) {
           if (t_params.use_mnist) {
             if (t_params.n_clients == 10) {
               step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
@@ -67,4 +72,7 @@ public:
   void runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
                      RegMemSrvr &regMem,
                      std::vector<ClientDataRbyz> &clnt_data_vec);
+
+  inline bool coinFlip() { return coin_flip(rng); }
+  
 };

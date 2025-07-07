@@ -581,6 +581,12 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     regMem.round.store(regMem.round.load() + 1);
     rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
     mngr.runTesting();
+
+    // If overwriting poisoned labels is enabled, byz client has to renew poisoned labels (50% chance)
+    if (byz_clnt && t_params.overwrite_poisoned && coinFlip()) {
+      label_flip_attack(t_params.use_mnist, t_params, mngr);
+    }
+
     Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load() - 1) + " completed ////////////////\n");
   }
 

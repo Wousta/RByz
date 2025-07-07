@@ -149,7 +149,7 @@ class RegMnistSplitter {
     RegMnistSplitter(TrainInputParams& t_params, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
         : n_clients(clnt_data_vec.size()), samples_per_chunk(t_params.chunk_size), clnt_vd_proportion(t_params.clnt_vd_proportion), 
           mngr(mngr), clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
-          rng((static_cast<unsigned int>(std::time(nullptr)))) {
+          rng(std::random_device{}()) {
 
         // Used to select the VD splits for each client
         for (int i = 0; i < n_clients; i++) {
