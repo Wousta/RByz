@@ -9,7 +9,7 @@ remote_hosts=("dcldelta4")
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 
-use_mnist=${1:-true}       # First argument: true/false for MNIST vs CIFAR-10
+use_mnist=${1:-false}       # First argument: true/false for MNIST vs CIFAR-10
 n_clients=${2:-10}          
 epochs=${3:-5}             
 batch_size=${4:-64}        
@@ -26,17 +26,17 @@ if [ "$use_mnist" = true ]; then
   srvr_subset_size=${9:-1000}
   glob_iters_fl=${10:-3}
   local_steps_rbyz=${11:-5}
-  glob_iters_rbyz=${12:-60}
+  glob_iters_rbyz=${12:-3}
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param="" 
-  glob_learn_rate=${5:-1.0}
-  local_learn_rate=${6:-0.1}  
+  glob_learn_rate=${5:-0.01}
+  local_learn_rate=${6:-0.01}  
   clnt_subset_size=${8:-4900}
   srvr_subset_size=${9:-1000}
-  glob_iters_fl=${10:-100}
+  glob_iters_fl=${10:-3}
   local_steps_rbyz=${11:-5}
-  glob_iters_rbyz=${12:-20}
+  glob_iters_rbyz=${12:-50}
 fi
 chunk_size=${13:-1}      # slab size for RByz VDsampling
 
@@ -45,12 +45,12 @@ chunk_size=${13:-1}      # slab size for RByz VDsampling
 # references for the settings: CIFAR-10 -> https://arxiv.org/pdf/2007.08432 | MNIST -> https://arxiv.org/pdf/2407.07818v1
 label_flip_type=${14:-1}
 
-flip_ratio=${15:-0.25}
-only_flt=${16:-0}  # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
-vd_prop=${17:-0.20}  # Proportion of validation data for each client (proportion of total chunks writable on client)
-vd_prop_write=${18:-0.1}  # Proportion of total chunks writable on client to write each time the test is renewed
-test_renewal_freq=${19:-5}  # Frequency of test renewal (every n rounds)
-overwrite_poisoned=${20:-0}  # Allow VD samples to overwrite poisoned samples (1) or not (0)
+flip_ratio=${15:-0.50}
+only_flt=${16:-0}             # Terminate after running FLtrust, to test FLtrust only (1) or run all (0)
+vd_prop=${17:-0.20}           # Proportion of validation data for each client (proportion of total chunks writable on client)
+vd_prop_write=${18:-0.1}      # Proportion of total chunks writable on client to write each time the test is renewed
+test_renewal_freq=${19:-5}    # Frequency of test renewal (every n rounds)
+overwrite_poisoned=${20:-0}   # Allow VD samples to overwrite poisoned samples (1) or not (0)
 
 
 # Calculate clients per machine (even distribution)
@@ -92,8 +92,8 @@ redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 echo "Redis server started on $srvr_ip:$port"
 
 rm -rf logs/*
-rm -rf $results_path/logs/*
-rm -rf $results_path/accLogs/*
+# rm -rf $results_path/logs/*
+# rm -rf $results_path/accLogs/*
 
 # Start the server process locally
 echo "Starting server locally..."
