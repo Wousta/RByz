@@ -119,8 +119,7 @@ void RegCIFAR10Mngr::buildRegisteredDataset(const std::vector<size_t> &indices) 
 
       auto img = (example.data.to(torch::kFloat32)); //- 0.5) / 0.5;
       auto reshaped_img = img.reshape({3, 32, 32}).contiguous();
-      std::memcpy(getImage(i), reshaped_img.data_ptr<float>(),
-                  data_info.image_size);
+      std::memcpy(getImage(i), reshaped_img.data_ptr<float>(), data_info.image_size);
 
     // Map original index to registered index for retrieval
     index_map[original_idx] = i;
@@ -181,9 +180,9 @@ void RegCIFAR10Mngr::renewDataset(float proportion, std::optional<int> seed) {
       }
 
       *getLabel(i) = example.target.item<int64_t>();
-      auto image = example.data.to(torch::kFloat32);
-      auto reshaped_image = image.reshape({1, 28, 28}).contiguous();
-      std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
+      auto img = (example.data.to(torch::kFloat32)); //- 0.5) / 0.5;
+      auto reshaped_img = img.reshape({3, 32, 32}).contiguous();
+      std::memcpy(getImage(i), reshaped_img.data_ptr<float>(), data_info.image_size);
     }
 
     return;
