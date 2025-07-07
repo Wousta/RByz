@@ -579,11 +579,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
       // auto start = std::chrono::high_resolution_clock::now();
       int step = regMem.local_step.load();
       Logger::instance().log(" ...... Client: Running step " + std::to_string(step) + " of RByz in round " + std::to_string(regMem.round.load()) + "\n");
-
-      if (mngr.worker_id % 5 == 0)
-        std::cout << "RByz training epochs: " << mngr.kNumberOfEpochs << "\n";
       mngr.runTraining();
-
       regMem.local_step.store(step + 1);
       // auto end = std::chrono::high_resolution_clock::now();
       // std::string time = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
