@@ -327,7 +327,8 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of validation data for each client") |
       lyra::opt(t_params.vd_prop_write, "vd_prop_write")["--vd_prop_write"]("Proportion of total chunks writable on client to write each time the test is renewed") |
       lyra::opt(t_params.test_renewal_freq, "test_renewal_freq")["--test_renewal_freq"]("Frequency of test renewal (every n rounds)") |
-      lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples");
+      lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
+      lyra::opt(t_params.wait_all, "wait_all")["--wait_all"]("Ignore slow clients during RByz");
 
   auto result = cli.parse({argc, argv});
   if (!result) {

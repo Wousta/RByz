@@ -290,10 +290,6 @@ void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec) {
   }
 }
 
-void RByzAux::runBenchMark(std::vector<ClientDataRbyz>& clnt_data_vec) {
-
-}
-
 void RByzAux::logTrustScores(const std::vector<ClientDataRbyz>& clnt_data_vec, int only_flt) const {
   std::string filename = (only_flt) ? "F_trust_scores.log" : "R_trust_scores.log";
   Logger::instance().logCustom("", filename, "- RB\n");
@@ -301,6 +297,90 @@ void RByzAux::logTrustScores(const std::vector<ClientDataRbyz>& clnt_data_vec, i
   for (int i = 0; i < clnt_data_vec.size(); i++) {
     std::string message = std::to_string(clnt_data_vec[i].trust_score) + "\n";
     Logger::instance().logCustom("", filename, message);
+  }
+}
+
+void RByzAux::waitInfinite(ClientDataRbyz& clnt_data, int round) {
+  int clnt_idx = clnt_data.index;
+
+  // Wait for client to finish the step indefinitely
+  long total_time_waited = 0;
+  std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
+  if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+    std::this_thread::sleep_for(initial_time);
+    total_time_waited += initial_time.count();
+    Logger::instance().log("    -> Server waited initial: " + std::to_string(total_time_waited) +
+                            " ms for client " + std::to_string(clnt_idx) + "\n");
+  }
+
+  rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
+  rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
+
+  std::chrono::milliseconds exp_backoff_time(1);
+  bool advanced = true;
+  while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+    std::this_thread::sleep_for(exp_backoff_time);
+    total_time_waited += exp_backoff_time.count();
+    exp_backoff_time = std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2); 
+    rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
+    rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
+  }
+  Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
+}
+
+void RByzAux::waitTimeout(ClientDataRbyz& clnt_data, int round) {
+  int clnt_idx = clnt_data.index;
+
+  // Wait for client to finish the step with exponential backoff
+  long total_time_waited = 0;
+  std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
+  if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+    std::this_thread::sleep_for(initial_time);
+    total_time_waited += initial_time.count();
+    Logger::instance().log("    -> Server waited initial: " + std::to_string(total_time_waited) +
+                            " ms for client " + std::to_string(clnt_idx) + "\n");
+  }
+  rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
+  rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
+
+  std::chrono::milliseconds exp_backoff_time(1);
+  bool advanced = true;
+  while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+    std::this_thread::sleep_for(exp_backoff_time);
+    total_time_waited += exp_backoff_time.count();
+    exp_backoff_time = exp_backoff_time = std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
+    if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.25) {
+
+      // Choose lower steps to wait for and increase the limit time
+      if(clnt_data.steps_to_finish <= min_steps) {
+        Logger::instance().log("    -> Server: Client " + std::to_string(clnt_idx) + 
+                                " is Byzantine, skipping\n");
+        clnt_data.is_byzantine = true;
+
+      } else {
+        long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.25));
+        clnt_data.limit_step_time = std::chrono::milliseconds(new_limit);
+        clnt_data.steps_to_finish = step_range(rng);
+        middle_steps = std::max(static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75)), min_steps);
+        step_range = std::uniform_int_distribution<int>(middle_steps, clnt_data.steps_to_finish);
+        Logger::instance().log("    -> Client " + std::to_string(clnt_idx) + 
+                                " lowering steps to finish to: " + std::to_string(clnt_data.steps_to_finish) + "\n");
+
+        // Client will now do steps_to_finish local steps
+        clnt_data.clnt_CAS.store(clnt_data.steps_to_finish);
+        rdma_ops.exec_rdma_write(sizeof(int), CLNT_CAS_IDX, clnt_idx);
+      }
+
+      Logger::instance().log("    -> Server waiting: Client " + std::to_string(clnt_idx) + " timed out\n");
+      advanced = false;
+      break;
+    }
+    rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
+  }
+  Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
+
+  if (advanced) {
+    clnt_data.next_step = clnt_data.local_step + 1;
   }
 }
 
@@ -320,13 +400,6 @@ void RByzAux::runRByzServer(int n_clients,
 
   // Set manager epochs to 1, the epochs will be controled by RByz
   mngr.kNumberOfEpochs = 1;
-
-  // Initialization for timeouts
-  std::vector<int> test_step(n_clients, local_steps);
-  int min_steps = std::ceil(local_steps * 0.5); // Minimum steps to consider a client valid
-  int middle_steps = std::ceil(local_steps * 0.75);
-  std::uniform_int_distribution<int> step_range(middle_steps, local_steps);
-  std::mt19937 rng(42); 
 
   // Create VD splits and do first write of VD to the clients
   RegMnistSplitter splitter(t_params, mngr, clnt_data_vec);
@@ -370,56 +443,10 @@ void RByzAux::runRByzServer(int n_clients,
                                " server step = " + std::to_string(srvr_step) + 
                                " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
 
-        // Wait for client to finish the step with exponential backoff
-        long total_time_waited = 0;
-        std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
-        if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
-          std::this_thread::sleep_for(initial_time);
-          total_time_waited += initial_time.count();
-          Logger::instance().log("    -> Server waited initial: " + std::to_string(total_time_waited) +
-                                 " ms for client " + std::to_string(j) + "\n");
-        }
-        rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
-        rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, j);
-
-        std::chrono::milliseconds exp_backoff_time(1);
-        bool advanced = true;
-        while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
-          std::this_thread::sleep_for(exp_backoff_time);
-          total_time_waited += exp_backoff_time.count();
-          exp_backoff_time *= 2; // Exponential backoff
-          if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.75) {
-
-            // Choose lower steps to wait for and increase the limit time
-            if(clnt_data.steps_to_finish <= min_steps) {
-              Logger::instance().log("    -> Server: Client " + std::to_string(j) + 
-                                     " is Byzantine, skipping\n");
-              clnt_data.is_byzantine = true;
-
-            } else {
-              long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.25));
-              clnt_data.limit_step_time = std::chrono::milliseconds(new_limit);
-              clnt_data.steps_to_finish = step_range(rng);
-              middle_steps = std::max(static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75)), min_steps);
-              step_range = std::uniform_int_distribution<int>(middle_steps, clnt_data.steps_to_finish);
-              Logger::instance().log("    -> Client " + std::to_string(j) + 
-                                     " lowering steps to finish to: " + std::to_string(clnt_data.steps_to_finish) + "\n");
-
-              // Client will now do steps_to_finish local steps
-              clnt_data.clnt_CAS.store(clnt_data.steps_to_finish);
-              rdma_ops.exec_rdma_write(sizeof(int), CLNT_CAS_IDX, j);
-            }
-
-            Logger::instance().log("    -> Server waiting: Client " + std::to_string(j) + " timed out\n");
-            advanced = false;
-            break;
-          }
-          rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, j);
-        }
-        Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
-
-        if (advanced) {
-          clnt_data.next_step = clnt_data.local_step + 1;
+        if (t_params.wait_all) {
+          waitInfinite(clnt_data, round);
+        } else {
+          waitTimeout(clnt_data, round);
         }
       }
 

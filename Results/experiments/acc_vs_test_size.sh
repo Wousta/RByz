@@ -16,7 +16,7 @@ label_flip_type=1           # 1: Random label flip
 flip_ratio=0.5              # 50% of the data will be flipped
 overwrite_poisoned=0        # Do not overwrite poisoned data
 only_flt=0                  # Run RByz
-test_renewal_freq=5         # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
+test_renewal_freq=1         # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
 vd_prop_write=0.1           # Proportion of total chunks writable on client to write each time the test is renewed
 
 rm -rf ../logs/*
@@ -25,11 +25,14 @@ cd ../../rbyz
 
 run() {
     local name=$1
-    echo "---- Starting experiment $name"
+    echo "=========================================================="
+    echo "---- Starting experiment $name ----"
+    echo "=========================================================="
     echo "     VD prop: $vd_prop"
 
     for ((i=1; i<=10; i++)); do
-        echo "Running experiment $name iteration $i"
+        echo "______________________________________________________"
+        echo "---- Running experiment $name iteration $i ----"
         ./run_all.sh $use_mnist $clients $epochs $batch_size $glob_learning_rate $local_learn_rate $byz_clients \
             $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned

@@ -51,6 +51,7 @@ vd_prop=${17:-0.20}           # Proportion of validation data for each client (p
 vd_prop_write=${18:-0.1}      # Proportion of total chunks writable on client to write each time the test is renewed
 test_renewal_freq=${19:-5}    # Frequency of test renewal (every n rounds)
 overwrite_poisoned=${20:-0}   # Allow VD samples to overwrite poisoned samples (1) or not (0)
+wait_all=${21:-0}             # Wait indefinitely for all clients (1) or not (0) in RByz
 
 
 # Calculate clients per machine (even distribution)
@@ -101,7 +102,7 @@ taskset -c 0 build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
   --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio --only_flt $only_flt --vd_prop $vd_prop \
-  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned & 
+  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all & 
 SRVR_PID=$!
 
 echo "Starting clients on remote machines..."

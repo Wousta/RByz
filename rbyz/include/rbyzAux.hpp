@@ -19,6 +19,11 @@ private:
   std::mt19937 rng;
   std::bernoulli_distribution coin_flip{0.5};  // 50% chance
 
+  // Timeout params
+  int min_steps;      // Minimum steps to consider a client valid
+  int middle_steps;   
+  std::uniform_int_distribution<int> step_range;
+
   void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
                 ClientDataRbyz &clnt_data, float srvr_loss,
                 float srvr_error_rate);
@@ -35,6 +40,8 @@ private:
   void initTimeoutTime(std::vector<ClientDataRbyz> &clnt_data_vec);
   void runBenchMark(std::vector<ClientDataRbyz> &clnt_data_vec);
   void logTrustScores(const std::vector<ClientDataRbyz> &clnt_data_vec, int only_flt) const;
+  void waitTimeout(ClientDataRbyz& clnt_data, int round);
+  void waitInfinite(ClientDataRbyz& clnt_data, int round);
 
 public:
   RByzAux(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params)
@@ -43,6 +50,11 @@ public:
         global_rounds(t_params.global_iters_rbyz),
         byz_clnt(mngr.worker_id <= t_params.n_byz_clnts),
         rng(std::random_device{}()) {
+
+          min_steps = std::ceil(local_steps * 0.5);
+          middle_steps = std::ceil(local_steps * 0.75);
+          step_range = std::uniform_int_distribution<int>(middle_steps, local_steps);
+
           if (t_params.use_mnist) {
             if (t_params.n_clients == 10) {
               step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};

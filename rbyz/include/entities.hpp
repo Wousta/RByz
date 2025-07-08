@@ -136,6 +136,7 @@ struct TrainInputParams {
   float vd_prop_write;        // Proportion of total chunks writable on client to write each time the test is renewed
   int test_renewal_freq;      // Frequency of test renewal (every n rounds)
   int overwrite_poisoned = 1; // Allow VD samples to overwrite poisoned samples
+  int wait_all = 0; // Ignore slow clients in the trust score calculation
 
   //misc
   int only_flt;
