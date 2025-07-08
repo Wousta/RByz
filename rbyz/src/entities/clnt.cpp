@@ -93,7 +93,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
 
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
   }
-  
+
   Logger::instance().log("Client: Finished all rounds of FLtrust\n");
   mngr.runTesting();
 
@@ -161,8 +161,8 @@ int main(int argc, char* argv[]) {
     reg_mngr = std::make_unique<RegMnistMngr>(id, t_params, mnist_net);
     Logger::instance().log("Client: Using MNIST dataset\n");
   } else {
-    // reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, cifar_net);
-    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, resnet);
+    reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, cifar_net);
+    // reg_mngr = std::make_unique<RegCIFAR10Mngr>(id, t_params, resnet);
     Logger::instance().log("Client: Using CIFAR10 dataset\n");
   }
 

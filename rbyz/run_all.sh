@@ -30,8 +30,8 @@ if [ "$use_mnist" = true ]; then
 else
   # CIFAR-10 dataset 50000 training images
   load_use_mnist_param="" 
-  glob_learn_rate=${5:-0.01}
-  local_learn_rate=${6:-0.01}  
+  glob_learn_rate=${5:-1.0}
+  local_learn_rate=${6:-0.1}  
   clnt_subset_size=${8:-4900}
   srvr_subset_size=${9:-1000}
   glob_iters_fl=${10:-3}

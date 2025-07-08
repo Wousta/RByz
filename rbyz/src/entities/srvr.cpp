@@ -242,8 +242,6 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     mngr.updateModelParameters(w);
     Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
-    Logger::instance().logAcc(t_params.only_flt, std::to_string(round) + " " +
-                                  std::to_string(mngr.test_accuracy) + "\n");
     Logger::instance().logCustom("", filename, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
   }
@@ -374,8 +372,8 @@ int main(int argc, char *argv[]) {
     reg_mngr = std::make_unique<RegMnistMngr>(0, t_params, mnist_net);
     Logger::instance().log("Server: Using MNIST dataset\n");
   } else {
-    // reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, cifar_net);
-    reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, resnet);
+    reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, cifar_net);
+    // reg_mngr = std::make_unique<RegCIFAR10Mngr>(0, t_params, resnet);
     Logger::instance().log("Server: Using CIFAR10 dataset\n");
   }
 
@@ -404,14 +402,6 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < n_clients; i++) {
     conns[i].acceptConn(addr_info, reg_info[i]);
     std::cout << "Connected to client " << i << "\n";
-  }
-
-  if (t_params.only_flt) {
-    Logger::instance().log("Server: Running FLTrust only\n");
-    Logger::instance().openFLAccLog();
-  } else {
-    Logger::instance().log("Server: Running RByz\n");
-    Logger::instance().openRByzAccLog();
   }
 
   std::string ts_file;
@@ -452,18 +442,22 @@ int main(int argc, char *argv[]) {
 
   std::string acc_msg = "Accuracy " + std::to_string(reg_mngr->test_accuracy) + "\n";
   std::string time_msg = "Time " + std::to_string(elapsed) + "\n";
-  std::string vd_msg = "VD_data " + std::to_string(t_params.clnt_vd_proportion) + " " +
-                      std::to_string(t_params.vd_prop_write) + " " +
-                      std::to_string(t_params.test_renewal_freq) + "\n";
-  std::string recall_msg = "Recall_data " + std::to_string(reg_mngr->src_class) + " " + 
-                           std::to_string(reg_mngr->target_class) + " " +
-                           std::to_string(reg_mngr->missclassed_samples) + " " + 
-                           std::to_string(reg_mngr->src_class_recall) + "\n";
+  std::string vd_msg = "clnt_vd_proportion " + std::to_string(t_params.clnt_vd_proportion) + "\n";
+  std::string vd_prop_msg = "vd_prop_write " + std::to_string(t_params.vd_prop_write) + "\n";
+  std::string test_renew_msg = "test_renewal_freq " + std::to_string(t_params.test_renewal_freq) + "\n";
+  std::string recall_msg = "src_targ_class " + std::to_string(reg_mngr->src_class) + " " + 
+                           std::to_string(reg_mngr->target_class) + "\n";
+  std::string miss_samples_msg = "missclassed_samples " + std::to_string(reg_mngr->missclassed_samples) + "\n";
+  std::string class_recall_msg = "src_class_recall " + std::to_string(reg_mngr->src_class_recall) + "\n";
 
   Logger::instance().logCustom("", final_data_file, acc_msg);
   Logger::instance().logCustom("", final_data_file, time_msg);
   Logger::instance().logCustom("", final_data_file, vd_msg);
+  Logger::instance().logCustom("", final_data_file, vd_prop_msg);
+  Logger::instance().logCustom("", final_data_file, test_renew_msg);
   Logger::instance().logCustom("", final_data_file, recall_msg);
+  Logger::instance().logCustom("", final_data_file, miss_samples_msg);
+  Logger::instance().logCustom("", final_data_file, class_recall_msg);
 
   Logger::instance().logCustom("", acc_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom("", ts_file, "$ END OF EXECUTION $\n");

@@ -7,8 +7,6 @@ ORIGINAL_DIR=$(pwd)
 # Common parameters
 clients=10
 byz_clients=2
-glob_learning_rate=0.01
-local_learn_rate=0.01
 epochs=5                    # Local rounds of FLtrust
 local_steps_rbyz=5          # Local rounds of RByz
 glob_iters_fl=3
@@ -52,6 +50,8 @@ run() {
 ########## MNIST Experiments ##########
 use_mnist="true"
 batch_size=32
+glob_learning_rate=0.01
+local_learn_rate=0.01
 clnt_subset_size=5900
 srvr_subset_size=1000
 
@@ -75,6 +75,7 @@ run "mnist_5%vd"
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
+glob_learning_rate=1.0
 clnt_subset_size=4900
 srvr_subset_size=1000
 

@@ -38,10 +38,10 @@ void RegCIFAR10Mngr::init() {
   }
 }
 
-RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net)
-//RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net)
-    // : BaseRegDatasetMngr<Cifar10Net>(worker_id, t_params, net),
-    : BaseRegDatasetMngr<ResNet<ResidualBlock>>(worker_id, t_params, net),
+// RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net)
+RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net)
+    : BaseRegDatasetMngr<Cifar10Net>(worker_id, t_params, net),
+    // : BaseRegDatasetMngr<ResNet<ResidualBlock>>(worker_id, t_params, net),
       //optimizer(model->parameters(), torch::optim::AdamOptions(learning_rate)),
       optimizer(model->parameters(), torch::optim::SGDOptions(learn_rate)
           .momentum(0.9) 

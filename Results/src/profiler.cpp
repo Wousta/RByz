@@ -48,8 +48,8 @@ int main(int argc, char* argv[]) {
     // Log final CPU and memory utilization
     double cpuUtil = cpuProfiler.getTotalCpuUtil();
     double memUtil = memoryProfiler.getAvgMemUtil();
-    std::string message = std::to_string(cpuUtil) + "\n";
-    message += std::to_string(memUtil) + "\n";
+    std::string message = "CPU " + std::to_string(cpuUtil) + "\n";
+    message += "MEM " + std::to_string(memUtil) + "\n";
     std::string filename = header + name + "_cpu_mem_util.log";
     Logger::instance().logCustom("", filename, message);
     Logger::instance().logCustom("", filename, "$ END OF EXECUTION $\n");

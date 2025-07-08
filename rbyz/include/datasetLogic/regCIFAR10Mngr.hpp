@@ -13,8 +13,8 @@ using transform::ConstantPad;
 using transform::RandomCrop;
 using transform::RandomHorizontalFlip;
 
-class RegCIFAR10Mngr : public BaseRegDatasetMngr<ResNet<ResidualBlock>> {
-// class RegCIFAR10Mngr : public BaseRegDatasetMngr<Cifar10Net> {
+// class RegCIFAR10Mngr : public BaseRegDatasetMngr<ResNet<ResidualBlock>> {
+class RegCIFAR10Mngr : public BaseRegDatasetMngr<Cifar10Net> {
 private:
   // Size of CIFAR-10 image in pixels (3 channels)
   const int IMG_SIZE = 32 * 32 * 3;
@@ -59,8 +59,8 @@ private:
   void init();
 
 public:
-  // RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net);
-  RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net);
+  RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar10Net net);
+  // RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, ResNet<ResidualBlock> net);
   ~RegCIFAR10Mngr() = default;
 
   
