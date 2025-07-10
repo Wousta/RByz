@@ -19,13 +19,14 @@ void signalHandler(int signal) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <name> <only_flt>" << std::endl;
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <name> <only_flt> <logs_dir>" << std::endl;
         return 1;
     }
 
     std::string name = argv[1];
     int only_flt = std::stoi(argv[2]);
+    std::string logs_dir = argv[3];
     CPUProfiler cpuProfiler; 
     memProfiler memoryProfiler;
 
@@ -51,8 +52,8 @@ int main(int argc, char* argv[]) {
     std::string message = "CPU " + std::to_string(cpuUtil) + "\n";
     message += "MEM " + std::to_string(memUtil) + "\n";
     std::string filename = header + name + "_cpu_mem_util.log";
-    Logger::instance().logCustom("", filename, message);
-    Logger::instance().logCustom("", filename, "$ END OF EXECUTION $\n");
+    Logger::instance().logCustom(logs_dir, filename, message);
+    Logger::instance().logCustom(logs_dir, filename, "$ END OF EXECUTION $\n");
     
     return 0;
 }

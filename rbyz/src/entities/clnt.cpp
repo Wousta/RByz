@@ -2,18 +2,18 @@
 #include "datasetLogic/iRegDatasetMngr.hpp"
 #include "datasetLogic/regCIFAR10Mngr.hpp"
 #include "datasetLogic/regMnistMngr.hpp"
+#include "entities.hpp"
+#include "global/globalConstants.hpp"
 #include "logger.hpp"
+#include "nets/cifar10Net.hpp"
+#include "nets/mnistNet.hpp"
+#include "rbyzAux.hpp"
 #include "rc_conn.hpp"
-#include "util.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
-#include "global/globalConstants.hpp"
-#include "rbyzAux.hpp"
-#include "entities.hpp"
-#include "nets/mnistNet.hpp"
-#include "nets/cifar10Net.hpp"
+#include "util.hpp"
 
-//#include <logger.hpp>
+// #include <logger.hpp>
 #include <lyra/lyra.hpp>
 #include <memory>
 #include <string>
@@ -22,7 +22,8 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, IRegDatasetMngr& mngr) {
+void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
+                        IRegDatasetMngr &mngr) {
   reg_info.addr_locs.push_back(castI(regMem.srvr_w));
   reg_info.addr_locs.push_back(castI(regMem.clnt_w));
   reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
@@ -46,19 +47,17 @@ void registerClntMemory(RegInfo& reg_info, RegMemClnt& regMem, IRegDatasetMngr& 
   reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_indices_mem_size);
 
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
-    IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+                         IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
 }
 
-std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
-                                            RdmaOps& rdma_ops,
-                                            IRegDatasetMngr& mngr,
-                                            RegMemClnt& regMem) {
+std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
+                                            IRegDatasetMngr &mngr,
+                                            RegMemClnt &regMem) {
 
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
   for (int round = 1; round <= rounds; round++) {
-    mngr.runTesting();
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -95,12 +94,10 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds,
   }
 
   Logger::instance().log("Client: Finished all rounds of FLtrust\n");
-  mngr.runTesting();
-
   return w;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   Logger::instance().log("Client starting execution\n");
 
   TrainInputParams t_params;
@@ -168,7 +165,7 @@ int main(int argc, char* argv[]) {
 
   std::vector<torch::Tensor> dummy_w = reg_mngr->getInitialWeights();
   uint64_t reg_sz_data = 0;
-  for (const auto& tensor : dummy_w) {
+  for (const auto &tensor : dummy_w) {
     reg_sz_data += tensor.numel() * sizeof(float);
   }
 
@@ -200,14 +197,16 @@ int main(int argc, char* argv[]) {
 
   // Label flipping at the beginning
   if (id <= t_params.n_byz_clnts) {
-    Logger::instance().log("Executing attack type " +  std::to_string(t_params.label_flip_type) + "\n");
-    label_flip_attack(use_mnist, t_params, *reg_mngr);
+    Logger::instance().log("Executing attack type " +
+                           std::to_string(t_params.label_flip_type) + "\n");
+    data_poison_attack(use_mnist, t_params, *reg_mngr);
   } else {
     Logger::instance().log("Not Byzantine\n");
   }
 
-  std::vector<torch::Tensor> w = run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);
-  
+  std::vector<torch::Tensor> w =
+      run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);
+
   RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
     Logger::instance().log("Client: Running RByz\n");

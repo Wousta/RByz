@@ -12,6 +12,7 @@ private:
   const int local_steps;
   const int global_rounds;
   const bool byz_clnt;
+  float ts_threshold;
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
@@ -44,6 +45,10 @@ private:
   void waitInfinite(ClientDataRbyz& clnt_data, int round);
 
 public:
+  void *extra_vd_col = nullptr;
+  uint32_t extra_vd_col_sz = 0;
+  uint32_t extra_vd_col_max_samples = 0;
+
   RByzAux(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params)
       : rdma_ops(rdma_ops), mngr(mngr), t_params(t_params),
         local_steps(t_params.local_steps_rbyz),
@@ -56,6 +61,7 @@ public:
           step_range = std::uniform_int_distribution<int>(middle_steps, local_steps);
 
           if (t_params.use_mnist) {
+            ts_threshold = 0.91; // Benchmark threshold
             if (t_params.n_clients == 10) {
               step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
             } else {
@@ -64,6 +70,7 @@ public:
               }
             }
           } else {
+            ts_threshold = 0.87; // Benchmark threshold
             if (t_params.n_clients == 10) {
               step_times = {{29389}, {29387}, {29386}, {29388}, {29390}, {29384}, {29388}, {29387}, {29387}, {29387}};
             } else {

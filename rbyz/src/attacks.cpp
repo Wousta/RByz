@@ -1,8 +1,8 @@
 #include "../include/attacks.hpp"
 #include "global/globalConstants.hpp"
 
-
-// These functions are translated from https://github.com/encryptogroup/SAFEFL/blob/main/attacks.py
+// These functions are translated from
+// https://github.com/encryptogroup/SAFEFL/blob/main/attacks.py
 
 /**
  * No attack is performed.
@@ -12,13 +12,9 @@
  * @param device: device used in training and inference
  * @return: list of gradients after the trim attack
  */
-std::vector<torch::Tensor> no_byz(
-    const std::vector<torch::Tensor> &v,
-    int lr,
-    int f,
-    torch::Device device)
-{
-    return v;
+std::vector<torch::Tensor> no_byz(const std::vector<torch::Tensor> &v, int lr,
+                                  int f, torch::Device device) {
+  return v;
 }
 
 /**
@@ -227,37 +223,41 @@ std::vector<torch::Tensor> krum_attack(
  * @note Uses fixed random seed (42) for reproducible attack execution
  * @note Only affects malicious/Byzantine clients as determined by the federated learning setup
  */
-void label_flip_attack(bool use_mnist, TrainInputParams &t_params, IRegDatasetMngr &mngr) {
-  std::mt19937 rng(42); // Fixed seed for reproducibility
+void data_poison_attack(bool use_mnist, TrainInputParams &t_params,
+                        IRegDatasetMngr &mngr) {
+  std::mt19937 rng(std::random_device{}());
   int label_flip_type = t_params.label_flip_type;
   float flip_ratio = t_params.flip_ratio;
 
   // Define target mappings: [setting][dataset][source, target]
   // dataset: 0=MNIST, 1=CIFAR-10
   const int target_mappings[3][2][2] = {
-    {{8, 0}, {5, 3}}, // TARGETED_FLIP_1
-    {{1, 5}, {0, 2}}, // TARGETED_FLIP_2  
-    {{4, 9}, {1, 9}}  // TARGETED_FLIP_3
+      {{8, 0}, {5, 3}}, // TARGETED_FLIP_1
+      {{1, 5}, {0, 2}}, // TARGETED_FLIP_2
+      {{4, 9}, {1, 9}}  // TARGETED_FLIP_3
   };
 
   switch (label_flip_type) {
-    case NO_ATTACK:
-      break;
-    case RANDOM_FLIP:
-      mngr.flipLabelsRandom(flip_ratio, rng);
-      break;
-    case TARGETED_FLIP_1:
-    case TARGETED_FLIP_2:
-    case TARGETED_FLIP_3: {
-      int setting = label_flip_type - TARGETED_FLIP_1; // Convert to 0-based index (2->0, 3->1, 4->2)
-      int dataset = use_mnist ? 0 : 1;
-      int source = target_mappings[setting][dataset][0];
-      int target = target_mappings[setting][dataset][1];
-      
-      mngr.flipLabelsTargeted(source, target, flip_ratio, rng);
-      break;
-    }
-    default:
-      throw std::runtime_error("Unknown label flip type");
+  case NO_ATTACK:
+    break;
+  case RANDOM_FLIP:
+    mngr.flipLabelsRandom(flip_ratio, rng);
+    break;
+  case CORRUPT_IMAGES_RNG:
+    mngr.corruptImagesRandom(flip_ratio, rng);
+    break;
+  case TARGETED_FLIP_1:
+  case TARGETED_FLIP_2:
+  case TARGETED_FLIP_3: {
+    int setting = label_flip_type - TARGETED_FLIP_1; // Convert to 0-based index
+    int dataset = use_mnist ? 0 : 1;
+    int source = target_mappings[setting][dataset][0];
+    int target = target_mappings[setting][dataset][1];
+
+    mngr.flipLabelsTargeted(source, target, flip_ratio, rng);
+    break;
+  }
+  default:
+    throw std::runtime_error("Unknown label flip type");
   }
 }

@@ -25,4 +25,4 @@ std::vector<torch::Tensor> krum_attack(
   torch::Device device
 );
 
-void label_flip_attack(bool use_mnist, TrainInputParams &t_params, IRegDatasetMngr &mngr);
+void data_poison_attack(bool use_mnist, TrainInputParams &t_params, IRegDatasetMngr &mngr);

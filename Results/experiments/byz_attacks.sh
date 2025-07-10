@@ -1,52 +1,136 @@
 #!/bin/bash
 
-# Byzantine Attacks Experiment Script
-# Follows the methodology from the paper: https://arxiv.org/pdf/2007.08432
-
+# Accuracy vs Test Size Experiment. 
+# Methodology based in: https://arxiv.org/pdf/2007.08432
 trap 'echo "Script interrupted. Exiting..."; exit 1' INT TERM
 ORIGINAL_DIR=$(pwd)
+EXPERIMENT="byz_attacks"
+IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
+#REMOTE_HOSTS=("dcldelta4" "dcldelta2")
+REMOTE_HOSTS=("dcldelta4")
+
+echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
 # Common parameters
 clients=50
-epochs=5
-glob_learning_rate=0.05
-local_learn_rate=0.05
-byz_clients=2
-chunk_size=2
-label_flip_type=2
+epochs=5                    # Local rounds of FLtrust
+local_steps_rbyz=5          # Local rounds of RByz
+chunk_size=1                # Slab size for RByz VDsampling
+overwrite_poisoned=0        # Do not overwrite poisoned data
+test_renewal_freq=1         # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
+vd_prop=0.25
+vd_prop_write=0.1           # Proportion of total chunks writable on client to write each time the test is renewed
 flip_ratio=1.0
-only_flt=0  # Run FLtrust only
 
-rm -rf ../logs/*
-rm -rf ../accLogs/*
+rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
 
+byz_clients_arr=(0 1 2 5 10 15 20 25)
 run() {
     local name=$1
-    local i_start=$2    # Controls the VD proportion to use
+    echo "=========================================================="
+    echo "---- Starting experiment $name ----"
+    echo "=========================================================="
 
-    echo "Starting experiment $name from iteration $i_start"
-
-    for ((i=$i_start; i<=10; i++)); do
-        echo "Running experiment iteration $i"
-        vd_prop=$(awk "BEGIN {printf \"%.1f\", 0.1 * $i}")
-        echo "VD proportion: $vd_prop"
+    for byz_clients in "${byz_clients_arr[@]}"; do
+        echo "______________________________________________________________________"
+        echo "---- Running experiment $name with $byz_clients byzantine clients ----"
         
-        ./run_all.sh $use_mnist $clients $epochs $batch_size $glob_learning_rate $local_learn_rate $byz_clients \
-            $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
-            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop
-
-        cd ../Results/accLogs
-        percent=$(awk "BEGIN {printf \"%.1f\", $vd_prop * 100}")
-        mv R_acc*.log "R_vdprop_acc_${percent}%.log"
-        cd ../../rbyz
+        ./run_all.sh $EXPERIMENT $IP_ADDRESS "${REMOTE_HOSTS[*]}" $use_mnist $clients $epochs $batch_size $glob_learning_rate \
+            $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
+            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned
     done
 
-    cd ../Results/logs
+
+    cd ../Results/logs/$EXPERIMENT
     mkdir -p "$name"
     mv *.log "$name/"
-    mv ../accLogs/*.log "$name/"
-    cd ../../rbyz
+    cd ../../../rbyz
 }
+
+#######################################
+########## MNIST Experiments ##########
+use_mnist="true"
+batch_size=32
+glob_learning_rate=0.01
+local_learn_rate=0.01
+clnt_subset_size=200
+srvr_subset_size=1196
+
+#-------------# FLtrust #-------------#
+only_flt=1    
+glob_iters_fl=75
+glob_iters_rbyz=0      
+
+label_flip_type=0           
+run "F_mnist_set_0"
+
+label_flip_type=2           
+run "F_mnist_set_2"
+
+label_flip_type=3           
+run "F_mnist_set_3"
+
+label_flip_type=4           
+run "F_mnist_set_4"
+
+#---------------# RByz #--------------#
+only_flt=0 
+glob_iters_fl=3
+glob_iters_rbyz=72     
+
+label_flip_type=0         
+run "R_mnist_set_0"
+
+label_flip_type=2         
+run "R_mnist_set_2"
+
+label_flip_type=3         
+run "R_mnist_set_3"
+
+label_flip_type=4         
+run "R_mnist_set_4"
+
+#######################################
+########## CIFAR Experiments ##########
+use_mnist="false"
+batch_size=64
+glob_learning_rate=1.0
+clnt_subset_size=200
+srvr_subset_size=996
+
+#-------------# FLtrust #-------------#
+only_flt=1    
+glob_iters_fl=75
+glob_iters_rbyz=0               
+
+label_flip_type=0          
+run "F_cifar_set_0"
+
+label_flip_type=2          
+run "F_cifar_set_2"
+
+label_flip_type=3          
+run "F_cifar_set_3"
+
+label_flip_type=4          
+run "F_cifar_set_4"
+
+#---------------# RByz #--------------#
+only_flt=0 
+glob_iters_fl=3
+glob_iters_rbyz=72 
+
+label_flip_type=0         
+run "R_cifar_set_0"
+
+label_flip_type=2         
+run "R_cifar_set_2"
+
+label_flip_type=3         
+run "R_cifar_set_3"
+
+label_flip_type=4         
+run "R_cifar_set_4"
 
 cd "$ORIGINAL_DIR"

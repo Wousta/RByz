@@ -98,7 +98,8 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 
 torch::Tensor
 aggregate_updates(const std::vector<torch::Tensor> &client_updates,
-                  const torch::Tensor &server_update, std::vector<uint32_t> &clnt_indices, std::vector<float> log_TS_vec, int only_flt) {
+                  const torch::Tensor &server_update, std::vector<uint32_t> &clnt_indices, 
+                  std::vector<float> log_TS_vec, TrainInputParams &t_params) {
 
   if (client_updates.empty()) {
     Logger::instance().log(
@@ -138,11 +139,10 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
     Logger::instance().log(oss.str());
   }
 
-  std::string filename = (only_flt) ? "F_trust_scores.log" : "R_trust_scores.log";
-  Logger::instance().logCustom("", filename, "- FL\n");
+  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, "- FL\n");
   for (int i = 0; i < log_TS_vec.size(); i++) {
     std::string message = std::to_string(log_TS_vec[i]) + "\n";
-    Logger::instance().logCustom("", filename, message);
+    Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, message);
   }
 
   float sum_trust = 0.0f;
@@ -232,7 +232,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = tops::flatten_tensor_vector(g);
     torch::Tensor aggregated_update =
-        aggregate_updates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params.only_flt);
+        aggregate_updates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params);
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
 
@@ -242,7 +242,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     mngr.updateModelParameters(w);
     Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
-    Logger::instance().logCustom("", filename, std::to_string(round) + " " +
+    Logger::instance().logCustom(t_params.logs_dir, filename, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
   }
 
@@ -309,6 +309,7 @@ int main(int argc, char *argv[]) {
       lyra::opt(srvr_ip, "srvr_ip")["-i"]["--srvr_ip"]("srvr_ip") |
       lyra::opt(port, "port")["-p"]["--port"]("port") |
       lyra::opt(n_clients, "n_clients")["-w"]["--n_clients"]("n_clients") |
+      lyra::opt(t_params.logs_dir, "logs_dir")["--logs_dir"]("Directory for this experiment logs") |
       lyra::opt(t_params.use_mnist)["-l"]["--load"]("Load model from saved file") |
       lyra::opt(t_params.n_byz_clnts, "n_byz")["-b"]["--n_byz"]("byzantine clients") |
       lyra::opt(t_params.epochs, "epochs")["--epochs"]("number of epochs") |
@@ -405,23 +406,22 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
-  std::string ts_file;
-  std::string acc_file;
+  std::string dir = t_params.logs_dir;
   std::string final_data_file;
   int rounds;
   if (t_params.only_flt) {
-    ts_file = "F_trust_scores.log";
+    t_params.ts_file = "F_trust_scores.log";
+    t_params.acc_file = "F_acc.log";
     final_data_file = "F_final_data.log";
-    acc_file = "F_acc.log";
     rounds = t_params.global_iters_fl;
   } else {
-    ts_file = "R_trust_scores.log";
+    t_params.ts_file = "R_trust_scores.log";
+    t_params.acc_file = "R_acc.log";
     final_data_file = "R_final_data.log";
-    acc_file = "R_acc.log";
     rounds = t_params.global_iters_rbyz + t_params.global_iters_fl;
   }
-  Logger::instance().logCustom("", ts_file, std::to_string(rounds) + "\n");
-  Logger::instance().logCustom("", ts_file, std::to_string(n_clients) + "\n");
+  Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(rounds) + "\n");
+  Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(n_clients) + "\n");
 
   std::cout << "SRVR Running FLTrust\n";
   auto start = std::chrono::high_resolution_clock::now();
@@ -451,18 +451,18 @@ int main(int argc, char *argv[]) {
   std::string miss_samples_msg = "missclassed_samples " + std::to_string(reg_mngr->missclassed_samples) + "\n";
   std::string class_recall_msg = "src_class_recall " + std::to_string(reg_mngr->src_class_recall) + "\n";
 
-  Logger::instance().logCustom("", final_data_file, acc_msg);
-  Logger::instance().logCustom("", final_data_file, time_msg);
-  Logger::instance().logCustom("", final_data_file, vd_msg);
-  Logger::instance().logCustom("", final_data_file, vd_prop_msg);
-  Logger::instance().logCustom("", final_data_file, test_renew_msg);
-  Logger::instance().logCustom("", final_data_file, recall_msg);
-  Logger::instance().logCustom("", final_data_file, miss_samples_msg);
-  Logger::instance().logCustom("", final_data_file, class_recall_msg);
+  Logger::instance().logCustom(dir, final_data_file, acc_msg);
+  Logger::instance().logCustom(dir, final_data_file, time_msg);
+  Logger::instance().logCustom(dir, final_data_file, vd_msg);
+  Logger::instance().logCustom(dir, final_data_file, vd_prop_msg);
+  Logger::instance().logCustom(dir, final_data_file, test_renew_msg);
+  Logger::instance().logCustom(dir, final_data_file, recall_msg);
+  Logger::instance().logCustom(dir, final_data_file, miss_samples_msg);
+  Logger::instance().logCustom(dir, final_data_file, class_recall_msg);
 
-  Logger::instance().logCustom("", acc_file, "$ END OF EXECUTION $\n");
-  Logger::instance().logCustom("", ts_file, "$ END OF EXECUTION $\n");
-  Logger::instance().logCustom("", final_data_file, "$ END OF EXECUTION $\n");
+  Logger::instance().logCustom(dir, t_params.acc_file, "$ END OF EXECUTION $\n");
+  Logger::instance().logCustom(dir, t_params.ts_file, "$ END OF EXECUTION $\n");
+  Logger::instance().logCustom(dir, final_data_file, "$ END OF EXECUTION $\n");
 
   rbyz_aux.awaitTermination(clnt_data_vec, t_params.global_iters_rbyz);
   regMem->srvr_ready_flag = SRVR_FINISHED;

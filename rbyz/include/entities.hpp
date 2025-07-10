@@ -3,6 +3,7 @@
 #include "logger.hpp"
 #include <atomic>
 #include <cstdint>
+#include <sys/types.h>
 #include <vector>
 
 /**
@@ -117,6 +118,11 @@ struct ClientDataRbyz {
 };
 
 struct TrainInputParams {
+  // Logging
+  std::string logs_dir = "";
+  std::string ts_file = "";
+  std::string acc_file= "";
+
   bool use_mnist = false;
   int n_clients;
   int n_byz_clnts;
