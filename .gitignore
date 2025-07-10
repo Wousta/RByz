@@ -61,5 +61,11 @@ pass.txt
 rbyz/.vscode
 Results/build
 Results/logs
+Results/keep
 Results/accLogs
-Results/accuracy_comparison.png
+Results/experiments/plots
+Results/.cache
+Results/*.png
+Results/*.json
+rbyz/.cache
+fltrust/.cache
