@@ -42,8 +42,11 @@ template <typename NetType> BaseRegDatasetMngr<NetType>::~BaseRegDatasetMngr() {
     }
 
     cudaFreeHost(data_info.reg_data);
-    cudaFreeHost(f_pass_data.forward_pass);
-    cudaFreeHost(f_pass_data.forward_pass_indices);
+
+    if (!only_flt) {
+      cudaFreeHost(f_pass_data.forward_pass);
+      cudaFreeHost(f_pass_data.forward_pass_indices);
+    }
     Logger::instance().log("Freed Cuda registered memory for dataset\n");
   }
 }
@@ -163,19 +166,7 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
 
   Logger::instance().log("  Testing:\n");
   auto params = model->parameters();
-  float total_sum = 0.0f;
-  for (const auto& param : params) {
-      total_sum += param.sum().template item<float>();
-  }
-  Logger::instance().log("Model parameters checksum: " + std::to_string(total_sum) + "\n");
-
   auto buffers = model->buffers();
-  Logger::instance().log("ResNet Buffers count: " + std::to_string(buffers.size()) + "\n");
-  float buffer_sum = 0.0f;
-  for (const auto& buffer : buffers) {
-      buffer_sum += buffer.sum().template item<float>();
-  }
-  Logger::instance().log("  Buffers checksum: " + std::to_string(buffer_sum) + "\n");
 
   for (const auto &batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
@@ -240,12 +231,18 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   Logger::instance().log("  RegTraining model for epoch " +
                          std::to_string(epoch) + "\n");
 
-  if (pending_forward_pass.load()) {
-    Logger::instance().log(
-        "Waiting for previous forward pass processing to complete\n");
-    forward_pass_future.wait();
-    pending_forward_pass.store(false);
-  }
+  if (!only_flt) {
+    if (pending_forward_pass.load()) {
+      Logger::instance().log(
+          "Waiting for previous forward pass processing to complete\n");
+      forward_pass_future.wait();
+      pending_forward_pass.store(false);
+    }
+
+    current_buffer.outputs.clear();
+    current_buffer.targets.clear();
+    current_buffer.losses.clear();
+  }                       
 
   model->train();
 
@@ -261,17 +258,14 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   size_t total = 0;
   int32_t correct = 0;
 
-  current_buffer.outputs.clear();
-  current_buffer.targets.clear();
-  current_buffer.losses.clear();
-
   std::vector<int> labels(10, 0);
   for (const auto &batch : data_loader) {
-    for (int i = 0; i < batch.data.size(0); ++i) {
-      labels[batch.target[i].template item<int64_t>()]++;
-      f_pass_data.forward_pass_indices[global_sample_idx] =
-          *getOriginalIndex(global_sample_idx);
-      global_sample_idx++;
+    if (!only_flt) {
+      for (int i = 0; i < batch.data.size(0); ++i) {
+        labels[batch.target[i].template item<int64_t>()]++;
+        f_pass_data.forward_pass_indices[global_sample_idx] = *getOriginalIndex(global_sample_idx);
+        global_sample_idx++;
+      }
     }
 
     auto data_cpu = batch.data;
@@ -315,15 +309,17 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     // Clear gradients from previous iteration
     optimizer.zero_grad();
     auto output = model->forward(data);
-    auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
-    torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
-    // auto individual_losses =
-    //     torch::nll_loss(output, targets, {}, torch::Reduction::None);
 
-    current_buffer.outputs.push_back(output);
-    current_buffer.targets.push_back(targets);
-    current_buffer.losses.push_back(individual_losses);
+    if (!only_flt) {
+      auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
+      torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
+      // auto individual_losses =
+      //     torch::nll_loss(output, targets, {}, torch::Reduction::None);
 
+      current_buffer.outputs.push_back(output);
+      current_buffer.targets.push_back(targets);
+      current_buffer.losses.push_back(individual_losses);
+    }
     // Backpropagation
     /**
      * Using sum instead of mean for the following reasons:
@@ -347,33 +343,35 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     batch_idx++;
   }
 
-  Logger::instance().log("Labels per class processed: " +
-                         std::to_string(labels[0]) + ", " +
-                         std::to_string(labels[1]) + ", " +
-                         std::to_string(labels[2]) + ", " +
-                         std::to_string(labels[3]) + ", " +
-                         std::to_string(labels[4]) + ", " +
-                         std::to_string(labels[5]) + ", " +
-                         std::to_string(labels[6]) + ", " +
-                         std::to_string(labels[7]) + ", " +
-                         std::to_string(labels[8]) + ", " +
-                         std::to_string(labels[9]) + "\n");
+  // Logger::instance().log("Labels per class processed: " +
+  //                        std::to_string(labels[0]) + ", " +
+  //                        std::to_string(labels[1]) + ", " +
+  //                        std::to_string(labels[2]) + ", " +
+  //                        std::to_string(labels[3]) + ", " +
+  //                        std::to_string(labels[4]) + ", " +
+  //                        std::to_string(labels[5]) + ", " +
+  //                        std::to_string(labels[6]) + ", " +
+  //                        std::to_string(labels[7]) + ", " +
+  //                        std::to_string(labels[8]) + ", " +
+  //                        std::to_string(labels[9]) + "\n");
 
   // Wait for any remaining async operations
   if (device.is_cuda()) {
     cudaDeviceSynchronize();
   }
 
-  Logger::instance().log(
-      "\nStarting concurrent forward pass processing for epoch " +
-      std::to_string(epoch) + "\n");
+  if (!only_flt) {
+    Logger::instance().log(
+        "\nStarting concurrent forward pass processing for epoch " +
+        std::to_string(epoch) + "\n");
 
-  // Move current buffer to pending and start concurrent processing
-  pending_buffer = std::move(current_buffer);
-  forward_pass_future = std::async(
-      std::launch::async, &BaseRegDatasetMngr::processForwardPassConcurrent,
-      this, std::move(pending_buffer));
-  pending_forward_pass.store(true);
+    // Move current buffer to pending and start concurrent processing
+    pending_buffer = std::move(current_buffer);
+    forward_pass_future = std::async(
+        std::launch::async, &BaseRegDatasetMngr::processForwardPassConcurrent,
+        this, std::move(pending_buffer));
+    pending_forward_pass.store(true);
+  }
 }
 
 template <typename NetType>
@@ -432,6 +430,11 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
 template <typename NetType>
 template <typename DataLoader>
 void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
+  if (only_flt) {
+    Logger::instance().log("WARNING: Skipping inference in FLT mode\n");
+    return;
+  }
+
   // Wait for any pending forward pass processing
   if (pending_forward_pass.load()) {
     Logger::instance().log(
@@ -442,8 +445,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
 
   torch::NoGradGuard no_grad; // Prevent gradient calculation
   model->eval();              // Set model to evaluation mode
-
-  Logger::instance().log("  Running inference on registered dataset\n");
 
   int32_t correct = 0;
   size_t total = 0;
@@ -510,7 +511,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
   }
 
   // For inference, process synchronously since we need immediate results
-  Logger::instance().log("Processing inference results\n");
   processForwardPass(inference_buffer);
 
   Logger::instance().log("Inference completed - Loss: " + std::to_string(loss) +
@@ -633,17 +633,12 @@ void BaseRegDatasetMngr<NetType>::processForwardPassConcurrent(
   assert(buffer.outputs.size() == buffer.losses.size() &&
          "Outputs and losses vectors must have the same size");
 
-  Logger::instance().log("Processing forward pass concurrently with " +
-                         std::to_string(buffer.outputs.size()) + " batches\n");
-
   // Process the batch results and store them in the forward_pass buffer
   size_t curr_idx = 0;
   for (size_t i = 0; i < buffer.outputs.size(); ++i) {
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
-
-  Logger::instance().log("Concurrent forward pass processing completed\n");
 }
 
 /**
@@ -693,8 +688,7 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
   for (size_t i = 0; i < cpu_losses.size(0); ++i) {
     if (curr_idx < forward_pass_size / 2) {
       f_pass_data.forward_pass[curr_idx] = losses_accessor[i];
-      f_pass_data.forward_pass[error_start + curr_idx] =
-          correct_accessor[i] ? 0.0f : 1.0f;
+      f_pass_data.forward_pass[error_start + curr_idx] = correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0)
         Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
       if (curr_idx < 3) {
@@ -755,32 +749,31 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
 
   cudaHostAlloc((void **)&data_info.reg_data, data_info.reg_data_size,
                 cudaHostAllocDefault);
-  cudaHostAlloc((void **)&f_pass_data.forward_pass,
-                f_pass_data.forward_pass_mem_size, cudaHostAllocDefault);
-  cudaHostAlloc((void **)&f_pass_data.forward_pass_indices,
-                f_pass_data.forward_pass_indices_mem_size,
-                cudaHostAllocDefault);
 
-  uint32_t num_batches = ceil(data_info.num_samples / kTrainBatchSize);
-  current_buffer.outputs.reserve(num_batches);
-  current_buffer.targets.reserve(num_batches);
-  current_buffer.losses.reserve(num_batches);
-  pending_buffer.outputs.reserve(num_batches);
-  pending_buffer.targets.reserve(num_batches);
-  pending_buffer.losses.reserve(num_batches);
-  inference_buffer.outputs.reserve(num_batches);
-  inference_buffer.targets.reserve(num_batches);
-  inference_buffer.losses.reserve(num_batches);
+  if (!only_flt) {
+    // These memory allocations are not needed in FL trust
+    cudaHostAlloc((void **)&f_pass_data.forward_pass,
+                  f_pass_data.forward_pass_mem_size, cudaHostAllocDefault);
+    cudaHostAlloc((void **)&f_pass_data.forward_pass_indices,
+                  f_pass_data.forward_pass_indices_mem_size,
+                  cudaHostAllocDefault);
+
+    uint32_t num_batches = ceil(data_info.num_samples / kTrainBatchSize);
+    current_buffer.outputs.reserve(num_batches);
+    current_buffer.targets.reserve(num_batches);
+    current_buffer.losses.reserve(num_batches);
+    pending_buffer.outputs.reserve(num_batches);
+    pending_buffer.targets.reserve(num_batches);
+    pending_buffer.losses.reserve(num_batches);
+    inference_buffer.outputs.reserve(num_batches);
+    inference_buffer.targets.reserve(num_batches);
+    inference_buffer.losses.reserve(num_batches);
+  }
 
   Logger::instance().log(
       "registered_samples: " + std::to_string(indices.size()) + "\n");
   Logger::instance().log("Allocated registered memory for dataset: " +
                          std::to_string(data_info.reg_data_size) + " bytes\n");
-}
-
-template <typename NetType>
-void BaseRegDatasetMngr<NetType>::renewDataset(float proportion, std::optional<int> seed) {
-
 }
 
 //////////////////////// LABEL FLIPPING ATTCKS ////////////////////////

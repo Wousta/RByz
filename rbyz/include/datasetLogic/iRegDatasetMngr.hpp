@@ -16,6 +16,7 @@ public:
   const int64_t kTestBatchSize = 1000;
   const int64_t kLogInterval = 10;
   const int overwrite_poisoned;
+  const int only_flt;
   int64_t kNumberOfEpochs;
   int64_t subset_size = 0;
   size_t test_dataset_size;
@@ -35,7 +36,7 @@ public:
   ForwardPassData f_pass_data;
 
   IRegDatasetMngr(int worker_id, TrainInputParams &t_params)
-      : worker_id(worker_id), t_params(t_params),
+      : worker_id(worker_id), t_params(t_params), only_flt(t_params.only_flt),
         n_clients(t_params.n_clients), kTrainBatchSize(t_params.batch_size), overwrite_poisoned(t_params.overwrite_poisoned),
         kNumberOfEpochs(t_params.epochs), learn_rate(t_params.local_learn_rate) {
           if (worker_id == 0) {

@@ -30,7 +30,7 @@ public:
   virtual void runTraining() override = 0;
   virtual void runTesting() override = 0;
   virtual void runInference() override = 0;
-  virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override;
+  virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override = 0;
 
   std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
                                              uint32_t srvr_subset_size,

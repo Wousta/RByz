@@ -21,9 +21,10 @@ inline constexpr int SRVR_FINISHED_RBYZ = -2;
 // Byz attack settings
 inline constexpr int NO_ATTACK = 0;
 inline constexpr int RANDOM_FLIP = 1;
-inline constexpr int TARGETED_FLIP_1 = 2;
-inline constexpr int TARGETED_FLIP_2 = 3;
-inline constexpr int TARGETED_FLIP_3 = 4;
+inline constexpr int CORRUPT_IMAGES_RNG = 2;
+inline constexpr int TARGETED_FLIP_1 = 3;
+inline constexpr int TARGETED_FLIP_2 = 4;
+inline constexpr int TARGETED_FLIP_3 = 5;
 
 // addr_locs of buffers
 inline constexpr int SRVR_W_IDX = 0;

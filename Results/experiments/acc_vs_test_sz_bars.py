@@ -135,7 +135,7 @@ def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str)
         print(f"{percentage}%: mean={np.mean(accuracies):.2f}, std={np.std(accuracies):.2f}")
     
     # Create the plot
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(7, 6))
     
     # Create bar chart
     bars = plt.bar(percentages, means, 

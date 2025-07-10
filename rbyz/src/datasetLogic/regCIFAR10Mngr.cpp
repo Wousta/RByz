@@ -91,7 +91,9 @@ void RegCIFAR10Mngr::buildLabelToIndicesMap() {
     label_to_indices[label].push_back(i);
   }
 
-  std::mt19937 rng(42); // Fixed seed for reproducible shuffling
+  // Needs fixed seed so every worker has the same shuffled label_to_indices map, so that subset sampler 
+  // Distributes the corresponding indices to each worker. This shuffling is not strictly necessary
+  std::mt19937 rng(42); 
   for (auto &pair : label_to_indices) {
     std::shuffle(pair.second.begin(), pair.second.end(), rng);
   }
