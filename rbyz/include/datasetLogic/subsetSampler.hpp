@@ -18,7 +18,6 @@ class SubsetSampler : public torch::data::samplers::Sampler<std::vector<size_t>>
         : indices_(std::move(indices)), current_(0) {}
 
     // Reset the sampler with an optional new size.
-    // Providing a default argument so that a call with no parameters is allowed.
     void reset(std::optional<size_t> new_size = std::nullopt) override {
         if (new_size.has_value()) {
             if (new_size.value() < indices_.size()) {
