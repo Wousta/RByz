@@ -3,10 +3,10 @@
 # Accuracy vs Test Size Experiment
 trap 'echo "Script interrupted. Exiting..."; exit 1' INT TERM
 ORIGINAL_DIR=$(pwd)
-EXPERIMENT="acc_vs_test_size"
+EXPERIMENT="cf_acc_vs_test_size_nodev"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
+PORT=2100
 REMOTE_HOSTS=("dcldelta4")
-port=${3:-"2000"}
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -56,12 +56,12 @@ run() {
 
 #######################################
 ########## MNIST Experiments ##########
-use_mnist="true"
-batch_size=32
-glob_learning_rate=0.09
-local_learn_rate=0.01
-clnt_subset_size=5900
-srvr_subset_size=1000
+# use_mnist="true"
+# batch_size=32
+# glob_learning_rate=0.09
+# local_learn_rate=0.01
+# clnt_subset_size=5900
+# srvr_subset_size=1000
 
 # vd_prop=0.25
 # run "mnist_25%vd"
@@ -83,22 +83,35 @@ srvr_subset_size=1000
 use_mnist="false"
 batch_size=64
 glob_learning_rate=0.9
+local_learn_rate=0.01
 clnt_subset_size=4900
 srvr_subset_size=1000
 
-# vd_prop=0.25
-# run "cifar_25%vd"
+vd_prop=0.25
+run "cifar_25%vd"
+
+vd_prop=0.23
+run "cifar_23%vd"
 
 vd_prop=0.2
 run "cifar_20%vd"
 
-vd_prop=0.15
-run "cifar_15%vd"
+vd_prop=0.17
+run "cifar_17%vd"
 
-vd_prop=0.10
-run "cifar_10%vd"
+vd_prop=0.14
+run "cifar_14%vd"
+
+vd_prop=0.11
+run "cifar_11%vd"
+
+vd_prop=0.08
+run "cifar_8%vd"
 
 vd_prop=0.05
 run "cifar_5%vd"
+
+vd_prop=0.02
+run "cifar_2%vd"
 
 cd "$ORIGINAL_DIR"

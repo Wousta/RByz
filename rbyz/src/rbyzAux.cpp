@@ -5,6 +5,7 @@
 #include "tensorOps.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <thread>
 #include <unistd.h>
 
@@ -564,12 +565,12 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
 void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("Client: Starting RByz with accuracy\n");
-
+  std::string log_file = "stepTimes_" + std::to_string(regMem.id) + ".log";
   // Set manager epochs to 1, the epochs will be controled by RByz
   mngr.kNumberOfEpochs = 1;
 
   while (regMem.round.load() < global_rounds) {
-    if (regMem.round.load() == 2) {
+    if (regMem.round.load() == 1) {
       Logger::instance().log("POST: first mnist samples\n");
       for (int i = 0; i < 5; i++) {
         Logger::instance().log(
@@ -581,15 +582,12 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
 
     regMem.local_step.store(0);
 
-    Logger::instance().log("\n//////////////// Client: Round " +
-                           std::to_string(regMem.round.load()) +
-                           " started ////////////////\n");
+    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " started ////////////////\n");
     // Wait for the server to be ready
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::sleep_for(std::chrono::nanoseconds(10));
-    } while (regMem.srvr_ready_flag != regMem.round.load() &&
-             regMem.srvr_ready_flag != SRVR_FINISHED);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (regMem.srvr_ready_flag != regMem.round.load() && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
       Logger::instance().log("Server finished early, exiting...\n");

@@ -3,10 +3,10 @@
 # Accuracy vs Test Size Experiment
 trap 'echo "Script interrupted. Exiting..."; exit 1' INT TERM
 ORIGINAL_DIR=$(pwd)
-EXPERIMENT="acc_vs_test_size"
+EXPERIMENT="mn_acc_vs_test_size_nodev"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
-REMOTE_HOSTS=("dcldelta4")
-port=${3:-"2000"}
+PORT=2000
+REMOTE_HOSTS=("dcldelta3")
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -22,7 +22,7 @@ label_flip_type=1           # 1: Random label flip
 flip_ratio=0.5              # 50% of the data will be flipped
 overwrite_poisoned=0        # Do not overwrite poisoned data
 only_flt=0                  # Run RByz
-test_renewal_freq=1         # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
+test_renewal_freq=10         # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
 vd_prop_write=0.1           # Proportion of total chunks writable on client to write each time the test is renewed
 
 rm -rf ../logs/$EXPERIMENT/*
@@ -63,42 +63,67 @@ local_learn_rate=0.01
 clnt_subset_size=5900
 srvr_subset_size=1000
 
-# vd_prop=0.25
-# run "mnist_25%vd"
+vd_prop=0.25
+run "mnist_25%vd"
 
-# vd_prop=0.2
-# run "mnist_20%vd"
+vd_prop=0.23
+run "mnist_23%vd"
 
-# vd_prop=0.15
-# run "mnist_15%vd"
+vd_prop=0.2
+run "mnist_20%vd"
 
-# vd_prop=0.10
-# run "mnist_10%vd"
+vd_prop=0.17
+run "mnist_17%vd"
 
-# vd_prop=0.05
-# run "mnist_5%vd"
+vd_prop=0.14
+run "mnist_14%vd"
+
+vd_prop=0.11
+run "mnist_11%vd"
+
+vd_prop=0.08
+run "mnist_8%vd"
+
+vd_prop=0.05
+run "mnist_5%vd"
+
+vd_prop=0.02
+run "mnist_2%vd"
 
 #######################################
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
 glob_learning_rate=0.9
+local_learn_rate=0.01
 clnt_subset_size=4900
 srvr_subset_size=1000
 
 # vd_prop=0.25
 # run "cifar_25%vd"
 
-vd_prop=0.2
-run "cifar_20%vd"
+# vd_prop=0.23
+# run "cifar_23%vd"
 
-vd_prop=0.15
-run "cifar_15%vd"
+# vd_prop=0.2
+# run "cifar_20%vd"
 
-vd_prop=0.10
-run "cifar_10%vd"
+# vd_prop=0.17
+# run "cifar_17%vd"
 
-vd_prop=0.05
-run "cifar_5%vd"
+# vd_prop=0.14
+# run "cifar_14%vd"
+
+# vd_prop=0.11
+# run "cifar_11%vd"
+
+# vd_prop=0.08
+# run "cifar_8%vd"
+
+# vd_prop=0.05
+# run "cifar_5%vd"
+
+# vd_prop=0.02
+# run "cifar_2%vd"
 
 cd "$ORIGINAL_DIR"

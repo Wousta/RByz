@@ -140,6 +140,7 @@ int post_send(ibv_wr_opcode opcode, RcConn &conn, const std::deque<comm_info> &s
   }
   if (ret) {
     std::cerr << "post send failed " << strerror(errno) << "\n" << std::flush;
+    throw std::runtime_error( "post_send failed: " + std::string(strerror(errno)));
     ret = -1;
     delete[] send_wr;
     exit(-1);
