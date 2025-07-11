@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # Configuration
-logs_dir=${1:-""}
-srvr_ip=${2:-"192.168.128.103"}
-port=${3:-"2000"}
-remote_user="bustaman"
 #remote_hosts=("dcldelta2" "dcldelta3" "dcldelta4")
-if [ -n "$4" ]; then
+if [ -n "$1" ]; then
   # Convert space-separated string back to array
-  read -ra remote_hosts <<< "$4"
+  read -ra remote_hosts <<< "$1"
 else
   echo "No remote hosts provided, exiting"
   exit 1
 fi
+logs_dir=${2:-""}
+srvr_ip=${3:-"192.168.128.103"}
+port=${4:-"2000"}
+remote_user="bustaman"
 remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 

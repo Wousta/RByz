@@ -353,14 +353,14 @@ void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
 
-  std::chrono::milliseconds exp_backoff_time(1);
+  //std::chrono::milliseconds exp_backoff_time(1);
   bool advanced = true;
-  while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
-    std::this_thread::sleep_for(exp_backoff_time);
-    total_time_waited += exp_backoff_time.count();
-    exp_backoff_time = exp_backoff_time =
-        std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
-    if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.25) {
+  if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+    // std::this_thread::sleep_for(exp_backoff_time);
+    // total_time_waited += exp_backoff_time.count();
+    // exp_backoff_time = exp_backoff_time =
+    //     std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
+    // if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.25) {
 
       // Choose lower steps to wait for and increase the limit time
       if(clnt_data.steps_to_finish <= min_steps) {
@@ -384,8 +384,8 @@ void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
 
       Logger::instance().log("    -> Server waiting: Client " + std::to_string(clnt_idx) + " timed out\n");
       advanced = false;
-      break;
-    }
+      // break;
+    // }
     rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
   }
   Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");

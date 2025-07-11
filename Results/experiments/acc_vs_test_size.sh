@@ -6,7 +6,7 @@ ORIGINAL_DIR=$(pwd)
 EXPERIMENT="acc_vs_test_size"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
 REMOTE_HOSTS=("dcldelta4")
-port=${3:-"2000"}
+PORT="2000"
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -38,7 +38,7 @@ run() {
     for ((i=1; i<=3; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
-        ./run_all.sh $EXPERIMENT $IP_ADDRESS $PORT "${REMOTE_HOSTS[*]}" $use_mnist $clients $epochs $batch_size $glob_learning_rate \
+        ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned
 
