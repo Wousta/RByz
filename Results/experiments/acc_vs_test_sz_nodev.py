@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-acc_vs_test_sz_bars.py - Create bar chart comparing validation data percentage vs accuracy
+acc_vs_test_sz_nodev.py - Create line graph comparing validation data percentage vs accuracy for both datasets
 
-Iterates over folders in the specified base directory (or default /home/bustaman/rbyz/Results/keep/acc_vs_test_size)
+Iterates over folders in the specified base directory (or default /home/bustaman/rbyz/Results/keep/acc_vs_test_size_nodev)
 with format {dataset}_<percentage>%vd, extracts data from R_final_data.log files,
-and creates a bar chart showing mean accuracy with standard deviation error bars.
+and creates a line graph showing mean accuracy for both MNIST and CIFAR datasets.
 
 Usage:
-    python acc_vs_test_sz_bars.py mnist
-    python acc_vs_test_sz_bars.py cifar
-    python acc_vs_test_sz_bars.py mnist --base-dir /path/to/custom/directory
+    python acc_vs_test_sz_nodev.py
+    python acc_vs_test_sz_nodev.py --base-dir /path/to/custom/directory
 """
 
 import os
@@ -67,7 +66,7 @@ def get_log_data_via_script(log_file_path: str) -> Dict:
         return {}
 
 
-def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep/acc_vs_test_size") -> List[Tuple[float, List[float]]]:
+def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep/acc_vs_test_size_nodev") -> List[Tuple[float, List[float]]]:
     """Collect accuracy data from all folders for the specified dataset"""
     base_path = os.path.join(base_dir, dataset)
     
@@ -97,7 +96,7 @@ def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep
             print(f"Warning: Log file not found in {folder_path}")
             continue
         
-        print(f"Processing {folder_name} (percentage: {percentage}%)")
+        print(f"Processing {dataset} {folder_name} (percentage: {percentage}%)")
         
         # Extract data using logToDic.py
         log_data = get_log_data_via_script(log_file)
@@ -117,61 +116,73 @@ def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep
     return data_points
 
 
-def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str) -> None:
-    """Create bar chart with error bars"""
-    if not data_points:
-        print("No data points to plot")
-        return
+def create_line_graph(mnist_data: List[Tuple[float, List[float]]], 
+                     cifar_data: List[Tuple[float, List[float]]]) -> None:
+    """Create line graph comparing both datasets"""
+    plt.figure(figsize=(10, 6))
     
-    # Extract percentages and calculate statistics
-    percentages = []
-    means = []
-    stds = []
-    
-    for percentage, accuracies in data_points:
-        percentages.append(percentage)
-        means.append(np.mean(accuracies))
-        stds.append(np.std(accuracies))
+    # Process MNIST data
+    if mnist_data:
+        mnist_percentages = []
+        mnist_means = []
         
-        print(f"{percentage}%: mean={np.mean(accuracies):.2f}, std={np.std(accuracies):.2f}")
+        for percentage, accuracies in mnist_data:
+            mnist_percentages.append(percentage)
+            mnist_means.append(np.mean(accuracies))
+            print(f"MNIST {percentage}%: mean={np.mean(accuracies):.2f}, std={np.std(accuracies):.2f}")
+        
+        # Plot MNIST line
+        plt.plot(mnist_percentages, mnist_means, 
+                marker='o', 
+                linewidth=2, 
+                markersize=6, 
+                label='MNIST', 
+                color='blue')
     
-    # Create the plot
-    plt.figure(figsize=(7, 6))
-    
-    # Create bar chart
-    bars = plt.bar(percentages, means, 
-                   color='black', 
-                   alpha=0.8,
-                   width=2.0,  # Adjust width as needed
-                   edgecolor='black',
-                   linewidth=1)
-    
-    # Add error bars
-    plt.errorbar(percentages, means, yerr=stds, 
-                fmt='none', 
-                color='green', 
-                capsize=5, 
-                capthick=2,
-                linewidth=2)
+    # Process CIFAR data
+    if cifar_data:
+        cifar_percentages = []
+        cifar_means = []
+        
+        for percentage, accuracies in cifar_data:
+            cifar_percentages.append(percentage)
+            cifar_means.append(np.mean(accuracies))
+            print(f"CIFAR {percentage}%: mean={np.mean(accuracies):.2f}, std={np.std(accuracies):.2f}")
+        
+        # Plot CIFAR line
+        plt.plot(cifar_percentages, cifar_means, 
+                marker='s', 
+                linewidth=2, 
+                markersize=6, 
+                label='CIFAR', 
+                color='red')
     
     # Customize the plot
     plt.xlabel('Max Validation Data per client %', fontsize=12)
     plt.ylabel('Model Accuracy', fontsize=12)
-    plt.title(f'RByz Accuracy vs Validation Data Percentage - {dataset.upper()}', fontsize=14)
-    
-    # Set y-axis limits for better visualization
-    min_acc = min(means) - max(stds) - 1
-    max_acc = max(means) + max(stds) + 1
-    plt.ylim(min_acc, max_acc)
+    plt.title('RByz Accuracy vs Validation Data Percentage (No Dev)', fontsize=14)
     
     # Add grid for better readability
     plt.grid(True, alpha=0.3)
     
-    # Set x-axis ticks
-    plt.xticks(percentages)
+    # Add legend
+    plt.legend(fontsize=12)
     
-    # Add horizontal line for reference (if needed)
-    # plt.axhline(y=some_reference_value, color='red', linestyle='--', alpha=0.7, label='Reference')
+    # Set reasonable axis limits
+    all_percentages = []
+    all_means = []
+    
+    if mnist_data:
+        all_percentages.extend([p for p, _ in mnist_data])
+        all_means.extend([np.mean(acc) for _, acc in mnist_data])
+    
+    if cifar_data:
+        all_percentages.extend([p for p, _ in cifar_data])
+        all_means.extend([np.mean(acc) for _, acc in cifar_data])
+    
+    if all_percentages and all_means:
+        plt.xlim(min(all_percentages) - 1, max(all_percentages) + 1)
+        plt.ylim(min(all_means) - 2, max(all_means) + 2)
     
     plt.tight_layout()
     
@@ -180,7 +191,7 @@ def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str)
     os.makedirs(output_dir, exist_ok=True)
     
     # Save the plot
-    output_path = os.path.join(output_dir, f"acc_vs_test_sz_bars_{dataset}.png")
+    output_path = os.path.join(output_dir, "acc_vs_test_sz_nodev_line.png")
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Plot saved as {output_path}")
     
@@ -191,41 +202,50 @@ def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str)
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
-        description='Create bar chart comparing validation data percentage vs accuracy',
+        description='Create line graph comparing validation data percentage vs accuracy for both datasets',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python acc_vs_test_sz_bars.py mnist
-    python acc_vs_test_sz_bars.py cifar
-    python acc_vs_test_sz_bars.py mnist --base-dir /path/to/custom/directory
-    python acc_vs_test_sz_bars.py mnist -b /path/to/custom/directory
+    python acc_vs_test_sz_nodev.py
+    python acc_vs_test_sz_nodev.py --base-dir /path/to/custom/directory
+    python acc_vs_test_sz_nodev.py -b /path/to/custom/directory
         """
     )
     
-    parser.add_argument('dataset', 
-                       choices=['mnist', 'cifar'],
-                       help='Dataset to process (mnist or cifar)')
-    
     parser.add_argument('-b', '--base-dir', 
-                       default="/home/bustaman/rbyz/Results/keep/acc_vs_test_size",
-                       help='Base directory containing dataset folders (default: /home/bustaman/rbyz/Results/keep/acc_vs_test_size)')
+                       default="/home/bustaman/rbyz/Results/keep/acc_vs_test_size_nodev",
+                       help='Base directory containing dataset folders (default: /home/bustaman/rbyz/Results/keep/acc_vs_test_size_nodev)')
     
     args = parser.parse_args()
     
     print(f"Using base directory: {args.base_dir}")
-    print(f"Collecting data from {args.dataset.upper()} log files...")
-    data_points = collect_data(args.dataset, args.base_dir)
+    print("Collecting data from MNIST and CIFAR log files...")
     
-    if not data_points:
-        print("No data found. Exiting.")
+    # Collect data for both datasets
+    mnist_data = collect_data('mnist', args.base_dir)
+    cifar_data = collect_data('cifar', args.base_dir)
+    
+    if not mnist_data and not cifar_data:
+        print("No data found for either dataset. Exiting.")
         sys.exit(1)
     
-    print(f"\nFound data for {len(data_points)} configurations:")
-    for percentage, accuracies in data_points:
-        print(f"  {percentage}%: {len(accuracies)} runs")
+    print(f"\nFound data:")
+    if mnist_data:
+        print(f"  MNIST: {len(mnist_data)} configurations")
+        for percentage, accuracies in mnist_data:
+            print(f"    {percentage}%: {len(accuracies)} runs")
+    else:
+        print("  MNIST: No data found")
     
-    print(f"\nCreating bar chart for {args.dataset.upper()}...")
-    create_bar_chart(data_points, args.dataset)
+    if cifar_data:
+        print(f"  CIFAR: {len(cifar_data)} configurations")
+        for percentage, accuracies in cifar_data:
+            print(f"    {percentage}%: {len(accuracies)} runs")
+    else:
+        print("  CIFAR: No data found")
+    
+    print(f"\nCreating line graph...")
+    create_line_graph(mnist_data, cifar_data)
 
 
 if __name__ == "__main__":

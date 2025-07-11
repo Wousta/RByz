@@ -130,7 +130,8 @@ int main(int argc, char *argv[]) {
     lyra::opt(t_params.only_flt, "only_flt")["--only_flt"]("Run only FLTrust, no RByz") |
     lyra::opt(t_params.label_flip_type, "label_flip_type")["--label_flip_type"]("Label flip type: 0 - random, 1 - targeted, 2 - corrupt images") |
     lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
-    lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples");
+    lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
+    lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -197,8 +198,7 @@ int main(int argc, char *argv[]) {
 
   // Label flipping at the beginning
   if (id <= t_params.n_byz_clnts) {
-    Logger::instance().log("Executing attack type " +
-                           std::to_string(t_params.label_flip_type) + "\n");
+    Logger::instance().log("Executing attack type " + std::to_string(t_params.label_flip_type) + "\n");
     data_poison_attack(use_mnist, t_params, *reg_mngr);
   } else {
     Logger::instance().log("Not Byzantine\n");

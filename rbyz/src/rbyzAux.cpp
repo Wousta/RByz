@@ -5,6 +5,7 @@
 #include "tensorOps.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <thread>
 #include <unistd.h>
 
@@ -352,14 +353,14 @@ void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
 
-  std::chrono::milliseconds exp_backoff_time(1);
+  //std::chrono::milliseconds exp_backoff_time(1);
   bool advanced = true;
-  while (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
-    std::this_thread::sleep_for(exp_backoff_time);
-    total_time_waited += exp_backoff_time.count();
-    exp_backoff_time = exp_backoff_time =
-        std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
-    if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.25) {
+  if (clnt_data.local_step < clnt_data.next_step && clnt_data.round == round) {
+    // std::this_thread::sleep_for(exp_backoff_time);
+    // total_time_waited += exp_backoff_time.count();
+    // exp_backoff_time = exp_backoff_time =
+    //     std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
+    // if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.25) {
 
       // Choose lower steps to wait for and increase the limit time
       if(clnt_data.steps_to_finish <= min_steps) {
@@ -383,8 +384,8 @@ void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
 
       Logger::instance().log("    -> Server waiting: Client " + std::to_string(clnt_idx) + " timed out\n");
       advanced = false;
-      break;
-    }
+      // break;
+    // }
     rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
   }
   Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
@@ -564,12 +565,12 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
 void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("Client: Starting RByz with accuracy\n");
-
+  std::string log_file = "stepTimes_" + std::to_string(regMem.id) + ".log";
   // Set manager epochs to 1, the epochs will be controled by RByz
   mngr.kNumberOfEpochs = 1;
 
   while (regMem.round.load() < global_rounds) {
-    if (regMem.round.load() == 2) {
+    if (regMem.round.load() == 1) {
       Logger::instance().log("POST: first mnist samples\n");
       for (int i = 0; i < 5; i++) {
         Logger::instance().log(
@@ -581,15 +582,12 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
 
     regMem.local_step.store(0);
 
-    Logger::instance().log("\n//////////////// Client: Round " +
-                           std::to_string(regMem.round.load()) +
-                           " started ////////////////\n");
+    Logger::instance().log("\n//////////////// Client: Round " + std::to_string(regMem.round.load()) + " started ////////////////\n");
     // Wait for the server to be ready
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::sleep_for(std::chrono::nanoseconds(10));
-    } while (regMem.srvr_ready_flag != regMem.round.load() &&
-             regMem.srvr_ready_flag != SRVR_FINISHED);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (regMem.srvr_ready_flag != regMem.round.load() && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
       Logger::instance().log("Server finished early, exiting...\n");

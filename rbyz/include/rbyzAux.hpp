@@ -63,19 +63,19 @@ public:
           if (t_params.use_mnist) {
             ts_threshold = 0.91; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
+              step_times = {{977}, {977}, {977}, {977}, {983}, {983}, {991}, {998}, {1008}, {1050}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
-                step_times.push_back({2144});
+                step_times.push_back({1050});
               }
             }
           } else {
             ts_threshold = 0.87; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{29389}, {29387}, {29386}, {29388}, {29390}, {29384}, {29388}, {29387}, {29387}, {29387}};
+              step_times = {{5456}, {5456}, {5449}, {5459}, {5459}, {5475}, {5497}, {5497}, {5490}, {5497}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
-                step_times.push_back({29389}); 
+                step_times.push_back({5500}); 
               }
             }
           }

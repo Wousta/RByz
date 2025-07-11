@@ -3,6 +3,7 @@
 
 // Copyright 2020-present pytorch-cpp Authors
 #include "datasetLogic/registeredCIFAR10.hpp"
+#include <random>
 
 namespace {
 // CIFAR10 dataset description can be found at
@@ -80,13 +81,15 @@ RegCIFAR10::RegCIFAR10(const std::string &root, Mode mode)
     : mode_(mode),
       // options(torch::TensorOptions().dtype(torch::kUInt8)) { // UINT8CHANGE
       options(torch::TensorOptions().dtype(torch::kFloat32)) {
-
-  if (mode == Mode::kTest || mode == Mode::kBuild) {
-    auto data = read_data(root, mode == Mode::kBuild);
-
-    images_ = std::move(data.first);
-    targets_ = std::move(data.second);
-  }
+  auto data = read_data(root, mode == Mode::kBuild);
+  images_ = std::move(data.first);
+  targets_ = std::move(data.second);
+        
+  std::mt19937 rng(77); // Fixed seed for reproducibility
+  size_t size = (mode == Mode::kBuild) ? kTrainSize : kTestSize;
+  shuffled_indices.resize(size);
+  std::iota(shuffled_indices.begin(), shuffled_indices.end(), 0);
+  std::shuffle(shuffled_indices.begin(), shuffled_indices.end(), rng);
 }
 
 RegCIFAR10::RegCIFAR10(RegTrainData &data_info, std::unordered_map<size_t, size_t> index_map)
@@ -103,7 +106,8 @@ RegCIFAR10::RegCIFAR10(RegTrainData &data_info, std::unordered_map<size_t, size_
 
 torch::data::Example<> RegCIFAR10::get(size_t original_index) {
   if (mode_ == Mode::kTest || mode_ == Mode::kBuild) {
-    return {images_[original_index], targets_[original_index]};
+    int idx = shuffled_indices[original_index];
+    return {images_[idx], targets_[idx]};
   }
 
   // For training, we need to use the index map to find the correct index
