@@ -144,11 +144,14 @@ void RByzAux::writeServerVD(RegMnistSplitter &splitter,
       }
 
       size_t srvr_sample_idx = srvr_indices[srvr_idx++];
-      clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx);
       uint64_t sample_offset = mngr.getSampleOffset(srvr_sample_idx);
       local_info.offs.push_back(sample_offset);
       rdma_ops.exec_rdma_write(splitter.getChunkSize(), local_info, remote_info,
-                               i, false);
+      i, false);
+
+      for (int k = 0; k < splitter.getSamplesPerChunk(); k++) {
+        clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx++);
+      }
     }
   }
   Logger::instance().log("Server: VD samples sent to all clients\n");
@@ -300,7 +303,7 @@ void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec) {
 void RByzAux::logTrustScores(const std::vector<ClientDataRbyz> &clnt_data_vec,
                              int only_flt) const {
   std::string filename = t_params.ts_file;
-  Logger::instance().logCustom(t_params.logs_dir, filename, "- RB\n");
+  Logger::instance().logCustom(t_params.logs_dir, filename, "- Round end -\n");
 
   for (int i = 0; i < clnt_data_vec.size(); i++) {
     std::string message = std::to_string(clnt_data_vec[i].trust_score) + "\n";
@@ -423,8 +426,11 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     }
 
     if (round % t_params.test_renewal_freq == 0) {
-      Logger::instance().log("Server: Renewing test samples for round " + std::to_string(round) + "\n");
-      mngr.renewDataset(0.5);
+      Logger::instance().log("Writing test samples for round " + std::to_string(round) + "\n");
+      if (round > 0) {
+        Logger::instance().log("Renewing dataset for round " + std::to_string(round) + "\n");
+        mngr.renewDataset(0.5);
+      }
       writeServerVD(splitter, clnt_data_vec, t_params.vd_prop_write);
     }
 

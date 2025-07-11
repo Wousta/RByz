@@ -334,11 +334,11 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     loss_mean.backward();
     optimizer.step();
 
-    if (batch_idx % kLogInterval == 0 && worker_id % 5 == 0) {
-      std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
-                  batch_idx * data.size(0), subset_size,
-                  loss_mean.template item<float>());
-    }
+    // if (batch_idx % kLogInterval == 0 && worker_id % 5 == 0) {
+    //   std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
+    //               batch_idx * data.size(0), subset_size,
+    //               loss_mean.template item<float>());
+    // }
 
     batch_idx++;
   }

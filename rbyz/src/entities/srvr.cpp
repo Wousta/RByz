@@ -139,7 +139,7 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
     Logger::instance().log(oss.str());
   }
 
-  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, "- FL\n");
+  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, "- Round end -\n");
   for (int i = 0; i < log_TS_vec.size(); i++) {
     std::string message = std::to_string(log_TS_vec[i]) + "\n";
     Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, message);
@@ -166,7 +166,6 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
 std::vector<torch::Tensor>
 run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr,
                  RegMemSrvr &regMem, std::vector<ClientDataRbyz> &clntsData) {
-  std::string filename = (t_params.only_flt) ? "F_acc.log" : "R_acc.log";
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
 
   tops::printTensorSlices(w, 0, 5);
@@ -242,7 +241,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     mngr.updateModelParameters(w);
     Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
-    Logger::instance().logCustom(t_params.logs_dir, filename, std::to_string(round) + " " +
+    Logger::instance().logCustom(t_params.logs_dir, t_params.acc_file, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
   }
 
@@ -361,6 +360,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Overwrite poisoned samples = " << (t_params.overwrite_poisoned ? "true" : "false") << "\n";
   std::cout << "Label flip type = " << t_params.label_flip_type << "\n";
   std::cout << "Label flip ratio = " << t_params.flip_ratio << "\n";
+  std::cout << "Wait for all clients = " << (t_params.wait_all ? "true" : "false") << "\n";
 
   t_params.n_clients = n_clients; // +1 for server
   MnistNet mnist_net;
@@ -406,6 +406,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Connected to client " << i << "\n";
   }
 
+  std::string algo_name = (t_params.only_flt) ? "FLTrust" : "RByz";
   std::string dir = t_params.logs_dir;
   std::string final_data_file;
   int rounds;
@@ -420,8 +421,10 @@ int main(int argc, char *argv[]) {
     final_data_file = "R_final_data.log";
     rounds = t_params.global_iters_rbyz + t_params.global_iters_fl;
   }
+  Logger::instance().logCustom(dir, t_params.ts_file, algo_name + "\n");
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(rounds) + "\n");
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(n_clients) + "\n");
+  Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(t_params.n_byz_clnts) + "\n");
 
   std::cout << "SRVR Running FLTrust\n";
   auto start = std::chrono::high_resolution_clock::now();

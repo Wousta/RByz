@@ -12,7 +12,7 @@ private:
   const int local_steps;
   const int global_rounds;
   const bool byz_clnt;
-  float ts_threshold;
+  float ts_threshold; // Trust score threshold for VD extra column client selection (not yet used)  
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
@@ -56,26 +56,26 @@ public:
         byz_clnt(mngr.worker_id <= t_params.n_byz_clnts),
         rng(std::random_device{}()) {
 
-          min_steps = std::ceil(local_steps * 0.5);
+          min_steps = std::floor(local_steps * 0.5);
           middle_steps = std::ceil(local_steps * 0.75);
           step_range = std::uniform_int_distribution<int>(middle_steps, local_steps);
 
           if (t_params.use_mnist) {
             ts_threshold = 0.91; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{977}, {977}, {977}, {977}, {983}, {983}, {991}, {998}, {1008}, {1050}};
+              step_times = {{889}, {889}, {889}, {889}, {894}, {894}, {901}, {908}, {917}, {955}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
-                step_times.push_back({1050});
+                step_times.push_back({901});
               }
             }
           } else {
             ts_threshold = 0.87; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{5456}, {5456}, {5449}, {5459}, {5459}, {5475}, {5497}, {5497}, {5490}, {5497}};
+              step_times = {{4960}, {4960}, {4960}, {4962}, {4962}, {4978}, {4998}, {4998}, {4991}, {4998}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
-                step_times.push_back({5500}); 
+                step_times.push_back({4978}); 
               }
             }
           }
