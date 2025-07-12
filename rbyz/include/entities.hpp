@@ -87,6 +87,7 @@ struct ClientDataRbyz {
 
   // Dataset data
   alignas(8) size_t dataset_size;
+  uint64_t num_samples;
   std::unordered_set<size_t> inserted_indices;
 
   // For RByz

@@ -43,6 +43,7 @@ private:
   void logTrustScores(const std::vector<ClientDataRbyz> &clnt_data_vec, int only_flt) const;
   void waitTimeout(ClientDataRbyz& clnt_data, int round);
   void waitInfinite(ClientDataRbyz& clnt_data, int round);
+  void renewTrustedClientsColumn(RegMnistSplitter &splitter, std::vector<ClientDataRbyz> &clnt_data_vec);
 
 public:
   void *extra_vd_col = nullptr;
@@ -54,7 +55,7 @@ public:
         local_steps(t_params.local_steps_rbyz),
         global_rounds(t_params.global_iters_rbyz),
         byz_clnt(mngr.worker_id <= t_params.n_byz_clnts),
-        rng(std::random_device{}()) {
+        rng(14) {
 
           min_steps = std::floor(local_steps * 0.5);
           middle_steps = std::ceil(local_steps * 0.75);

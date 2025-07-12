@@ -278,6 +278,7 @@ void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
     size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
 
     // Set memory size information
+    clnt_data_vec[i].num_samples = num_samples;
     clnt_data_vec[i].dataset_size = num_samples * sample_size;
     clnt_data_vec[i].forward_pass_mem_size = forward_pass_mem_size;
     clnt_data_vec[i].forward_pass_indices_mem_size =

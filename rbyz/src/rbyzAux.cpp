@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <sys/types.h>
 #include <thread>
 #include <unistd.h>
 
@@ -28,6 +29,40 @@ void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec, int r
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
     }
+  }
+}
+
+void RByzAux::renewTrustedClientsColumn(RegMnistSplitter &splitter, std::vector<ClientDataRbyz> &clnt_data_vec) {
+  for (auto& client : clnt_data_vec) {
+    if (client.trust_score <= ts_threshold) {
+      continue;
+    }
+
+    size_t section_idx = splitter.getExtraColSectionToRenew();
+    uint64_t local_offset = mngr.getSampleOffset(section_idx);
+    size_t rdma_size = splitter.getExtraColumnSize();
+
+    int possible_clnt_indices = client.num_samples - splitter.getExtraColNumSamplesPerSection();
+
+    // Idk why but trying to read/write from the last registered sample causes issues, I checked sizes
+    possible_clnt_indices -= 1; 
+    std::uniform_int_distribution<int> dist(0, possible_clnt_indices);
+    int clnt_idx = dist(rng);
+    uint64_t remote_offset = clnt_idx * mngr.data_info.get_sample_size();
+
+    LocalInfo local_info;
+    local_info.indices.push_back(REG_DATASET_IDX);
+    local_info.offs.push_back(local_offset);
+    RemoteInfo remote_info;
+    remote_info.indx = REG_DATASET_IDX;
+    remote_info.off = remote_offset;
+    rdma_ops.exec_rdma_read(rdma_size, local_info, remote_info, client.index, false);
+
+    Logger::instance().log("Server: Renewed extra column from client " + std::to_string(client.index) + 
+                           " at section " + std::to_string(section_idx) + 
+                           ", local offset: " + std::to_string(local_offset) + 
+                           ", remote offset: " + std::to_string(remote_offset) +
+                           ", rdma size: " + std::to_string(rdma_size) + "\n");
   }
 }
 
