@@ -20,6 +20,14 @@ int RdmaOps::exec_rdma_read(uint32_t size, uint32_t loc_info_idx, uint32_t rem_i
   return norm::read(conns[conn_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency);
 }
 
+int RdmaOps::exec_rdma_read(uint32_t size, LocalInfo &local_info, RemoteInfo &remote_info, int conn_idx, bool is_sync) {
+  if (is_sync) {
+    return norm::read(conns[conn_idx], {size}, {local_info}, netflags_sync, remote_info, this->latency);
+  } else {
+    return norm::read(conns[conn_idx], {size}, {local_info}, netflags_no_sync, remote_info, this->latency);
+  }
+}
+
 int RdmaOps::exec_rdma_write(uint32_t size, uint32_t loc_info_idx, uint32_t rem_info_idx, int conn_idx) {
   LocalInfo local_info;
   local_info.indices.push_back(loc_info_idx);

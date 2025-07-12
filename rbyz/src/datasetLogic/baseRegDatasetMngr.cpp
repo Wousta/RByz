@@ -784,26 +784,23 @@ void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio,
     throw std::invalid_argument("Flip ratio must be between 0 and 1");
   }
 
+  size_t num_samples = data_info.num_samples;
   size_t num_to_flip = static_cast<size_t>(data_info.num_samples * flip_ratio);
-  std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
-  std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+  int  safe_labels = std::ceil(num_samples * t_params.clnt_vd_proportion);
 
-  std::unordered_set<size_t> flipped_indices;
-
-  // If overwrite_poisoned is false, keep the VD section of the dataset intact (first indices)
-  int safe_labels = 0;
-  if (!overwrite_poisoned) {
-    safe_labels = std::ceil(data_info.num_samples * t_params.clnt_vd_proportion);
-    for (size_t i = 0; i < safe_labels; ++i) {
-      flipped_indices.insert(i);
-    }
+  if (num_samples - safe_labels < num_to_flip) {
+    num_to_flip = num_samples - safe_labels;
   }
+
+  std::uniform_int_distribution<size_t> sample_dist(safe_labels, data_info.num_samples - 1);
+  std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+  std::unordered_set<size_t> flipped_indices;
 
   Logger::instance().log(
       "Starting random label flipping attack: " + std::to_string(num_to_flip) +
       " samples (" + std::to_string(flip_ratio * 100) + "%)\n");
 
-  while (flipped_indices.size() < num_to_flip + safe_labels) {
+  while (flipped_indices.size() < num_to_flip) {
     size_t idx = sample_dist(rng);
     if (flipped_indices.find(idx) == flipped_indices.end()) {
       int64_t *label_ptr = getLabel(idx);
@@ -871,29 +868,22 @@ void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
     throw std::invalid_argument("Flip ratio must be between 0 and 1");
   }
 
-  size_t num_to_corrupt = static_cast<size_t>(data_info.num_samples * flip_ratio);
-  std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
+  size_t num_samples = data_info.num_samples;
+  size_t num_to_corrupt = static_cast<size_t>(num_samples * flip_ratio);
+  int  safe_labels = std::ceil(num_samples * t_params.clnt_vd_proportion);
 
+  if (num_samples - safe_labels < num_to_corrupt) {
+    num_to_corrupt = num_samples - safe_labels;
+  }
+
+  std::uniform_int_distribution<size_t> sample_dist(safe_labels, num_samples - 1);
   std::unordered_set<size_t> corrupted_indices;
-
-  // If overwrite_poisoned is false, keep the VD section of the dataset intact (first indices)
-  int safe_labels = 0;
-  if (!overwrite_poisoned) {
-    safe_labels = std::ceil(data_info.num_samples * t_params.clnt_vd_proportion);
-    for (size_t i = 0; i < safe_labels; ++i) {
-      corrupted_indices.insert(i);
-    }
-  }
-
-  if (num_to_corrupt > data_info.num_samples - corrupted_indices.size()) {
-    num_to_corrupt = data_info.num_samples - corrupted_indices.size();
-  }
 
   Logger::instance().log(
       "Starting random image corruption attack: " + std::to_string(num_to_corrupt) +
       " samples (" + std::to_string(flip_ratio * 100) + "%)\n");
 
-  while (corrupted_indices.size() < num_to_corrupt + safe_labels) {
+  while (corrupted_indices.size() < num_to_corrupt) {
     size_t idx = sample_dist(rng);
     if (corrupted_indices.find(idx) == corrupted_indices.end()) {
       float *image_ptr = getImage(idx);
