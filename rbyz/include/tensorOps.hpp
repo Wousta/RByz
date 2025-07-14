@@ -26,5 +26,6 @@ void printTensorSlices(const std::vector<torch::Tensor>& model_weights,
 void memcpyTensorVec(float *dest, std::vector<torch::Tensor> &src, size_t size);
 void memcpyTensor(float *dest, torch::Tensor &src, size_t size);
 void writeToTensorVec(std::vector<torch::Tensor> &dest, float *src, size_t size);
+torch::Tensor createTensorFromBuffer(float* buffer, size_t buffer_size_bytes);
 
 } // namespace tops

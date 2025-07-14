@@ -16,14 +16,14 @@ struct RegMemSrvr {
   uint32_t srvr_subset_size;
   uint32_t clnt_subset_size;
   uint32_t dataset_size;
-  int srvr_ready_flag = 0;
+  std::atomic<int> srvr_ready_flag;
   float *srvr_w;
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   void *reg_data;
 
   RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
-      : reg_sz_data(reg_sz_data), n_clients(n_clients),
+      : reg_sz_data(reg_sz_data), n_clients(n_clients), srvr_ready_flag(0),
         clnt_ready_flags(n_clients, 0), clnt_ws(n_clients), reg_data(reg_data) {
           srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
         }
@@ -40,7 +40,7 @@ struct RegMemClnt {
   const int id;               
   const uint32_t reg_sz_data; // Size of the registered parameter vector w
   int srvr_ready_flag;
-  int clnt_ready_flag;
+  std::atomic<int> clnt_ready_flag;
   float *srvr_w;
   float *clnt_w; 
   alignas(8) std::atomic<int> CAS;

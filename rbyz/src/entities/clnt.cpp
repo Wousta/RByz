@@ -57,15 +57,21 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
-  for (int round = 1; round <= rounds; round++) {
+  int round = 1;
+  while (round <= rounds) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    } while (regMem.srvr_ready_flag != round && regMem.srvr_ready_flag != SRVR_FINISHED);
+    } while (regMem.srvr_ready_flag < round && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
       Logger::instance().log("Client: Server finished, exiting...\n");
       return w;
+    }
+
+    // Catch up to the server's round if needed
+    if (round < regMem.srvr_ready_flag) {
+      round = regMem.srvr_ready_flag;
     }
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
@@ -74,10 +80,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
     rdma_ops.exec_rdma_read(regMem.reg_sz_data, SRVR_W_IDX);
     tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
 
-    if (round % 1 == 0) {
-      Logger::instance().log("FLtrust training round " + std::to_string(round) + "\n");
-      std::cout << "FLtrust training round " << round << " epochs: " << mngr.kNumberOfEpochs << "\n";
-    }
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
     mngr.runTraining();
     std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
@@ -87,10 +89,11 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
     rdma_ops.exec_rdma_write(regMem.reg_sz_data, CLNT_W_IDX);
 
     // Update the ready flag
-    regMem.clnt_ready_flag = round;
+    regMem.clnt_ready_flag.store(round);
     rdma_ops.exec_rdma_write(sizeof(int), CLNT_READY_IDX);
 
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
+    round++;
   }
 
   Logger::instance().log("Client: Finished all rounds of FLtrust\n");

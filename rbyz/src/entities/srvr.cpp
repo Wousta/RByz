@@ -96,8 +96,7 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   return result;
 }
 
-torch::Tensor
-aggregate_updates(const std::vector<torch::Tensor> &client_updates,
+torch::Tensor aggregateUpdates(const std::vector<torch::Tensor> &client_updates,
                   const torch::Tensor &server_update, std::vector<uint32_t> &clnt_indices, 
                   std::vector<float> log_TS_vec, TrainInputParams &t_params) {
 
@@ -172,22 +171,18 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
   Logger::instance().log("\nInitial weights gathered\n");
   std::vector<float> log_TS_vec(n_clients, 0.0f);
 
-  for (int round = 1; round <= t_params.global_iters_fl; round++) {
-    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
-    tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
+    for (int round = 1; round <= t_params.global_iters_fl; round++) {
+      std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
+      tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
 
-    // Set the flag to indicate that the weights are ready for the clients to read
-    regMem.srvr_ready_flag = round;
+      // Set the flag to indicate that the weights are ready for the clients to read
+      regMem.srvr_ready_flag.store(round);
 
     // Run local training
-    if (round % 1 == 0) {
-      Logger::instance().log("FLtrust training round " + std::to_string(round) + "\n");
-      std::cout << "FLtrust training round " << round << " epochs: " << mngr.kNumberOfEpochs << "\n";
-    }
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
     mngr.runTraining();
     std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
-
+    
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
     // ROUND, BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     std::vector<torch::Tensor> clnt_updates;
@@ -204,7 +199,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       bool timed_out = false;
       long total_wait_time = 0;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(200000000); // 200 milliseconds
+      std::chrono::microseconds limit_step_time(2000000); // 200 milliseconds
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_wait_time += initial_time.count();
@@ -231,7 +226,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = tops::flatten_tensor_vector(g);
     torch::Tensor aggregated_update =
-        aggregate_updates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params);
+        aggregateUpdates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params);
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
 
@@ -295,6 +290,7 @@ void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
 int main(int argc, char *argv[]) {
   Logger::instance().log(
       "Server starting RBYZ in core: " + std::to_string(sched_getcpu()) + "\n");
+  Logger::instance().log("Pid: " + std::to_string(getpid()) + "\n");
 
   TrainInputParams t_params;
   int n_clients;
@@ -405,6 +401,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < n_clients; i++) {
     conns[i].acceptConn(addr_info, reg_info[i]);
     std::cout << "Connected to client " << i << "\n";
+    Logger::instance().log("Connected to client " + std::to_string(i) + "\n");
   }
 
   std::string algo_name = (t_params.only_flt) ? "FLTrust" : "RByz";
