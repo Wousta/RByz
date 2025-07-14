@@ -5,7 +5,7 @@ cleanup() {
     echo "Cleanup complete. Exiting..."
     exit 1
 }
-trap cleanup INT TERM QUIT EXIT
+trap cleanup SIGTERM SIGINT INT TERM QUIT EXIT
 
 # Accuracy vs Test renewal frequency Experiment
 ORIGINAL_DIR=$(pwd)
@@ -27,18 +27,17 @@ redis-cli -h "$IP_ADDRESS" -p "$PORT" SET nid "0" >/dev/null
 
 # Common parameters
 clients=10
-byz_clients=3
-local_learn_rate=0.01
+byz_clients=5
 epochs=1                    # Local rounds of FLtrust
 local_steps_rbyz=5          # Local rounds of RByz
 glob_iters_fl=1
-glob_iters_rbyz=49
 chunk_size=2                # Slab size for RByz VDsampling
 label_flip_type=1           # 1: Random label flip
 flip_ratio=0.75             # 50% of the data will be flipped
 overwrite_poisoned=0        # Can overwrite poisoned data
 only_flt=0                  # Run RByz
 vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
+wait_all=1
 
 rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
@@ -46,16 +45,16 @@ cd ../../rbyz
 run() {
     local name=$1
     echo "=========================================================="
-    echo "---- Starting experiment $name ----"
-    echo "=========================================================="
+    echo "---- Starting experiment $name iters: $iters ----"
     echo "     Renewal freq: $test_renewal_freq"
+    echo "=========================================================="
 
-    for ((i=1; i<=1; i++)); do
+    for ((i=1; i<=3; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
         ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
-            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned
+            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned $wait_all &
 
         current_pid=$!
         wait $current_pid
@@ -72,11 +71,13 @@ run() {
 ########## MNIST Experiments ##########
 use_mnist="true"
 batch_size=32
-clnt_subset_size=4800
-srvr_subset_size=12000
+clnt_subset_size=5714
+srvr_subset_size=2860
 glob_learning_rate=0.04
-vd_prop=0.09                # Use the best value obtained from acc_vs_test_size.sh
+local_learn_rate=0.08
+glob_iters_rbyz=119
 
+vd_prop=0.09                # Use the best value obtained from acc_vs_test_size.sh
 
 test_renewal_freq=1
 run "mnist_test_ren_fq_1"
@@ -106,33 +107,37 @@ run "mnist_test_ren_fq_15"
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
-clnt_subset_size=4000
-srvr_subset_size=10000
+clnt_subset_size=4201
+srvr_subset_size=7990
 glob_learning_rate=0.4
+local_learn_rate=0.01
+vd_prop=0.19                # Use the best value obtained from acc_vs_test_size.sh
+glob_iters_rbyz=49
 
-test_renewal_freq=1
-run "cifar_test_ren_fq_1"
 
-test_renewal_freq=3
-run "cifar_test_ren_fq_3"
+# test_renewal_freq=1
+# run "cifar_test_ren_fq_1"
 
-test_renewal_freq=5
-run "cifar_test_ren_fq_5"
+# test_renewal_freq=3
+# run "cifar_test_ren_fq_3"
 
-test_renewal_freq=7
-run "cifar_test_ren_fq_7"
+# test_renewal_freq=5
+# run "cifar_test_ren_fq_5"
 
-test_renewal_freq=9
-run "cifar_test_ren_fq_9"
+# test_renewal_freq=7
+# run "cifar_test_ren_fq_7"
 
-test_renewal_freq=11
-run "cifar_test_ren_fq_11"
+# test_renewal_freq=9
+# run "cifar_test_ren_fq_9"
 
-test_renewal_freq=13
-run "cifar_test_ren_fq_13"
+# test_renewal_freq=11
+# run "cifar_test_ren_fq_11"
 
-test_renewal_freq=15
-run "cifar_test_ren_fq_15"
+# test_renewal_freq=13
+# run "cifar_test_ren_fq_13"
+
+# test_renewal_freq=15
+# run "cifar_test_ren_fq_15"
 
 cd "$ORIGINAL_DIR"
 

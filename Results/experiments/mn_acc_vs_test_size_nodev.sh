@@ -2,11 +2,12 @@
 
 cleanup() {
     echo "Script interrupted. Cleaning up..."
+    echo "Killing process $current_pid"
     kill $current_pid 2>/dev/null
     echo "Cleanup complete. Exiting..."
     exit 1
 }
-trap cleanup INT TERM QUIT EXIT SIGINT SIGTERM
+trap cleanup SIGTERM SIGINT INT TERM QUIT EXIT 
 
 # Accuracy vs Test Size Experiment
 ORIGINAL_DIR=$(pwd)
@@ -34,7 +35,7 @@ byz_clients=3
 epochs=1                    # Local rounds of FLtrust
 local_steps_rbyz=5          # Local rounds of RByz
 glob_iters_fl=1
-glob_iters_rbyz=49
+glob_iters_rbyz=119
 chunk_size=2                # Slab size for RByz VDsampling
 label_flip_type=1           # 1: Random label flip
 flip_ratio=0.75             # 50% of the data will be flipped
@@ -42,6 +43,7 @@ overwrite_poisoned=0        # Do not overwrite poisoned data
 only_flt=0                  # Run RByz
 test_renewal_freq=1000      # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
 vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
+wait_all=1
 
 rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
@@ -52,15 +54,15 @@ run() {
 
     echo "=========================================================="
     echo "---- Starting experiment $name iters: $iters ----"
-    echo "=========================================================="
     echo "     VD prop: $vd_prop"
+    echo "=========================================================="
 
     for ((i=1; i<=$iters; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
         ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
-            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned &
+            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned $wait_all &
 
         current_pid=$!
         wait $current_pid
@@ -78,7 +80,7 @@ run() {
 use_mnist="true"
 batch_size=32
 glob_learning_rate=0.04
-local_learn_rate=0.01
+local_learn_rate=0.08
 clnt_subset_size=4800
 srvr_subset_size=12000
 

@@ -173,7 +173,11 @@ def create_evolution_graph(data_points: List[Tuple[float, List[Tuple[int, float]
     plt.figure(figsize=(12, 8))
     
     # Define colors for different percentages
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan',
+              'magenta', 'yellow', 'darkblue', 'darkred', 'darkgreen', 'darkorange', 'darkviolet', 
+              'maroon', 'lightcoral', 'darkgray', 'darkolivegreen', 'darkcyan', 'indigo', 'gold',
+              'navy', 'crimson', 'forestgreen', 'chocolate', 'mediumpurple', 'sienna', 'hotpink',
+              'dimgray', 'yellowgreen', 'teal', 'plum', 'khaki']
     
     # Plot each percentage as a separate line
     for i, (percentage, acc_evolution) in enumerate(data_points):
@@ -200,6 +204,9 @@ def create_evolution_graph(data_points: List[Tuple[float, List[Tuple[int, float]
     plt.ylabel('Accuracy', fontsize=12)
     plt.title(f'RByz Accuracy Evolution - {dataset.upper()}', fontsize=14)
     
+    # Set X-axis to logarithmic scale
+    plt.xscale('log')
+    
     # Add grid for better readability
     plt.grid(True, alpha=0.3)
     
@@ -216,7 +223,10 @@ def create_evolution_graph(data_points: List[Tuple[float, List[Tuple[int, float]
             all_accuracies.append(accuracy)
     
     if all_rounds and all_accuracies:
-        plt.xlim(min(all_rounds) - 1, max(all_rounds) + 1)
+        # For log scale on X-axis, ensure minimum is at least 1
+        min_round = max(min(all_rounds), 1)
+        max_round = max(all_rounds)
+        plt.xlim(min_round * 0.8, max_round * 1.2)
         plt.ylim(min(all_accuracies) - 2, max(all_accuracies) + 2)
     
     plt.tight_layout()
