@@ -67,6 +67,7 @@ struct RegMemClnt {
 struct ClientDataRbyz {
   int index;
   bool is_byzantine = false;
+  bool include_in_agg = false;
   float trust_score = 0.0;
   float *updates;
 
@@ -123,6 +124,7 @@ struct TrainInputParams {
   std::string logs_dir = "";
   std::string ts_file = "";
   std::string acc_file= "";
+  std::string included_agg_file= "";
 
   bool use_mnist = false;
   int n_clients;
@@ -144,6 +146,7 @@ struct TrainInputParams {
   int test_renewal_freq;      // Frequency of test renewal (every n rounds)
   int overwrite_poisoned = 1; // Allow VD samples to overwrite poisoned samples
   int wait_all = 0; // Ignore slow clients in the trust score calculation
+  float batches_fpass_prop = 0.0;
 
   //misc
   int only_flt;

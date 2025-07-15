@@ -134,7 +134,8 @@ int main(int argc, char *argv[]) {
     lyra::opt(t_params.label_flip_type, "label_flip_type")["--label_flip_type"]("Label flip type: 0 - random, 1 - targeted, 2 - corrupt images") |
     lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
     lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
-    lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)");
+    lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)") |
+    lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -146,6 +147,7 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
   Logger::instance().log("Client: port = " + port + "\n");
   Logger::instance().log("Byz clients = " + std::to_string(t_params.n_byz_clnts) + "\n");
+  Logger::instance().log("Only FLTrust = " + std::string(t_params.only_flt ? "true" : "false") + "\n");
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
 
@@ -194,9 +196,10 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
   Logger::instance().log("PRE: first mnist samples\n");
-  for (int i = 0; i < 5; i++) {
-    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mngr->getLabel(i)) + 
-                           " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
+  for (int i = 0; i < 320; i++) {
+    if (i % 32 == 0)
+      Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mngr->getLabel(i)) + 
+                            " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
   }
 
   // Label flipping at the beginning

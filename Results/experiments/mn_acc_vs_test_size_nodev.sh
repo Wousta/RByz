@@ -35,7 +35,7 @@ byz_clients=3
 epochs=1                    # Local rounds of FLtrust
 local_steps_rbyz=5          # Local rounds of RByz
 glob_iters_fl=1
-glob_iters_rbyz=119
+glob_iters_rbyz=149
 chunk_size=2                # Slab size for RByz VDsampling
 label_flip_type=1           # 1: Random label flip
 flip_ratio=0.75             # 50% of the data will be flipped
@@ -44,13 +44,14 @@ only_flt=0                  # Run RByz
 test_renewal_freq=1000      # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
 vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
 wait_all=1
+batches_fpass=0.2
 
 rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
 
 run() {
     local name=$1
-    local iters=${2:-5}
+    local iters=${2:-1}
 
     echo "=========================================================="
     echo "---- Starting experiment $name iters: $iters ----"
@@ -62,7 +63,8 @@ run() {
         echo "---- Running experiment $name iteration $i ----"
         ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
-            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned $wait_all &
+            $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned \
+            $wait_all $batches_fpass &
 
         current_pid=$!
         wait $current_pid
@@ -84,44 +86,44 @@ local_learn_rate=0.08
 clnt_subset_size=4800
 srvr_subset_size=12000
 
-vd_prop=0.25
-run "mnist_25%vd" 
+# vd_prop=0.25
+# run "mnist_25%vd" 
 
-vd_prop=0.23
-run "mnist_23%vd"
+# vd_prop=0.23
+# run "mnist_23%vd"
 
-vd_prop=0.21
-run "mnist_21%vd"
+# vd_prop=0.21
+# run "mnist_21%vd"
 
-vd_prop=0.19
-run "mnist_19%vd"
+# vd_prop=0.19
+# run "mnist_19%vd"
 
-vd_prop=0.17
-run "mnist_17%vd"
+# vd_prop=0.17
+# run "mnist_17%vd"
 
-vd_prop=0.15
-run "mnist_15%vd"
+# vd_prop=0.15
+# run "mnist_15%vd"
 
-vd_prop=0.13
-run "mnist_13%vd" 
+# vd_prop=0.13
+# run "mnist_13%vd" 
 
-vd_prop=0.11
-run "mnist_11%vd" 
+# vd_prop=0.11
+# run "mnist_11%vd" 
 
-vd_prop=0.09
-run "mnist_9%vd" 
+# vd_prop=0.09
+# run "mnist_9%vd" 
 
-vd_prop=0.07
-run "mnist_7%vd" 
+# vd_prop=0.07
+# run "mnist_7%vd" 
 
-vd_prop=0.05
-run "mnist_5%vd" 
+# vd_prop=0.05
+# run "mnist_5%vd" 
 
 vd_prop=0.03
 run "mnist_3%vd"
 
-vd_prop=0.01
-run "mnist_1%vd" 
+# vd_prop=0.01
+# run "mnist_1%vd" 
 
 #######################################
 ########## CIFAR Experiments ##########
