@@ -1,8 +1,12 @@
 #include "datasetLogic/baseRegDatasetMngr.hpp"
+#include "datasetLogic/randomSubsetSampler.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 #include "tensorOps.hpp"
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <random>
 #include <torch/types.h>
 #include <vector>
@@ -10,7 +14,7 @@
 template <typename NetType>
 BaseRegDatasetMngr<NetType>::BaseRegDatasetMngr(int worker_id, TrainInputParams &t_params,
                                                 NetType net)
-    : IRegDatasetMngr(worker_id, t_params),
+    : IRegDatasetMngr(worker_id, t_params), rng(worker_id),
       model(std::move(net)), device(init_device()) {
   torch::manual_seed(1);
   model->to(device);
@@ -231,7 +235,22 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   Logger::instance().log("  RegTraining model for epoch " +
                          std::to_string(epoch) + "\n");
 
+  std::unordered_set<uint32_t> batches_to_process;
   if (!only_flt) {
+    batches_to_process.reserve(batches_fpass);
+    Logger::instance().log(
+        "Batches to process for forward pass: " + std::to_string(batches_fpass) + "\n");
+    std::shuffle(batch_indices_f.begin(), batch_indices_f.end(), rng);
+    for (uint32_t i = 0; i < batches_fpass; i++) {
+      batches_to_process.insert(batch_indices_f[i]);
+    }
+    Logger::instance().log("Batches to process for forward pass: \n");
+    for (const auto &batch_idx : batches_to_process) {
+      Logger::instance().log(std::to_string(batch_idx) + " ");
+    }
+    Logger::instance().log("\n");
+
+    
     if (pending_forward_pass.load()) {
       Logger::instance().log(
           "Waiting for previous forward pass processing to complete\n");
@@ -248,6 +267,7 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
 
   size_t batch_idx = 0;
   size_t global_sample_idx = 0; // Track global sample position
+  size_t f_pass_idx = 0;
 
   // For tracking loss and error rate indices in the forward pass buffer
   size_t curr_idx = 0;
@@ -260,12 +280,19 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
 
   std::vector<int> labels(10, 0);
   for (const auto &batch : data_loader) {
-    if (!only_flt) {
+    if (!only_flt && batches_to_process.find(batch_idx) != batches_to_process.end()) {
       for (int i = 0; i < batch.data.size(0); ++i) {
-        labels[batch.target[i].template item<int64_t>()]++;
-        f_pass_data.forward_pass_indices[global_sample_idx] = *getOriginalIndex(global_sample_idx);
+        if (i < 3) {
+          Logger::instance().log(
+              "       - Original index for sample " + std::to_string(f_pass_idx) +
+              ": " + std::to_string(*getOriginalIndex(global_sample_idx)) + "\n");
+        }
+        f_pass_data.forward_pass_indices[f_pass_idx] = *getOriginalIndex(global_sample_idx);
         global_sample_idx++;
+        f_pass_idx++;
       }
+    } else {
+      global_sample_idx += batch.data.size(0);
     }
 
     auto data_cpu = batch.data;
@@ -295,65 +322,34 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
       targets = targets_cpu;
     }
 
-    // Switch to evaluation mode for writing forward pass results
-    // if (batch_idx == 0 && epoch == 1) {
-    //   model.eval();
-    //   torch::NoGradGuard no_grad;
-    //   auto inference_output = model.forward(data);
-    //   Logger::instance().log("  Going to proc batch results in batch " +
-    //   std::to_string(batch_idx) + "and epoch " + std::to_string(epoch) +
-    //   "\n"); processBatchResults(inference_output, targets, curr_idx);
-    //   model.train();  // Switch back to training mode
-    // }
-
     // Clear gradients from previous iteration
     optimizer.zero_grad();
     auto output = model->forward(data);
 
-    if (!only_flt) {
+    if (!only_flt && batches_to_process.find(batch_idx) != batches_to_process.end()) {
+      Logger::instance().log(
+          "Batch going to be processed: " + std::to_string(batch_idx) + "\n");
       auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
       torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
-      // auto individual_losses =
-      //     torch::nll_loss(output, targets, {}, torch::Reduction::None);
-
       current_buffer.outputs.push_back(output);
       current_buffer.targets.push_back(targets);
       current_buffer.losses.push_back(individual_losses);
     }
+
     // Backpropagation
-    /**
-     * Using sum instead of mean for the following reasons:
-     * It's the most efficient (no division)
-     * SGD optimizers typically handle the averaging internally
-     * You still get the same training behavior
-     * You keep your individual losses for analysis
-     */
-    //auto loss_mean = individual_losses.mean();
     auto loss_mean = torch::nn::functional::cross_entropy(output, targets);
     AT_ASSERT(!std::isnan(loss_mean.template item<float>()));
     loss_mean.backward();
     optimizer.step();
 
-    if (batch_idx % kLogInterval == 0 && worker_id % 5 == 0) {
-      std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
-                  batch_idx * data.size(0), subset_size,
-                  loss_mean.template item<float>());
-    }
+    // if (batch_idx % kLogInterval == 0 && worker_id % 5 == 0) {
+    //   std::printf("\rRegTrain Epoch: %ld [%5ld/%5ld] Loss: %.4f", epoch,
+    //               batch_idx * data.size(0), subset_size,
+    //               loss_mean.template item<float>());
+    // }
 
     batch_idx++;
   }
-
-  // Logger::instance().log("Labels per class processed: " +
-  //                        std::to_string(labels[0]) + ", " +
-  //                        std::to_string(labels[1]) + ", " +
-  //                        std::to_string(labels[2]) + ", " +
-  //                        std::to_string(labels[3]) + ", " +
-  //                        std::to_string(labels[4]) + ", " +
-  //                        std::to_string(labels[5]) + ", " +
-  //                        std::to_string(labels[6]) + ", " +
-  //                        std::to_string(labels[7]) + ", " +
-  //                        std::to_string(labels[8]) + ", " +
-  //                        std::to_string(labels[9]) + "\n");
 
   // Wait for any remaining async operations
   if (device.is_cuda()) {
@@ -500,6 +496,11 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
         torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone)
     );
 
+    if (torch::isnan(individual_losses).any().template item<bool>()) {
+      Logger::instance().log("ERROR: NaN values detected in individual_losses\n");
+      throw std::runtime_error("NaN values in individual_losses");
+    }
+
     inference_buffer.outputs.push_back(output);
     inference_buffer.targets.push_back(targets);
     inference_buffer.losses.push_back(individual_losses);
@@ -639,6 +640,10 @@ void BaseRegDatasetMngr<NetType>::processForwardPassConcurrent(
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
+
+  Logger::instance().log(
+      "----------!!! Processed forward passConcurrent with " + std::to_string(curr_idx) +
+      " samples !!!----------\n");
 }
 
 /**
@@ -684,6 +689,7 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
   // Copy values to forward_pass buffer
   auto losses_accessor = cpu_losses.accessor<float, 1>();
   auto correct_accessor = cpu_correct.accessor<bool, 1>();
+  size_t error_start = forward_pass_size / 2;
 
   for (size_t i = 0; i < cpu_losses.size(0); ++i) {
     if (curr_idx < forward_pass_size / 2) {
@@ -691,12 +697,12 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
       f_pass_data.forward_pass[error_start + curr_idx] = correct_accessor[i] ? 0.0f : 1.0f;
       if (curr_idx == 0)
         Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx < 3) {
+      if (curr_idx % 64 == 0) {
         Logger::instance().log(
             "Processed sample " + std::to_string(curr_idx) +
             " with original index: " +
             std::to_string(f_pass_data.forward_pass_indices[curr_idx]) +
-            " label: " + std::to_string(*getLabel(curr_idx)) + " with loss: " +
+            " label: " + std::to_string(targets[i].template item<int64_t>()) + " with loss: " +
             std::to_string(f_pass_data.forward_pass[curr_idx]) +
             " and error: " +
             std::to_string(f_pass_data.forward_pass[error_start + curr_idx]) +
@@ -724,28 +730,57 @@ void BaseRegDatasetMngr<NetType>::processForwardPass(ForwardPassBuffer buffer) {
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
+  Logger::instance().log(
+      "----------!!! Processed forward pass with " + std::to_string(curr_idx) +
+      " samples !!!----------\n");
 }
 
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::initDataInfo(
     const std::vector<size_t> &indices, int img_size) {
+
+  total_batches = ceil(indices.size() / kTrainBatchSize);
+  batches_fpass = total_batches * t_params.batches_fpass_prop;
+  int64_t samples_fpass = indices.size();
+
+  // Server needs full dataset in forward pass
+  if (batches_fpass > 0 && worker_id != 0) {
+    samples_fpass = std::min(samples_fpass, batches_fpass * kTrainBatchSize);
+    Logger::instance().log("Limiting forward pass samples to: " +
+                           std::to_string(samples_fpass) + "\n");
+  } else {
+    batches_fpass = ceil(samples_fpass / kTrainBatchSize);
+  }
+
+  for (int i = 0; i < total_batches; i++) {
+    batch_indices_f.push_back(i);
+  }
+
   data_info.num_samples = indices.size();
   // data_info.image_size = img_size * sizeof(uint8_t); // UINT8CHANGE
   data_info.image_size = img_size * sizeof(float);
   Logger::instance().log(
       "Initializing data info with " + std::to_string(data_info.num_samples) +
-      " samples and image size: " + std::to_string(data_info.image_size) +
-      " bytes\n");
+      " samples image size: " + std::to_string(data_info.image_size) + " bytes" +
+      " and " + std::to_string(batches_fpass) + " batches for forward pass\n");
+
   data_info.reg_data_size = indices.size() * data_info.get_sample_size();
-  f_pass_data.forward_pass_mem_size = data_info.num_samples *
+  f_pass_data.num_batches = batches_fpass;
+  f_pass_data.forward_pass_mem_size = samples_fpass *
                                       f_pass_data.values_per_sample *
                                       f_pass_data.bytes_per_value;
-  f_pass_data.forward_pass_indices_mem_size =
-      data_info.num_samples * sizeof(uint32_t);
+  f_pass_data.forward_pass_indices_mem_size = samples_fpass * sizeof(uint32_t);
 
   forward_pass_size =
       f_pass_data.forward_pass_mem_size / f_pass_data.bytes_per_value;
-  error_start = forward_pass_size / 2;
+
+  Logger::instance().log("$$ Forward pass size: " + std::to_string(forward_pass_size) + " samples\n");
+  Logger::instance().log("$$ Forward pass memory size: " +
+                         std::to_string(f_pass_data.forward_pass_mem_size) +
+                         " bytes\n");
+  Logger::instance().log("$$ Forward pass indices memory size: " +
+                         std::to_string(f_pass_data.forward_pass_indices_mem_size) +
+                         " bytes\n");
 
   cudaHostAlloc((void **)&data_info.reg_data, data_info.reg_data_size,
                 cudaHostAllocDefault);
@@ -758,16 +793,17 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
                   f_pass_data.forward_pass_indices_mem_size,
                   cudaHostAllocDefault);
 
-    uint32_t num_batches = ceil(data_info.num_samples / kTrainBatchSize);
-    current_buffer.outputs.reserve(num_batches);
-    current_buffer.targets.reserve(num_batches);
-    current_buffer.losses.reserve(num_batches);
-    pending_buffer.outputs.reserve(num_batches);
-    pending_buffer.targets.reserve(num_batches);
-    pending_buffer.losses.reserve(num_batches);
-    inference_buffer.outputs.reserve(num_batches);
-    inference_buffer.targets.reserve(num_batches);
-    inference_buffer.losses.reserve(num_batches);
+    memset(f_pass_data.forward_pass_indices, UINT32_MAX, f_pass_data.forward_pass_indices_mem_size);
+
+    current_buffer.outputs.reserve(batches_fpass);
+    current_buffer.targets.reserve(batches_fpass);
+    current_buffer.losses.reserve(batches_fpass);
+    pending_buffer.outputs.reserve(batches_fpass);
+    pending_buffer.targets.reserve(batches_fpass);
+    pending_buffer.losses.reserve(batches_fpass);
+    inference_buffer.outputs.reserve(batches_fpass);
+    inference_buffer.targets.reserve(batches_fpass);
+    inference_buffer.losses.reserve(batches_fpass);
   }
 
   Logger::instance().log(
@@ -784,26 +820,23 @@ void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio,
     throw std::invalid_argument("Flip ratio must be between 0 and 1");
   }
 
+  size_t num_samples = data_info.num_samples;
   size_t num_to_flip = static_cast<size_t>(data_info.num_samples * flip_ratio);
-  std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
-  std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+  int  safe_labels = std::ceil(num_samples * t_params.clnt_vd_proportion);
 
-  std::unordered_set<size_t> flipped_indices;
-
-  // If overwrite_poisoned is false, keep the VD section of the dataset intact (first indices)
-  int safe_labels = 0;
-  if (!overwrite_poisoned) {
-    safe_labels = std::ceil(data_info.num_samples * t_params.clnt_vd_proportion);
-    for (size_t i = 0; i < safe_labels; ++i) {
-      flipped_indices.insert(i);
-    }
+  if (num_samples - safe_labels < num_to_flip) {
+    num_to_flip = num_samples - safe_labels;
   }
+
+  std::uniform_int_distribution<size_t> sample_dist(safe_labels, data_info.num_samples - 1);
+  std::uniform_int_distribution<int> label_dist(0, 9); // MNIST has 10 classes
+  std::unordered_set<size_t> flipped_indices;
 
   Logger::instance().log(
       "Starting random label flipping attack: " + std::to_string(num_to_flip) +
       " samples (" + std::to_string(flip_ratio * 100) + "%)\n");
 
-  while (flipped_indices.size() < num_to_flip + safe_labels) {
+  while (flipped_indices.size() < num_to_flip) {
     size_t idx = sample_dist(rng);
     if (flipped_indices.find(idx) == flipped_indices.end()) {
       int64_t *label_ptr = getLabel(idx);
@@ -871,37 +904,28 @@ void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
     throw std::invalid_argument("Flip ratio must be between 0 and 1");
   }
 
-  size_t num_to_corrupt = static_cast<size_t>(data_info.num_samples * flip_ratio);
-  std::uniform_int_distribution<size_t> sample_dist(0, data_info.num_samples - 1);
+  size_t num_samples = data_info.num_samples;
+  size_t num_to_corrupt = static_cast<size_t>(num_samples * flip_ratio);
+  int  safe_labels = std::ceil(num_samples * t_params.clnt_vd_proportion);
 
+  if (num_samples - safe_labels < num_to_corrupt) {
+    num_to_corrupt = num_samples - safe_labels;
+  }
+
+  std::uniform_int_distribution<size_t> sample_dist(safe_labels, num_samples - 1);
   std::unordered_set<size_t> corrupted_indices;
-
-  // If overwrite_poisoned is false, keep the VD section of the dataset intact (first indices)
-  int safe_labels = 0;
-  if (!overwrite_poisoned) {
-    safe_labels = std::ceil(data_info.num_samples * t_params.clnt_vd_proportion);
-    for (size_t i = 0; i < safe_labels; ++i) {
-      corrupted_indices.insert(i);
-    }
-  }
-
-  if (num_to_corrupt > data_info.num_samples - corrupted_indices.size()) {
-    num_to_corrupt = data_info.num_samples - corrupted_indices.size();
-  }
 
   Logger::instance().log(
       "Starting random image corruption attack: " + std::to_string(num_to_corrupt) +
       " samples (" + std::to_string(flip_ratio * 100) + "%)\n");
 
-  while (corrupted_indices.size() < num_to_corrupt + safe_labels) {
+  while (corrupted_indices.size() < num_to_corrupt) {
     size_t idx = sample_dist(rng);
     if (corrupted_indices.find(idx) == corrupted_indices.end()) {
       float *image_ptr = getImage(idx);
       
       // Set all image pixels to zero (garbage values)
-      size_t num_pixels = data_info.image_size / sizeof(float);
-      std::memset(image_ptr, 0, data_info.image_size);
-      
+      std::memset(image_ptr, 0, data_info.image_size);   
       corrupted_indices.insert(idx);
     }
   }

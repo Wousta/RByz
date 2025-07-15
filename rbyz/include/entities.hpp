@@ -16,14 +16,14 @@ struct RegMemSrvr {
   uint32_t srvr_subset_size;
   uint32_t clnt_subset_size;
   uint32_t dataset_size;
-  int srvr_ready_flag = 0;
+  std::atomic<int> srvr_ready_flag;
   float *srvr_w;
   std::vector<int> clnt_ready_flags;
   std::vector<float *> clnt_ws;
   void *reg_data;
 
   RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
-      : reg_sz_data(reg_sz_data), n_clients(n_clients),
+      : reg_sz_data(reg_sz_data), n_clients(n_clients), srvr_ready_flag(0),
         clnt_ready_flags(n_clients, 0), clnt_ws(n_clients), reg_data(reg_data) {
           srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
         }
@@ -40,7 +40,7 @@ struct RegMemClnt {
   const int id;               
   const uint32_t reg_sz_data; // Size of the registered parameter vector w
   int srvr_ready_flag;
-  int clnt_ready_flag;
+  std::atomic<int> clnt_ready_flag;
   float *srvr_w;
   float *clnt_w; 
   alignas(8) std::atomic<int> CAS;
@@ -67,6 +67,7 @@ struct RegMemClnt {
 struct ClientDataRbyz {
   int index;
   bool is_byzantine = false;
+  bool include_in_agg = false;
   float trust_score = 0.0;
   float *updates;
 
@@ -87,6 +88,7 @@ struct ClientDataRbyz {
 
   // Dataset data
   alignas(8) size_t dataset_size;
+  uint64_t num_samples;
   std::unordered_set<size_t> inserted_indices;
 
   // For RByz
@@ -122,6 +124,7 @@ struct TrainInputParams {
   std::string logs_dir = "";
   std::string ts_file = "";
   std::string acc_file= "";
+  std::string included_agg_file= "";
 
   bool use_mnist = false;
   int n_clients;
@@ -143,6 +146,7 @@ struct TrainInputParams {
   int test_renewal_freq;      // Frequency of test renewal (every n rounds)
   int overwrite_poisoned = 1; // Allow VD samples to overwrite poisoned samples
   int wait_all = 0; // Ignore slow clients in the trust score calculation
+  float batches_fpass_prop = 0.0;
 
   //misc
   int only_flt;

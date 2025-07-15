@@ -90,11 +90,14 @@ public:
 
 protected:
   uint64_t renew_idx = 0; // Index for build dataset when renewing samples for RByz
+  size_t forward_pass_size;
+  uint32_t batches_fpass; // Number of batches to copy to forward pass buffer
+  uint32_t total_batches; // Total number of batches in the dataset
+  NetType model;
+  std::mt19937 rng;
+  std::vector<uint32_t> batch_indices_f; // used to randomly select batches for forward pass
   std::map<int64_t, std::vector<size_t>> label_to_indices;
   std::vector<size_t> indices; // Indices of samples in the registered dataset
-  size_t forward_pass_size;
-  size_t error_start;
-  NetType model;
   torch::Device device;
   cudaStream_t memcpy_stream_A; // Stream for async memcpy
   cudaStream_t memcpy_stream_B; // Stream for async memcpy

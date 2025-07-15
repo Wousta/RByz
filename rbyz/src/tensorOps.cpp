@@ -129,4 +129,21 @@ void writeToTensorVec(std::vector<torch::Tensor> &dest, float *src, size_t size)
   dest = reconstruct_tensor_vector(flat_tensor, dest);
 }
 
+torch::Tensor createTensorFromBuffer(float* buffer, size_t buffer_size_bytes) {
+  if (buffer == nullptr) {
+    throw std::invalid_argument("[createTensorFromBuffer] Buffer pointer is null");
+  }
+  
+  if (buffer_size_bytes == 0) {
+    throw std::invalid_argument("[createTensorFromBuffer] Buffer size is zero");
+  }
+  
+  if (buffer_size_bytes % sizeof(float) != 0) {
+    throw std::invalid_argument("[createTensorFromBuffer] Buffer size is not aligned to float size");
+  }
+  
+  size_t num_elements = buffer_size_bytes / sizeof(float);
+  return torch::from_blob(buffer, {static_cast<long>(num_elements)}, torch::kFloat32).clone();
+}
+
 } // namespace tops

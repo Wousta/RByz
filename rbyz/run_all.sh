@@ -60,7 +60,7 @@ vd_prop_write=${22:-0.1}      # Proportion of total chunks writable on client to
 test_renewal_freq=${23:-5}    # Frequency of test renewal (every n rounds)
 overwrite_poisoned=${24:-0}   # Allow VD samples to overwrite poisoned samples (1) or not (0)
 wait_all=${25:-0}             # Wait indefinitely for all clients (1) or not (0) in RByz
-
+batches_fpass=${26:-0}
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
@@ -101,7 +101,8 @@ cleanup() {
     " &
   done
 
-  rm -f /home/bustaman/rbyz/rbyz/logs/execution_${SRVR_PID}.log 2>/dev/null
+  #rm -f /home/bustaman/rbyz/rbyz/logs/execution_${SRVR_PID}.log 2>/dev/null
+
   echo "All processes terminated."
   
   exit 0
@@ -110,28 +111,28 @@ cleanup() {
 # Trap SIGINT and SIGTERM to run cleanup
 trap cleanup SIGINT SIGTERM
 
-# Launch redis (disowned so it is not affected)
-echo "Starting Redis server on $srvr_ip:$port"
-redis-server --bind "$srvr_ip" --port "$port" >/dev/null &
-disown
-sleep 1
-redis-cli -h "$srvr_ip" -p "$port" SET srvr "0" >/dev/null
-redis-cli -h "$srvr_ip" -p "$port" SET clnt "0" >/dev/null
-redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
+# # Launch redis (disowned so it is not affected)
+# echo "Starting Redis server on $srvr_ip:$port"
+# redis-server --bind "$srvr_ip" --port "$port" >/dev/null &
+# disown
+# sleep 1
+# redis-cli -h "$srvr_ip" -p "$port" SET srvr "0" >/dev/null
+# redis-cli -h "$srvr_ip" -p "$port" SET clnt "0" >/dev/null
+# redis-cli -h "$srvr_ip" -p "$port" SET nid "0" >/dev/null
 
-echo "Redis server started on $srvr_ip:$port"
+# echo "Redis server started on $srvr_ip:$port"
 
 # rm -rf logs/*
 # rm -rf $results_path/logs/*
 
 # Start the server process locally
-echo "Starting server locally..."
 build/srvr --logs_dir $logs_dir --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio --only_flt $only_flt --vd_prop $vd_prop \
-  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all & 
+  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio  --only_flt $only_flt --vd_prop $vd_prop \
+  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all  --batches_fpass $batches_fpass & 
 SRVR_PID=$!
+echo "Started server with PID $SRVR_PID"
 
 echo "Starting clients on remote machines..."
 #sleep 10
@@ -170,10 +171,10 @@ for i in "${!remote_hosts[@]}"; do
           --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
           --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
           --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio --overwrite_poisoned $overwrite_poisoned \
-          --vd_prop $vd_prop & \
+          --vd_prop $vd_prop --batches_fpass $batches_fpass & \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
-        sleep 0.1; \
+        sleep 0.2; \
       done" &
   fi
 done

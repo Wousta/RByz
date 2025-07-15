@@ -57,15 +57,21 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
   Logger::instance().log("Client: Initial run of minstrain done\n");
 
-  for (int round = 1; round <= rounds; round++) {
+  int round = 1;
+  while (round <= rounds) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    } while (regMem.srvr_ready_flag != round && regMem.srvr_ready_flag != SRVR_FINISHED);
+    } while (regMem.srvr_ready_flag < round && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
       Logger::instance().log("Client: Server finished, exiting...\n");
       return w;
+    }
+
+    // Catch up to the server's round if needed
+    if (round < regMem.srvr_ready_flag) {
+      round = regMem.srvr_ready_flag;
     }
 
     Logger::instance().log("Client: Starting iteration " + std::to_string(round) + "\n");
@@ -74,10 +80,6 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
     rdma_ops.exec_rdma_read(regMem.reg_sz_data, SRVR_W_IDX);
     tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
 
-    if (round % 1 == 0) {
-      Logger::instance().log("FLtrust training round " + std::to_string(round) + "\n");
-      std::cout << "FLtrust training round " << round << " epochs: " << mngr.kNumberOfEpochs << "\n";
-    }
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
     mngr.runTraining();
     std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
@@ -87,10 +89,11 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
     rdma_ops.exec_rdma_write(regMem.reg_sz_data, CLNT_W_IDX);
 
     // Update the ready flag
-    regMem.clnt_ready_flag = round;
+    regMem.clnt_ready_flag.store(round);
     rdma_ops.exec_rdma_write(sizeof(int), CLNT_READY_IDX);
 
     Logger::instance().log("Client: Done with iteration " + std::to_string(round) + "\n");
+    round++;
   }
 
   Logger::instance().log("Client: Finished all rounds of FLtrust\n");
@@ -131,7 +134,8 @@ int main(int argc, char *argv[]) {
     lyra::opt(t_params.label_flip_type, "label_flip_type")["--label_flip_type"]("Label flip type: 0 - random, 1 - targeted, 2 - corrupt images") |
     lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
     lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
-    lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)");
+    lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)") |
+    lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -143,6 +147,7 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Client: srvr_ip = " + srvr_ip + "\n");
   Logger::instance().log("Client: port = " + port + "\n");
   Logger::instance().log("Byz clients = " + std::to_string(t_params.n_byz_clnts) + "\n");
+  Logger::instance().log("Only FLTrust = " + std::string(t_params.only_flt ? "true" : "false") + "\n");
   addr_info.ipv4_addr = strdup(srvr_ip.c_str());
   addr_info.port = strdup(port.c_str());
 
@@ -191,9 +196,10 @@ int main(int argc, char *argv[]) {
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
   Logger::instance().log("PRE: first mnist samples\n");
-  for (int i = 0; i < 5; i++) {
-    Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mngr->getLabel(i)) + 
-                           " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
+  for (int i = 0; i < 320; i++) {
+    if (i % 32 == 0)
+      Logger::instance().log("Sample " + std::to_string(i) + ": label = " + std::to_string(*reg_mngr->getLabel(i)) + 
+                            " | og_idx = " + std::to_string(*reg_mngr->getOriginalIndex(i)) + "\n");
   }
 
   // Label flipping at the beginning
