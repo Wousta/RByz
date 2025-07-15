@@ -86,44 +86,41 @@ local_learn_rate=0.08
 clnt_subset_size=4800
 srvr_subset_size=12000
 
-# vd_prop=0.25
-# run "mnist_25%vd" 
+vd_prop=0.25
+run "mnist_25%vd" 
 
-# vd_prop=0.23
-# run "mnist_23%vd"
+vd_prop=0.23
+run "mnist_23%vd"
 
-# vd_prop=0.21
-# run "mnist_21%vd"
+vd_prop=0.21
+run "mnist_21%vd"
 
-# vd_prop=0.19
-# run "mnist_19%vd"
+vd_prop=0.19
+run "mnist_19%vd"
 
-# vd_prop=0.17
-# run "mnist_17%vd"
+vd_prop=0.17
+run "mnist_17%vd"
 
-# vd_prop=0.15
-# run "mnist_15%vd"
+vd_prop=0.15
+run "mnist_15%vd"
 
-# vd_prop=0.13
-# run "mnist_13%vd" 
+vd_prop=0.13
+run "mnist_13%vd" 
 
-# vd_prop=0.11
-# run "mnist_11%vd" 
+vd_prop=0.11
+run "mnist_11%vd" 
 
-# vd_prop=0.09
-# run "mnist_9%vd" 
+vd_prop=0.09
+run "mnist_9%vd" 
 
-# vd_prop=0.07
-# run "mnist_7%vd" 
+vd_prop=0.07
+run "mnist_7%vd" 
 
-# vd_prop=0.05
-# run "mnist_5%vd" 
+vd_prop=0.05
+run "mnist_5%vd" 
 
 vd_prop=0.03
 run "mnist_3%vd"
-
-# vd_prop=0.01
-# run "mnist_1%vd" 
 
 #######################################
 ########## CIFAR Experiments ##########

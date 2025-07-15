@@ -536,9 +536,12 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
       // Only update TS if at least 50% of the server's VD samples were processed
       clnt_data.include_in_agg = processVDOut(clnt_data, false);
       if (clnt_data.include_in_agg) {
-        included++;
         updateTS(clnt_data_vec, clnt_data, clnt_data.loss_srvr,
-                 clnt_data.error_rate_srvr);
+          clnt_data.error_rate_srvr);
+
+        if (clnt_data.trust_score != 0) {
+          included++;
+        }
       } 
     }
     Logger::instance().logCustom(t_params.logs_dir, t_params.included_agg_file,

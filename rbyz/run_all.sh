@@ -92,11 +92,11 @@ cleanup() {
         sleep 0.2
         
         # Now remove their log files
-        # for pid in \$client_pids; do
-        #   if [ -f logs/execution_\${pid}.log ]; then
-        #     rm -f logs/execution_\${pid}.log
-        #   fi
-        # done
+        for pid in \$client_pids; do
+          if [ -f logs/execution_\${pid}.log ]; then
+            rm -f logs/execution_\${pid}.log
+          fi
+        done
       fi
     " &
   done
@@ -122,7 +122,7 @@ trap cleanup SIGINT SIGTERM
 
 # echo "Redis server started on $srvr_ip:$port"
 
-rm -rf logs/*
+# rm -rf logs/*
 # rm -rf $results_path/logs/*
 
 # Start the server process locally
