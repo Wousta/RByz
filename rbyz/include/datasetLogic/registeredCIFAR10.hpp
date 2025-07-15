@@ -50,6 +50,7 @@ private:
 
   RegTrainData *data_info;
   std::unordered_map<size_t, size_t> index_map;
+  std::vector<int> shuffled_indices;
   torch::TensorOptions options;
   size_t num_samples = 0;
   size_t sample_size = 0;

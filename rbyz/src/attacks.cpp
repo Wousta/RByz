@@ -54,23 +54,21 @@ std::vector<torch::Tensor> trim_attack(
     auto directed_dim = ((direction > 0).to(torch::kFloat32) * minimum_dim +
                          (direction < 0).to(torch::kFloat32) * maximum_dim);
 
-    for (int i = 0; i < f; i++)
-    {
-        auto random_12 = (1.0 + torch::rand(vi_shape_vec, torch::kCPU));
-        auto cond1 = (direction * directed_dim > 0).to(torch::kFloat32);
-        auto cond2 = (direction * directed_dim < 0).to(torch::kFloat32);
-        auto factor = cond1.div(random_12) + cond2 * random_12;
-        v_attack[i] = directed_dim * factor;
-    }
+  for (int i = 0; i < f; i++) {
+    auto random_12 = (1.0 + torch::rand(vi_shape_vec, torch::kCPU));
+    auto cond1 = (direction * directed_dim > 0).to(torch::kFloat32);
+    auto cond2 = (direction * directed_dim < 0).to(torch::kFloat32);
+    auto factor = cond1.div(random_12) + cond2 * random_12;
+    v_attack[i] = directed_dim * factor;
+  }
 
-    // Squeeze back to 1D
-    for (size_t i = 0; i < v_attack.size(); i++)
-    {
-        if (v[i].dim() == 1)
-            v_attack[i] = v_attack[i].squeeze(1);
-    }
+  // Squeeze back to 1D
+  for (size_t i = 0; i < v_attack.size(); i++) {
+    if (v[i].dim() == 1)
+      v_attack[i] = v_attack[i].squeeze(1);
+  }
 
-    return v_attack;
+  return v_attack;
 }
 
 /**
@@ -225,7 +223,7 @@ std::vector<torch::Tensor> krum_attack(
  */
 void data_poison_attack(bool use_mnist, TrainInputParams &t_params,
                         IRegDatasetMngr &mngr) {
-  std::mt19937 rng(std::random_device{}());
+  std::mt19937 rng(42); // Fixed seed for reproducibility
   int label_flip_type = t_params.label_flip_type;
   float flip_ratio = t_params.flip_ratio;
 

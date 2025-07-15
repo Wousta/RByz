@@ -4,6 +4,7 @@
 #include "logger.hpp"
 #include "entities.hpp"
 
+#include <cstddef>
 #include <ctime>
 #include <random>
 #include <algorithm>
@@ -21,11 +22,14 @@ class RegMnistSplitter {
     const int samples_per_chunk;
     const float clnt_vd_proportion;                 // Proportion of the client dataset that will be overwritten with server data
     int samples_per_vd_split = 0;
+    int extra_col_size = 0;                      // Number of samples in the "extra" column for VD, if used
+    uint64_t extra_col_idx = 0;
     uint32_t chunk_sz_bytes;
     IRegDatasetMngr& mngr;
     std::vector<ClientDataRbyz>& clnt_data_vec;
-    std::vector<std::vector<size_t>> vd_indexes;    // Vector of indices for the start of each VD
-    std::vector<size_t> clnt_chunks;                // Vector of offsets for the clients till n-1
+    std::vector<std::vector<size_t>> vd_indexes;        // Vector of indices for the start of each VD
+    std::vector<size_t> extra_col_indices;              // start indices of each column (where the "extra column" starts)
+    std::vector<size_t> clnt_chunks;                    // Vector of offsets for the clients till n-1
 
     // Vector of integers corresponding to the indices in vd_indexes and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
@@ -89,7 +93,10 @@ class RegMnistSplitter {
      * intervals (samples_per_chunk) within its assigned section. If the samples per VD split
      * exceeds the number of samples in the section, it wraps around to the start of the section
      * This may cause to write a lot of repeated samples to the clients if the clnt_vd_proportion is high
-     * But this can be mitigated by refreshing the server VD dataset often.
+     * But this can be mitigated by renewing the server VD dataset often.
+     *
+     * The extra column is divided inbetween VD partitions, each piece of the extra column starts at
+     * the beginning of each VD partition, and it has size dependent on n_clients and full VD_size.
      * 
      * The last client receives any remaining samples to handle cases where the dataset
      * size is not perfectly divisible by n_clients.
@@ -97,6 +104,7 @@ class RegMnistSplitter {
     void initializeValidationDatasetPartitions() {
         // Split the server registered data into n_clients VD sections
         size_t vd_size = mngr.data_info.num_samples / n_clients;
+        extra_col_size = (vd_size / n_clients) * mngr.data_info.get_sample_size();
 
         if (vd_size < samples_per_chunk) {
             throw std::runtime_error("Not enough samples in the server VD with the given clnt_vd_proportion. "
@@ -114,6 +122,7 @@ class RegMnistSplitter {
         for (int i = 0; i < n_clients; i++) {
             size_t start_idx = i * vd_size;
             size_t end_idx;
+            extra_col_indices.push_back(start_idx);
 
             if (i == n_clients - 1) {
                 end_idx = mngr.data_info.num_samples;
@@ -145,11 +154,10 @@ class RegMnistSplitter {
     }
 
     public:
-    // I dislike how C++ constructors work, java is so much better in this regard, look at this mess
     RegMnistSplitter(TrainInputParams& t_params, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
         : n_clients(clnt_data_vec.size()), samples_per_chunk(t_params.chunk_size), clnt_vd_proportion(t_params.clnt_vd_proportion), 
           mngr(mngr), clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
-          rng(std::random_device{}()) {
+          rng(50), extra_col_indices(n_clients) {
 
         // Used to select the VD splits for each client
         for (int i = 0; i < n_clients; i++) {
@@ -225,6 +233,20 @@ class RegMnistSplitter {
      */
     std::vector<size_t> getServerIndices(int clnt_idx, std::vector<int> derangement) {
         return vd_indexes[derangement[clnt_idx]];
+    }
+
+    size_t getExtraColSectionToRenew() {
+        size_t res = extra_col_indices[extra_col_idx];
+        extra_col_idx = (extra_col_idx + 1) % n_clients; // Cycle through the extra column sections
+        return res;
+    }
+
+    size_t getExtraColumnSize() {
+        return extra_col_size;
+    }
+
+    int getExtraColNumSamplesPerSection() {
+        return extra_col_size / mngr.data_info.get_sample_size();
     }
 
     /**

@@ -1,15 +1,27 @@
 #!/bin/bash
 
-# Accuracy vs Test Size Experiment. 
+# Byz attacks FLtrust vs RByz Experiment. 
 # Methodology based in: https://arxiv.org/pdf/2007.08432
 trap 'echo "Script interrupted. Exiting..."; exit 1' INT TERM
 ORIGINAL_DIR=$(pwd)
 EXPERIMENT="byz_attacks"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
 #REMOTE_HOSTS=("dcldelta4" "dcldelta2")
+PORT="2200"
 REMOTE_HOSTS=("dcldelta4")
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
+
+# Launch redis (disowned so it is not affected)
+echo "Starting Redis server on $IP_ADDRESS:$PORT"
+redis-server --bind "$IP_ADDRESS" --port "$PORT" >/dev/null &
+disown
+sleep 1
+redis-cli -h "$IP_ADDRESS" -p "$PORT" SET srvr "0" >/dev/null
+redis-cli -h "$IP_ADDRESS" -p "$PORT" SET clnt "0" >/dev/null
+redis-cli -h "$IP_ADDRESS" -p "$PORT" SET nid "0" >/dev/null
+
+echo "Redis server started on $IP_ADDRESS:$PORT"
 
 # Common parameters
 clients=50
@@ -36,7 +48,7 @@ run() {
         echo "______________________________________________________________________"
         echo "---- Running experiment $name with $byz_clients byzantine clients ----"
         
-        ./run_all.sh $EXPERIMENT $IP_ADDRESS "${REMOTE_HOSTS[*]}" $use_mnist $clients $epochs $batch_size $glob_learning_rate \
+        ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned
     done

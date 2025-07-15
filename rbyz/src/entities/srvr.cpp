@@ -96,8 +96,7 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   return result;
 }
 
-torch::Tensor
-aggregate_updates(const std::vector<torch::Tensor> &client_updates,
+torch::Tensor aggregateUpdates(const std::vector<torch::Tensor> &client_updates,
                   const torch::Tensor &server_update, std::vector<uint32_t> &clnt_indices, 
                   std::vector<float> log_TS_vec, TrainInputParams &t_params) {
 
@@ -139,7 +138,7 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
     Logger::instance().log(oss.str());
   }
 
-  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, "- FL\n");
+  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, "- Round end -\n");
   for (int i = 0; i < log_TS_vec.size(); i++) {
     std::string message = std::to_string(log_TS_vec[i]) + "\n";
     Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, message);
@@ -166,29 +165,24 @@ aggregate_updates(const std::vector<torch::Tensor> &client_updates,
 std::vector<torch::Tensor>
 run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr,
                  RegMemSrvr &regMem, std::vector<ClientDataRbyz> &clntsData) {
-  std::string filename = (t_params.only_flt) ? "F_acc.log" : "R_acc.log";
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
 
   tops::printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial weights gathered\n");
   std::vector<float> log_TS_vec(n_clients, 0.0f);
 
-  for (int round = 1; round <= t_params.global_iters_fl; round++) {
-    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
-    tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
+    for (int round = 1; round <= t_params.global_iters_fl; round++) {
+      std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
+      tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
 
-    // Set the flag to indicate that the weights are ready for the clients to read
-    regMem.srvr_ready_flag = round;
+      // Set the flag to indicate that the weights are ready for the clients to read
+      regMem.srvr_ready_flag.store(round);
 
     // Run local training
-    if (round % 1 == 0) {
-      Logger::instance().log("FLtrust training round " + std::to_string(round) + "\n");
-      std::cout << "FLtrust training round " << round << " epochs: " << mngr.kNumberOfEpochs << "\n";
-    }
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
     mngr.runTraining();
     std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
-
+    
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
     // ROUND, BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     std::vector<torch::Tensor> clnt_updates;
@@ -205,7 +199,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       bool timed_out = false;
       long total_wait_time = 0;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(200000000); // 200 milliseconds
+      std::chrono::microseconds limit_step_time(2000000); // 200 milliseconds
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_wait_time += initial_time.count();
@@ -232,7 +226,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     // AGGREGATION PHASE //////////////////////
     torch::Tensor flat_srvr_update = tops::flatten_tensor_vector(g);
     torch::Tensor aggregated_update =
-        aggregate_updates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params);
+        aggregateUpdates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params);
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
 
@@ -242,7 +236,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     mngr.updateModelParameters(w);
     Logger::instance().log("After aggregating: \n");
     mngr.runTesting();
-    Logger::instance().logCustom(t_params.logs_dir, filename, std::to_string(round) + " " +
+    Logger::instance().logCustom(t_params.logs_dir, t_params.acc_file, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
   }
 
@@ -256,7 +250,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
 /**
  * @brief Allocates memory for the server and clients
  */
-void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
+void allocateServerMemory(int n_clients, TrainInputParams &t_params, RegMemSrvr &regMem,
                           std::vector<ClientDataRbyz> &clnt_data_vec,
                           IRegDatasetMngr &mngr) {
   size_t sample_size = mngr.data_info.get_sample_size();
@@ -268,17 +262,27 @@ void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
     regMem.clnt_ws[i] = reinterpret_cast<float *>(malloc(regMem.reg_sz_data));
     clnt_data_vec[i].updates = regMem.clnt_ws[i];
     clnt_data_vec[i].index = i;
-
-    // Calculate memory sizes for client data
     size_t num_samples = clnts_samples_count[i];
     size_t batch_size = mngr.kTrainBatchSize;
+    
+    int64_t samples_fpass = num_samples;
+    uint32_t total_batches = ceil(num_samples / batch_size);
+    uint32_t batches_fpass = total_batches * t_params.batches_fpass_prop;
+    if (t_params.batches_fpass_prop > 0) {
+      samples_fpass = std::min(samples_fpass, batches_fpass * mngr.kTrainBatchSize);
+      Logger::instance().log("Limiting forward pass samples to: " +
+                            std::to_string(samples_fpass) + "\n");
+    }
+
+    // Calculate memory sizes for client data
     const size_t values_per_sample = mngr.f_pass_data.values_per_sample;
     const size_t bytes_per_value = mngr.f_pass_data.bytes_per_value;
     size_t forward_pass_mem_size =
-        num_samples * values_per_sample * bytes_per_value;
-    size_t forward_pass_indices_mem_size = num_samples * sizeof(uint32_t);
+        samples_fpass * values_per_sample * bytes_per_value;
+    size_t forward_pass_indices_mem_size = samples_fpass * sizeof(uint32_t);
 
     // Set memory size information
+    clnt_data_vec[i].num_samples = num_samples;
     clnt_data_vec[i].dataset_size = num_samples * sample_size;
     clnt_data_vec[i].forward_pass_mem_size = forward_pass_mem_size;
     clnt_data_vec[i].forward_pass_indices_mem_size =
@@ -295,6 +299,7 @@ void allocateServerMemory(int n_clients, RegMemSrvr &regMem,
 int main(int argc, char *argv[]) {
   Logger::instance().log(
       "Server starting RBYZ in core: " + std::to_string(sched_getcpu()) + "\n");
+  Logger::instance().log("Pid: " + std::to_string(getpid()) + "\n");
 
   TrainInputParams t_params;
   int n_clients;
@@ -329,7 +334,8 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.vd_prop_write, "vd_prop_write")["--vd_prop_write"]("Proportion of total chunks writable on client to write each time the test is renewed") |
       lyra::opt(t_params.test_renewal_freq, "test_renewal_freq")["--test_renewal_freq"]("Frequency of test renewal (every n rounds)") |
       lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
-      lyra::opt(t_params.wait_all, "wait_all")["--wait_all"]("Ignore slow clients during RByz");
+      lyra::opt(t_params.wait_all, "wait_all")["--wait_all"]("Ignore slow clients during RByz") |
+      lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz");
 
   auto result = cli.parse({argc, argv});
   if (!result) {
@@ -361,6 +367,8 @@ int main(int argc, char *argv[]) {
   std::cout << "Overwrite poisoned samples = " << (t_params.overwrite_poisoned ? "true" : "false") << "\n";
   std::cout << "Label flip type = " << t_params.label_flip_type << "\n";
   std::cout << "Label flip ratio = " << t_params.flip_ratio << "\n";
+  std::cout << "Wait for all clients = " << (t_params.wait_all ? "true" : "false") << "\n";
+  std::cout << "Batches for forward pass = " << t_params.batches_fpass_prop << "\n";
 
   t_params.n_clients = n_clients; // +1 for server
   MnistNet mnist_net;
@@ -396,7 +404,7 @@ int main(int argc, char *argv[]) {
   for (ClientDataRbyz &clnt_data : clnt_data_vec) {
     clnt_data.init(t_params.local_steps_rbyz);
   }
-  allocateServerMemory(n_clients, *regMem, clnt_data_vec, *reg_mngr);
+  allocateServerMemory(n_clients, t_params, *regMem, clnt_data_vec, *reg_mngr);
   prepareRdmaRegistration(n_clients, reg_info, *regMem, clnt_data_vec,
                           *reg_mngr);
 
@@ -404,24 +412,30 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < n_clients; i++) {
     conns[i].acceptConn(addr_info, reg_info[i]);
     std::cout << "Connected to client " << i << "\n";
+    Logger::instance().log("Connected to client " + std::to_string(i) + "\n");
   }
 
+  std::string algo_name = (t_params.only_flt) ? "FLTrust" : "RByz";
   std::string dir = t_params.logs_dir;
   std::string final_data_file;
   int rounds;
   if (t_params.only_flt) {
     t_params.ts_file = "F_trust_scores.log";
     t_params.acc_file = "F_acc.log";
+    t_params.included_agg_file = "F_included_agg.log";
     final_data_file = "F_final_data.log";
     rounds = t_params.global_iters_fl;
   } else {
     t_params.ts_file = "R_trust_scores.log";
     t_params.acc_file = "R_acc.log";
+    t_params.included_agg_file = "R_included_agg.log";
     final_data_file = "R_final_data.log";
     rounds = t_params.global_iters_rbyz + t_params.global_iters_fl;
   }
+  Logger::instance().logCustom(dir, t_params.ts_file, algo_name + "\n");
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(rounds) + "\n");
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(n_clients) + "\n");
+  Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(t_params.n_byz_clnts) + "\n");
 
   std::cout << "SRVR Running FLTrust\n";
   auto start = std::chrono::high_resolution_clock::now();
@@ -460,9 +474,10 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom(dir, final_data_file, miss_samples_msg);
   Logger::instance().logCustom(dir, final_data_file, class_recall_msg);
 
+  Logger::instance().logCustom(dir, final_data_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom(dir, t_params.acc_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom(dir, t_params.ts_file, "$ END OF EXECUTION $\n");
-  Logger::instance().logCustom(dir, final_data_file, "$ END OF EXECUTION $\n");
+  Logger::instance().logCustom(dir, t_params.included_agg_file, "$ END OF EXECUTION $\n");
 
   rbyz_aux.awaitTermination(clnt_data_vec, t_params.global_iters_rbyz);
   regMem->srvr_ready_flag = SRVR_FINISHED;

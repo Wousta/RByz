@@ -12,7 +12,7 @@ private:
   const int local_steps;
   const int global_rounds;
   const bool byz_clnt;
-  float ts_threshold;
+  float ts_threshold; // Trust score threshold for VD extra column client selection (not yet used)  
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
@@ -43,6 +43,7 @@ private:
   void logTrustScores(const std::vector<ClientDataRbyz> &clnt_data_vec, int only_flt) const;
   void waitTimeout(ClientDataRbyz& clnt_data, int round);
   void waitInfinite(ClientDataRbyz& clnt_data, int round);
+  void renewTrustedClientsColumn(RegMnistSplitter &splitter, std::vector<ClientDataRbyz> &clnt_data_vec);
 
 public:
   void *extra_vd_col = nullptr;
@@ -54,28 +55,28 @@ public:
         local_steps(t_params.local_steps_rbyz),
         global_rounds(t_params.global_iters_rbyz),
         byz_clnt(mngr.worker_id <= t_params.n_byz_clnts),
-        rng(std::random_device{}()) {
+        rng(14) {
 
-          min_steps = std::ceil(local_steps * 0.5);
+          min_steps = std::floor(local_steps * 0.5);
           middle_steps = std::ceil(local_steps * 0.75);
           step_range = std::uniform_int_distribution<int>(middle_steps, local_steps);
 
           if (t_params.use_mnist) {
             ts_threshold = 0.91; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{2043}, {2143}, {2049}, {2144}, {2049}, {2148}, {2048}, {2148}, {2048}, {2143}};
+              step_times = {{889}, {889}, {889}, {889}, {894}, {894}, {901}, {908}, {917}, {955}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
-                step_times.push_back({2144});
+                step_times.push_back({901});
               }
             }
           } else {
             ts_threshold = 0.87; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{29389}, {29387}, {29386}, {29388}, {29390}, {29384}, {29388}, {29387}, {29387}, {29387}};
+              step_times = {{4960}, {4960}, {4960}, {4962}, {4962}, {4978}, {4998}, {4998}, {4991}, {4998}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
-                step_times.push_back({29389}); 
+                step_times.push_back({4978}); 
               }
             }
           }

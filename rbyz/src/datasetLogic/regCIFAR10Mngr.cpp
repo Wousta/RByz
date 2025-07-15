@@ -110,7 +110,7 @@ void RegCIFAR10Mngr::buildRegisteredDataset(const std::vector<size_t> &indices) 
     int64_t label = example.target.item<int64_t>();
 
     // Put them at the end of the dataset if they are poisoned, server does not poison itself so not necessary
-    if (attack_is_targeted_flip && !overwrite_poisoned && label == src_class && worker_id != 0) {
+    if (!overwrite_poisoned && label == src_class && worker_id != 0 && worker_id <= t_params.n_byz_clnts) {
       poisoned_labels.push_back(original_idx);
       continue;
     }

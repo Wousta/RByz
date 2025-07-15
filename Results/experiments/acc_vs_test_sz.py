@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-acc_vs_test_sz_bars.py - Create bar chart comparing validation data percentage vs accuracy
+acc_vs_test_sz.py - Create bar chart or line chart comparing validation data percentage vs accuracy
 
-Iterates over folders in /home/bustaman/rbyz/Results/keep/acc_vs_test_size/{dataset}
+Iterates over folders in the specified base directory (or default /home/bustaman/rbyz/Results/keep/acc_vs_test_size)
 with format {dataset}_<percentage>%vd, extracts data from R_final_data.log files,
-and creates a bar chart showing mean accuracy with standard deviation error bars.
+and creates a bar chart (default) or line chart showing mean accuracy with standard deviation error bars.
 
 Usage:
-    python acc_vs_test_sz_bars.py mnist
-    python acc_vs_test_sz_bars.py cifar
+    python acc_vs_test_sz.py mnist
+    python acc_vs_test_sz.py cifar
+    python acc_vs_test_sz.py mnist -b /path/to/custom/directory
+    python acc_vs_test_sz.py mnist -l  # Line chart
+    python acc_vs_test_sz.py mnist --line  # Line chart
 """
 
 import os
@@ -66,9 +69,9 @@ def get_log_data_via_script(log_file_path: str) -> Dict:
         return {}
 
 
-def collect_data(dataset: str) -> List[Tuple[float, List[float]]]:
+def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep/acc_vs_test_size") -> List[Tuple[float, List[float]]]:
     """Collect accuracy data from all folders for the specified dataset"""
-    base_path = f"/home/bustaman/rbyz/Results/keep/acc_vs_test_size/{dataset}"
+    base_path = os.path.join(base_dir, dataset)
     
     if not os.path.exists(base_path):
         print(f"Error: Base path {base_path} does not exist")
@@ -116,8 +119,8 @@ def collect_data(dataset: str) -> List[Tuple[float, List[float]]]:
     return data_points
 
 
-def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str) -> None:
-    """Create bar chart with error bars"""
+def create_chart(data_points: List[Tuple[float, List[float]]], dataset: str, use_line_chart: bool = False) -> None:
+    """Create bar chart or line chart with error bars"""
     if not data_points:
         print("No data points to plot")
         return
@@ -137,21 +140,45 @@ def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str)
     # Create the plot
     plt.figure(figsize=(7, 6))
     
-    # Create bar chart
-    bars = plt.bar(percentages, means, 
-                   color='black', 
-                   alpha=0.8,
-                   width=2.0,  # Adjust width as needed
-                   edgecolor='black',
-                   linewidth=1)
-    
-    # Add error bars
-    plt.errorbar(percentages, means, yerr=stds, 
-                fmt='none', 
-                color='green', 
-                capsize=5, 
-                capthick=2,
-                linewidth=2)
+    if use_line_chart:
+        # Create line chart
+        plt.plot(percentages, means, 
+                marker='o', 
+                linewidth=2, 
+                markersize=6, 
+                color='blue',
+                markerfacecolor='blue',
+                markeredgecolor='darkblue')
+        
+        # Add error bars
+        plt.errorbar(percentages, means, yerr=stds, 
+                    fmt='none', 
+                    color='green', 
+                    capsize=5, 
+                    capthick=2,
+                    linewidth=2)
+        
+        chart_type = "Line"
+        output_suffix = "line"
+    else:
+        # Create bar chart
+        bars = plt.bar(percentages, means, 
+                       color='black', 
+                       alpha=0.8,
+                       width=2.0,  # Adjust width as needed
+                       edgecolor='black',
+                       linewidth=1)
+        
+        # Add error bars
+        plt.errorbar(percentages, means, yerr=stds, 
+                    fmt='none', 
+                    color='green', 
+                    capsize=5, 
+                    capthick=2,
+                    linewidth=2)
+        
+        chart_type = "Bar"
+        output_suffix = "bars"
     
     # Customize the plot
     plt.xlabel('Max Validation Data per client %', fontsize=12)
@@ -179,7 +206,7 @@ def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str)
     os.makedirs(output_dir, exist_ok=True)
     
     # Save the plot
-    output_path = os.path.join(output_dir, f"acc_vs_test_sz_bars_{dataset}.png")
+    output_path = os.path.join(output_dir, f"acc_vs_test_sz_{output_suffix}_{dataset}.png")
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Plot saved as {output_path}")
     
@@ -190,12 +217,15 @@ def create_bar_chart(data_points: List[Tuple[float, List[float]]], dataset: str)
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
-        description='Create bar chart comparing validation data percentage vs accuracy',
+        description='Create bar chart or line chart comparing validation data percentage vs accuracy',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python acc_vs_test_sz_bars.py mnist
-    python acc_vs_test_sz_bars.py cifar
+    python acc_vs_test_sz.py mnist
+    python acc_vs_test_sz.py cifar
+    python acc_vs_test_sz.py mnist -b /path/to/custom/directory
+    python acc_vs_test_sz.py mnist -l  # Line chart
+    python acc_vs_test_sz.py mnist --line  # Line chart
         """
     )
     
@@ -203,10 +233,20 @@ Examples:
                        choices=['mnist', 'cifar'],
                        help='Dataset to process (mnist or cifar)')
     
+    parser.add_argument('-b', '--base-dir', 
+                       default="/home/bustaman/rbyz/Results/keep/acc_vs_test_size",
+                       help='Base directory containing dataset folders (default: /home/bustaman/rbyz/Results/keep/acc_vs_test_size)')
+    
+    parser.add_argument('-l', '--line', 
+                       action='store_true',
+                       help='Create line chart instead of bar chart')
+    
     args = parser.parse_args()
     
+    print(f"Using base directory: {args.base_dir}")
+    chart_type = "line" if args.line else "bar"
     print(f"Collecting data from {args.dataset.upper()} log files...")
-    data_points = collect_data(args.dataset)
+    data_points = collect_data(args.dataset, args.base_dir)
     
     if not data_points:
         print("No data found. Exiting.")
@@ -216,8 +256,8 @@ Examples:
     for percentage, accuracies in data_points:
         print(f"  {percentage}%: {len(accuracies)} runs")
     
-    print(f"\nCreating bar chart for {args.dataset.upper()}...")
-    create_bar_chart(data_points, args.dataset)
+    print(f"\nCreating {chart_type} chart for {args.dataset.upper()}...")
+    create_chart(data_points, args.dataset, args.line)
 
 
 if __name__ == "__main__":

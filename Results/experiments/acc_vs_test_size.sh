@@ -1,13 +1,31 @@
 #!/bin/bash
+cleanup() {
+    echo "Script interrupted. Cleaning up..."
+    kill -TERM $current_pid 2>/dev/null
+    echo "Cleanup complete. Exiting..."
+    exit 1
+}
+trap cleanup INT TERM QUIT EXIT
 
 # Accuracy vs Test Size Experiment
-trap 'echo "Script interrupted. Exiting..."; exit 1' INT TERM
 ORIGINAL_DIR=$(pwd)
 EXPERIMENT="acc_vs_test_size"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
 REMOTE_HOSTS=("dcldelta4")
+PORT="2000"
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
+
+# Launch redis (disowned so it is not affected)
+echo "Starting Redis server on $IP_ADDRESS:$PORT"
+redis-server --bind "$IP_ADDRESS" --port "$PORT" >/dev/null &
+disown
+sleep 1
+redis-cli -h "$IP_ADDRESS" -p "$PORT" SET srvr "0" >/dev/null
+redis-cli -h "$IP_ADDRESS" -p "$PORT" SET clnt "0" >/dev/null
+redis-cli -h "$IP_ADDRESS" -p "$PORT" SET nid "0" >/dev/null
+
+echo "Redis server started on $IP_ADDRESS:$PORT"
 
 # Common parameters
 clients=10
@@ -34,17 +52,15 @@ run() {
     echo "=========================================================="
     echo "     VD prop: $vd_prop"
 
-    for ((i=1; i<=8; i++)); do
+    for ((i=1; i<=3; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
-        ./run_all.sh $EXPERIMENT $IP_ADDRESS "${REMOTE_HOSTS[*]}" $use_mnist $clients $epochs $batch_size $glob_learning_rate \
+        ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned
 
-        # cd ../Results/accLogs
-        # percent=$(awk "BEGIN {printf \"%.1f\", $vd_prop * 100}")
-        # mv R_acc*.log "R_vdprop_acc_${percent}%.log"
-        # cd ../../rbyz
+        current_pid=$!
+
     done
 
     cd ../Results/logs/$EXPERIMENT
@@ -57,7 +73,7 @@ run() {
 ########## MNIST Experiments ##########
 use_mnist="true"
 batch_size=32
-glob_learning_rate=0.08
+glob_learning_rate=0.09
 local_learn_rate=0.01
 clnt_subset_size=5900
 srvr_subset_size=1000
@@ -81,12 +97,12 @@ srvr_subset_size=1000
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
-glob_learning_rate=0.8
+glob_learning_rate=0.9
 clnt_subset_size=4900
 srvr_subset_size=1000
 
-vd_prop=0.25
-run "cifar_25%vd"
+# vd_prop=0.25
+# run "cifar_25%vd"
 
 vd_prop=0.2
 run "cifar_20%vd"

@@ -23,6 +23,7 @@ struct RegTrainData {
 };
 
 struct ForwardPassData {
+  int num_batches = 0;
   float *forward_pass = nullptr;
   uint32_t *forward_pass_indices = nullptr;
   size_t forward_pass_mem_size = 0;
