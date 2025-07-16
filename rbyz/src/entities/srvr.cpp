@@ -203,7 +203,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_wait_time += initial_time.count();
-        initial_time *= 2; // Exponential backoff
+        initial_time *= (3 / 2); // Exponential backoff
         if (initial_time > limit_step_time) {
           timed_out = true;
           Logger::instance().log("    -> Timeout in update gathering by client " + std::to_string(client) + 

@@ -238,13 +238,10 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   std::unordered_set<uint32_t> batches_to_process;
   if (!only_flt) {
     batches_to_process.reserve(batches_fpass);
-    Logger::instance().log(
-        "Batches to process for forward pass: " + std::to_string(batches_fpass) + "\n");
     std::shuffle(batch_indices_f.begin(), batch_indices_f.end(), rng);
     for (uint32_t i = 0; i < batches_fpass; i++) {
       batches_to_process.insert(batch_indices_f[i]);
     }
-    Logger::instance().log("Batches to process for forward pass: \n");
     for (const auto &batch_idx : batches_to_process) {
       Logger::instance().log(std::to_string(batch_idx) + " ");
     }
@@ -252,8 +249,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
 
     
     if (pending_forward_pass.load()) {
-      Logger::instance().log(
-          "Waiting for previous forward pass processing to complete\n");
       forward_pass_future.wait();
       pending_forward_pass.store(false);
     }
@@ -282,11 +277,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   for (const auto &batch : data_loader) {
     if (!only_flt && batches_to_process.find(batch_idx) != batches_to_process.end()) {
       for (int i = 0; i < batch.data.size(0); ++i) {
-        if (i < 3) {
-          Logger::instance().log(
-              "       - Original index for sample " + std::to_string(f_pass_idx) +
-              ": " + std::to_string(*getOriginalIndex(global_sample_idx)) + "\n");
-        }
         f_pass_data.forward_pass_indices[f_pass_idx] = *getOriginalIndex(global_sample_idx);
         global_sample_idx++;
         f_pass_idx++;
@@ -327,8 +317,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     auto output = model->forward(data);
 
     if (!only_flt && batches_to_process.find(batch_idx) != batches_to_process.end()) {
-      Logger::instance().log(
-          "Batch going to be processed: " + std::to_string(batch_idx) + "\n");
       auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
       torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
       current_buffer.outputs.push_back(output);
@@ -357,10 +345,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   }
 
   if (!only_flt) {
-    Logger::instance().log(
-        "\nStarting concurrent forward pass processing for epoch " +
-        std::to_string(epoch) + "\n");
-
     // Move current buffer to pending and start concurrent processing
     pending_buffer = std::move(current_buffer);
     forward_pass_future = std::async(
@@ -433,8 +417,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
 
   // Wait for any pending forward pass processing
   if (pending_forward_pass.load()) {
-    Logger::instance().log(
-        "Waiting for pending forward pass processing before inference\n");
     forward_pass_future.wait();
     pending_forward_pass.store(false);
   }
@@ -496,10 +478,10 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
         torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone)
     );
 
-    if (torch::isnan(individual_losses).any().template item<bool>()) {
-      Logger::instance().log("ERROR: NaN values detected in individual_losses\n");
-      throw std::runtime_error("NaN values in individual_losses");
-    }
+    // if (torch::isnan(individual_losses).any().template item<bool>()) {
+    //   Logger::instance().log("ERROR: NaN values detected in individual_losses\n");
+    //   throw std::runtime_error("NaN values in individual_losses");
+    // }
 
     inference_buffer.outputs.push_back(output);
     inference_buffer.targets.push_back(targets);
@@ -513,10 +495,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
 
   // For inference, process synchronously since we need immediate results
   processForwardPass(inference_buffer);
-
-  Logger::instance().log("Inference completed - Loss: " + std::to_string(loss) +
-                         ", Error rate: " + std::to_string(error_rate) +
-                         ", Total samples: " + std::to_string(total) + "\n");
 }
 
 template <typename NetType>
@@ -524,7 +502,6 @@ std::vector<size_t>
 BaseRegDatasetMngr<NetType>::getClientsSamplesCount(uint32_t clnt_subset_size,
                                                     uint32_t srvr_subset_size,
                                                     uint32_t dataset_size) {
-  Logger::instance().log("Getting samples count for each client\n");
   std::vector<size_t> samples_count(n_clients, 0);
 
   // Allocate indices to workers
@@ -640,10 +617,6 @@ void BaseRegDatasetMngr<NetType>::processForwardPassConcurrent(
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
-
-  Logger::instance().log(
-      "----------!!! Processed forward passConcurrent with " + std::to_string(curr_idx) +
-      " samples !!!----------\n");
 }
 
 /**
@@ -695,19 +668,19 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
     if (curr_idx < forward_pass_size / 2) {
       f_pass_data.forward_pass[curr_idx] = losses_accessor[i];
       f_pass_data.forward_pass[error_start + curr_idx] = correct_accessor[i] ? 0.0f : 1.0f;
-      if (curr_idx == 0)
-        Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx % 64 == 0) {
-        Logger::instance().log(
-            "Processed sample " + std::to_string(curr_idx) +
-            " with original index: " +
-            std::to_string(f_pass_data.forward_pass_indices[curr_idx]) +
-            " label: " + std::to_string(targets[i].template item<int64_t>()) + " with loss: " +
-            std::to_string(f_pass_data.forward_pass[curr_idx]) +
-            " and error: " +
-            std::to_string(f_pass_data.forward_pass[error_start + curr_idx]) +
-            "\n");
-      }
+      // if (curr_idx == 0)
+      //   Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+      // if (curr_idx % 64 == 0) {
+      //   Logger::instance().log(
+      //       "Processed sample " + std::to_string(curr_idx) +
+      //       " with original index: " +
+      //       std::to_string(f_pass_data.forward_pass_indices[curr_idx]) +
+      //       " label: " + std::to_string(targets[i].template item<int64_t>()) + " with loss: " +
+      //       std::to_string(f_pass_data.forward_pass[curr_idx]) +
+      //       " and error: " +
+      //       std::to_string(f_pass_data.forward_pass[error_start + curr_idx]) +
+      //       "\n");
+      // }
 
       curr_idx++;
     } else {
@@ -730,9 +703,6 @@ void BaseRegDatasetMngr<NetType>::processForwardPass(ForwardPassBuffer buffer) {
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
-  Logger::instance().log(
-      "----------!!! Processed forward pass with " + std::to_string(curr_idx) +
-      " samples !!!----------\n");
 }
 
 template <typename NetType>

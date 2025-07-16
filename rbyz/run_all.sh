@@ -60,7 +60,7 @@ vd_prop_write=${22:-0.1}      # Proportion of total chunks writable on client to
 test_renewal_freq=${23:-5}    # Frequency of test renewal (every n rounds)
 overwrite_poisoned=${24:-0}   # Allow VD samples to overwrite poisoned samples (1) or not (0)
 wait_all=${25:-0}             # Wait indefinitely for all clients (1) or not (0) in RByz
-batches_fpass=${26:-0}
+batches_fpass=${26:-0.2}
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
