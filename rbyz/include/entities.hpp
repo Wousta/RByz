@@ -152,4 +152,5 @@ struct TrainInputParams {
   int only_flt;
   int label_flip_type;
   float flip_ratio;
+  int timeouts_exp = 0;    // simulate slow clients or not
 };

@@ -16,7 +16,7 @@ private:
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
-  std::vector<std::vector<int64_t>> step_times;
+  std::vector<std::vector<int>> step_times;
   std::mt19937 rng;
   std::bernoulli_distribution coin_flip{0.5};  // 50% chance
 

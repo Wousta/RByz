@@ -135,7 +135,8 @@ int main(int argc, char *argv[]) {
     lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
     lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
     lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)") |
-    lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz");
+    lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz") |
+    lyra::opt(t_params.timeouts_exp, "timeouts_exp")["--timeouts_exp"]("Simulate slow clients or not (0 - no, 1 - yes)");
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
