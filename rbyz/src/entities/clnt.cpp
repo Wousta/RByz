@@ -28,6 +28,7 @@ void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
   reg_info.addr_locs.push_back(castI(regMem.clnt_w));
   reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
+  reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_rb));
   reg_info.addr_locs.push_back(castI(&regMem.CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
@@ -37,6 +38,7 @@ void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
 
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
+  reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
@@ -193,7 +195,6 @@ int main(int argc, char *argv[]) {
 
   std::vector<RcConn> conns = {conn}; 
   RdmaOps rdma_ops(conns);
-  std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
   Logger::instance().log("PRE: first mnist samples\n");
@@ -219,10 +220,7 @@ int main(int argc, char *argv[]) {
     Logger::instance().log("Client: Running RByz\n");
     rbyz_aux.runRByzClient(w, *regMem);
   }
-
-  regMem->round.store(t_params.global_iters_rbyz);
-  rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
-  std::cout << "\n$$$$$ Client done $$$$$\n";
+  std::cout << "$$$$$ Client " << id << " done $$$$$\n";
 
   while (regMem->srvr_ready_flag != SRVR_FINISHED) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

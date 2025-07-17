@@ -19,11 +19,12 @@ struct RegMemSrvr {
   std::atomic<int> srvr_ready_flag;
   float *srvr_w;
   std::vector<int> clnt_ready_flags;
+  std::atomic<int> srvr_ready_rb;
   std::vector<float *> clnt_ws;
   void *reg_data;
 
   RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
-      : reg_sz_data(reg_sz_data), n_clients(n_clients), srvr_ready_flag(0),
+      : reg_sz_data(reg_sz_data), n_clients(n_clients), srvr_ready_flag(0), srvr_ready_rb(0),
         clnt_ready_flags(n_clients, 0), clnt_ws(n_clients), reg_data(reg_data) {
           srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
         }
@@ -46,10 +47,11 @@ struct RegMemClnt {
   alignas(8) std::atomic<int> CAS;
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
+  alignas(8) std::atomic<int> srvr_ready_rb;
 
   RegMemClnt(int id, int local_steps_rbyz, uint32_t reg_sz_data)
-      : id(id), reg_sz_data(reg_sz_data), srvr_ready_flag(0),
-        clnt_ready_flag(0), CAS(local_steps_rbyz), local_step(0), round(0) {
+      : id(id), reg_sz_data(reg_sz_data), srvr_ready_flag(0), srvr_ready_rb(0),
+        clnt_ready_flag(0), CAS(local_steps_rbyz), local_step(0), round(1) {
     srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
     clnt_w = reinterpret_cast<float *>(malloc(reg_sz_data));
   }
@@ -124,7 +126,8 @@ struct TrainInputParams {
   std::string logs_dir = "";
   std::string ts_file = "";
   std::string acc_file= "";
-  std::string included_agg_file= "";
+  std::string included_agg_file = "";
+  std::string clnts_renew_file = "clnts_used_to_renew.log";
 
   bool use_mnist = false;
   int n_clients;

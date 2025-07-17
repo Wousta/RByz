@@ -62,18 +62,18 @@ public:
           step_range = std::uniform_int_distribution<int>(middle_steps, local_steps);
 
           if (t_params.use_mnist) {
-            ts_threshold = 0.91; // Benchmark threshold
+            ts_threshold = 0.8; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{889}, {889}, {889}, {889}, {894}, {894}, {901}, {908}, {917}, {955}};
+              step_times = {{689}, {689}, {689}, {689}, {694}, {694}, {701}, {708}, {717}, {755}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
                 step_times.push_back({901});
               }
             }
           } else {
-            ts_threshold = 0.87; // Benchmark threshold
+            ts_threshold = 0.6; // Benchmark threshold
             if (t_params.n_clients == 10) {
-              step_times = {{4960}, {4960}, {4960}, {4962}, {4962}, {4978}, {4998}, {4998}, {4991}, {4998}};
+              step_times = {{3960}, {3960}, {3960}, {3962}, {3962}, {3978}, {3998}, {3998}, {3991}, {3998}};
             } else {
               for (int i = 0; i < t_params.n_clients; i++) {
                 step_times.push_back({4978}); 
@@ -84,8 +84,7 @@ public:
 
   RByzAux() = delete;
 
-  void awaitTermination(std::vector<ClientDataRbyz> &clnt_data_vec,
-                        int rounds_rbyz);
+  void awaitTermination(std::vector<ClientDataRbyz> &clnt_data_vec, int code);
 
   void runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem);
 

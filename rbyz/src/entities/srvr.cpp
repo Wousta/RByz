@@ -47,6 +47,7 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     reg_info[i].addr_locs.push_back(castI(regMem.clnt_ws[i]));
     reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_flag));
     reg_info[i].addr_locs.push_back(castI(&regMem.clnt_ready_flags[i]));
+    reg_info[i].addr_locs.push_back(castI(&regMem.srvr_ready_rb));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].clnt_CAS));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
@@ -57,6 +58,7 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     // Set memory sizes
     reg_info[i].data_sizes.push_back(regMem.reg_sz_data);
     reg_info[i].data_sizes.push_back(regMem.reg_sz_data);
+    reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
@@ -167,16 +169,15 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
                  RegMemSrvr &regMem, std::vector<ClientDataRbyz> &clntsData) {
   std::vector<torch::Tensor> w = mngr.getInitialWeights();
 
-  tops::printTensorSlices(w, 0, 5);
   Logger::instance().log("\nInitial weights gathered\n");
   std::vector<float> log_TS_vec(n_clients, 0.0f);
 
-    for (int round = 1; round <= t_params.global_iters_fl; round++) {
-      std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
-      tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
+  for (int round = 1; round <= t_params.global_iters_fl; round++) {
+    std::vector<int> polled_clients = generateRandomUniqueVector(n_clients, -1);
+    tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
 
-      // Set the flag to indicate that the weights are ready for the clients to read
-      regMem.srvr_ready_flag.store(round);
+    // Set the flag to indicate that the weights are ready for the clients to read
+    regMem.srvr_ready_flag.store(round);
 
     // Run local training
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
@@ -199,7 +200,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       bool timed_out = false;
       long total_wait_time = 0;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(2000000); // 200 milliseconds
+      std::chrono::microseconds limit_step_time(200000000); // 5 seconds
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_wait_time += initial_time.count();
@@ -478,8 +479,8 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom(dir, t_params.acc_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom(dir, t_params.ts_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom(dir, t_params.included_agg_file, "$ END OF EXECUTION $\n");
+  Logger::instance().logCustom(dir, t_params.clnts_renew_file, "$ END OF EXECUTION $\n");
 
-  rbyz_aux.awaitTermination(clnt_data_vec, t_params.global_iters_rbyz);
   regMem->srvr_ready_flag = SRVR_FINISHED;
   for (int i = 0; i < n_clients; i++) {
     rdma_ops.exec_rdma_write( sizeof(int), SRVR_READY_IDX, i);
