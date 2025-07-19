@@ -597,7 +597,7 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     // Run inference on the server before comparing with clients
     mngr.runInference();
 
-    int included = 0;
+    
     for (ClientDataRbyz &client : clnt_data_vec) {
       if (client.is_byzantine) {
         continue;
@@ -613,17 +613,11 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
       if (client.include_in_agg) {
         updateTS(clnt_data_vec, client, client.loss_srvr,
                  client.error_rate_srvr);
-
-        if (client.trust_score != 0) {
-          included++;
-        }
       }
 
       // Reset next step counter for the next round
       client.next_step = 1;
     }
-    Logger::instance().logCustom(t_params.logs_dir, t_params.included_agg_file,
-                                 std::to_string(included) + "\n");
 
     Logger::instance().log("    Trust Scores after last step of round " +
                            std::to_string(round) + ":\n");
@@ -640,6 +634,7 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     std::vector<uint32_t> clnt_indices;
 
     // Read client updates and aggregate them
+    int included = 0;
     for (ClientDataRbyz &client : clnt_data_vec) {
       if (client.is_byzantine) {
         Logger::instance().log("    -> Client " + std::to_string(client.index) +
@@ -685,8 +680,23 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
 
         clnt_updates.push_back(flat_tensor);
         clnt_indices.push_back(client.index);
+        
+        included++;
       }
     }
+
+    if (t_params.srvr_wait_inc) {
+      std::mt19937 rng1 = std::mt19937(round);
+      std::mt19937 rng2 = std::mt19937(round);
+      std::shuffle(clnt_updates.begin(), clnt_updates.end(), rng1);
+      std::shuffle(clnt_indices.begin(), clnt_indices.end(), rng2);
+      included = t_params.srvr_wait_inc;
+      clnt_updates.resize(included);
+      clnt_indices.resize(included);
+    }
+
+    Logger::instance().logCustom(t_params.logs_dir, t_params.included_agg_file,
+                              std::to_string(included) + "\n");
 
     torch::Tensor aggregated_update;
     if (clnt_updates.empty()) {
@@ -792,11 +802,6 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
                              std::to_string(step) + " of RByz in round " +
                              std::to_string(regMem.round.load()) + "\n");
       mngr.runTraining();
-
-      if (t_params.srvr_wait_inc) {
-        int sim_delay = client_delays[regMem.id - 1];
-        std::this_thread::sleep_for(millis(sim_delay));
-      }
 
       regMem.local_step.store(step + 1);
 

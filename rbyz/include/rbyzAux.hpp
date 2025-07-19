@@ -31,7 +31,6 @@ private:
   std::vector<std::vector<int>> step_times;
   std::mt19937 rng;
   std::bernoulli_distribution coin_flip{0.5}; // 50% chance
-  std::vector<int> client_delays;             // For the delays experiment
 
   struct acc_info {
     float threshold_acc;    // Accuracy threshold for convergence
@@ -113,18 +112,6 @@ private:
     return time;
   }
 
-  inline void initialTimeReduce(ClientDataRbyz &clnt_data, int time_waited,
-                                   int round) {
-    int clnt_idx = clnt_data.index;
-    int new_step_time = static_cast<int>(
-          std::ceil(clnt_data.limit_step_time.count() * STEP_TIME_REDUCE));
-    clnt_data.limit_step_time = millis(new_step_time);
-
-      Logger::instance().log(
-          "    -> Client " + std::to_string(clnt_data.index) +
-          " reduced step time to: " + std::to_string(new_step_time) + " ms\n");
-  }
-
 public:
   void *extra_vd_col = nullptr;
   uint32_t extra_vd_col_sz = 0;
@@ -145,24 +132,9 @@ public:
     ts_threshold = t_params.use_mnist ? 0.88 : 0.12; // Benchmark threshold
 
     int timeout = t_params.use_mnist ? TIMEOUT_MNIST : TIMEOUT_CIFAR10;
-    int srvr_margin = timeout;
-    int srvr_inc = srvr_margin * (t_params.srvr_wait_inc - 1);
-    srvr_inc = std::max(srvr_inc, 0);
-
     for (int i = 0; i < t_params.n_clients; i++) {
-      step_times.push_back({timeout + srvr_inc});
-      client_delays.push_back(timeout * i);
+      step_times.push_back({timeout});
     }
-
-    std::shuffle(client_delays.begin(), client_delays.end(), rng);
-    std::shuffle(client_delays.begin(), client_delays.end(), rng);
-
-    Logger::instance().log("Client step times initial: " +
-                           std::to_string(step_times[0][0]) + " ms\n");
-    for (int delay : client_delays) {
-      Logger::instance().log(std::to_string(delay) + " ");
-    }
-    Logger::instance().log("\n");
   }
 
   RByzAux() = delete;
