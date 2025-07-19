@@ -2,6 +2,7 @@
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
+#include "rdmaOps.hpp"
 #include "tensorOps.hpp"
 
 #include <ATen/ops/flatten.h>
@@ -13,62 +14,62 @@
 #include <unistd.h>
 #include <unordered_map>
 
-# define CLNT_FINISHED_RBYZ -14
+#define CLNT_FINISHED_RBYZ -14
 
 //////////////////////////////////////////////////////////////
 ////////////////////// SERVER FUNCTIONS //////////////////////
-void RByzAux::awaitTermination(std::vector<ClientDataRbyz>& clnt_data_vec, int code) {
-  Logger::instance().log("Server: Waiting for all clients to complete Task...\n");
+void RByzAux::awaitTermination(std::vector<ClientDataRbyz> &clnt_data_vec,
+                               int code) {
+  Logger::instance().log(
+      "Server: Waiting for all clients to complete Task...\n");
   for (int i = 0; i < clnt_data_vec.size(); i++) {
     if (clnt_data_vec[i].is_byzantine) {
       continue;
     }
 
-    Logger::instance().log("Server: Waiting for client " + std::to_string(i) + 
-                            " to finish RByz round " + std::to_string(code) + "\n");
+    Logger::instance().log("Server: Waiting for client " + std::to_string(i) +
+                           " to finish RByz round " + std::to_string(code) +
+                           "\n");
 
     bool client_done = false;
     while (!client_done) {
       // Check if client has reached final round
       if (clnt_data_vec[i].round == code) {
         client_done = true;
-        Logger::instance().log("Server: Client " + std::to_string(i) + " has finished\n");
+        Logger::instance().log("Server: Client " + std::to_string(i) +
+                               " has finished\n");
       } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        Logger::instance().log("Client " + std::to_string(i) + " in round " + std::to_string(clnt_data_vec[i].round) + "\n");
+        std::this_thread::sleep_for(millis(1000));
+        Logger::instance().log("Client " + std::to_string(i) + " in round " +
+                               std::to_string(clnt_data_vec[i].round) + "\n");
       }
     }
   }
 }
 
-void RByzAux::renewTrustedClientsColumn(RegMnistSplitter &splitter, std::vector<ClientDataRbyz> &clnt_data_vec) {
+void RByzAux::renewTrustedClientsColumn(
+    RegMnistSplitter &splitter, std::vector<ClientDataRbyz> &clnt_data_vec) {
   int clnts_to_renew = 0;
-  for (auto& client : clnt_data_vec) {
+  for (auto &client : clnt_data_vec) {
     if (client.trust_score <= ts_threshold) {
       continue;
     }
 
     int samples_per_section = splitter.getExtraColNumSamplesPerSection();
     size_t section_idx = splitter.getExtraColSectionToRenew();
-    Logger::instance().log("  Renewing from client " + std::to_string(client.index) + 
-                           " at section " + std::to_string(section_idx) + "\n");
 
     std::vector<uint32_t> indices_restore;
     indices_restore.reserve(samples_per_section);
-    Logger::instance().log("    Images original indices to renew:");
     for (int i = 0; i < samples_per_section; i++) {
       size_t image_idx = section_idx + i;
       indices_restore.push_back(*mngr.getOriginalIndex(image_idx));
-      if (i % 16 == 0)
-        Logger::instance().log("\n    | ");
-      
-      Logger::instance().log(std::to_string(*mngr.getOriginalIndex(image_idx)) + " ");
     }
 
     int possible_clnt_indices = client.num_samples - samples_per_section;
 
-    // Idk why but trying to read/write from the last registered sample causes issues, I checked sizes
-    possible_clnt_indices -= 1; 
+    // Idk why but trying to read/write from the last registered sample causes
+    // issues, I checked sizes
+    possible_clnt_indices -= 1;
     std::uniform_int_distribution<int> dist(0, possible_clnt_indices);
     int clnt_idx = dist(rng);
     uint64_t remote_offset = clnt_idx * mngr.data_info.get_sample_size();
@@ -81,14 +82,11 @@ void RByzAux::renewTrustedClientsColumn(RegMnistSplitter &splitter, std::vector<
     RemoteInfo remote_info;
     remote_info.indx = REG_DATASET_IDX;
     remote_info.off = remote_offset;
-    rdma_ops.exec_rdma_read(rdma_size, local_info, remote_info, client.index, false);
+    rdma_ops.exec_rdma_read(rdma_size, local_info, remote_info, client.index,
+                            RdmaOps::Mode::async);
 
-    Logger::instance().log("\n    Images original indices pre renew:");
     for (int i = 0; i < samples_per_section; i++) {
       size_t image_idx = section_idx + i;
-      if (i % 16 == 0)
-        Logger::instance().log("\n    ] ");
-      Logger::instance().log(std::to_string(*mngr.getOriginalIndex(image_idx)) + " ");
     }
 
     // Restore original indices after RDMA read
@@ -97,24 +95,15 @@ void RByzAux::renewTrustedClientsColumn(RegMnistSplitter &splitter, std::vector<
       *mngr.getOriginalIndex(image_idx) = indices_restore[i];
     }
 
-    // Log the renewed labels
-    Logger::instance().log("\n    Images Indices post renew:");
     for (int i = 0; i < samples_per_section; i++) {
       size_t image_idx = section_idx + i;
-      if (i % 16 == 0)
-        Logger::instance().log("\n    + ");
-      Logger::instance().log(std::to_string(*mngr.getOriginalIndex(image_idx)) + " ");
     }
-    Logger::instance().log("\n");
 
     clnts_to_renew++;
   }
-  Logger::instance().log("==========Renewed from " + std::to_string(clnts_to_renew) + 
-                         " clients' extra column samples\n");
 
-  Logger::instance().logCustom(t_params.logs_dir, 
-      t_params.clnts_renew_file, 
-      std::to_string(clnts_to_renew) + "\n");
+  Logger::instance().logCustom(t_params.logs_dir, t_params.clnts_renew_file,
+                               std::to_string(clnts_to_renew) + "\n");
 }
 
 void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
@@ -124,8 +113,9 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   float w_loss = clnt_data.loss;
   float w_err = clnt_data.error_rate;
 
-  // Logger::instance().log("        -> Client " + std::to_string(clnt_data.index) + 
-  //                        " loss: " + std::to_string(w_loss) + 
+  // Logger::instance().log("        -> Client " +
+  // std::to_string(clnt_data.index) +
+  //                        " loss: " + std::to_string(w_loss) +
   //                        ", error rate: " + std::to_string(w_err) + "\n");
 
   // Find minimum loss and error among all clients
@@ -141,8 +131,10 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
     }
   }
 
-  // Logger::instance().log("        -> Minimum loss: " + std::to_string(min_w_loss) + 
-  //                        ", Minimum error rate: " + std::to_string(min_w_err) + "\n");
+  // Logger::instance().log("        -> Minimum loss: " +
+  // std::to_string(min_w_loss) +
+  //                        ", Minimum error rate: " + std::to_string(min_w_err)
+  //                        + "\n");
 
   float no_bias = 0.001; // Tweak until satisfied
   float max_loss = std::max(0.0f, srvr_loss - w_loss);
@@ -150,11 +142,15 @@ void RByzAux::updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
   float max_err = std::max(0.0f, srvr_error_rate - w_err);
   float err_Calc = max_err / (srvr_error_rate - min_w_err + no_bias);
 
-  // Logger::instance().log("        -> Server loss: " + std::to_string(srvr_loss) + 
-  //                        ", Server error rate: " + std::to_string(srvr_error_rate) + "\n");
-  // Logger::instance().log("        -> Max loss: " + std::to_string(max_loss) + 
-  //                        ", Max error rate: " + std::to_string(max_err) + "\n");
-  // Logger::instance().log("        -> Calculated loss_Calc: " + std::to_string(loss_Calc) + 
+  // Logger::instance().log("        -> Server loss: " +
+  // std::to_string(srvr_loss) +
+  //                        ", Server error rate: " +
+  //                        std::to_string(srvr_error_rate) + "\n");
+  // Logger::instance().log("        -> Max loss: " + std::to_string(max_loss) +
+  //                        ", Max error rate: " + std::to_string(max_err) +
+  //                        "\n");
+  // Logger::instance().log("        -> Calculated loss_Calc: " +
+  // std::to_string(loss_Calc) +
   //                        ", err_Calc: " + std::to_string(err_Calc) + "\n");
 
   clnt_data.trust_score = (loss_Calc + err_Calc) / 2;
@@ -167,7 +163,8 @@ RByzAux::aggregate_updates(const std::vector<torch::Tensor> &client_updates,
   Logger::instance().log("\nComputing aggregation data ================\n");
   float trust_scores[client_updates.size()];
   for (int i = 0; i < client_updates.size(); i++) {
-    // Byzantine clients are skipped, so we have to keep track of good clients indices clnt_indices[i]
+    // Byzantine clients are skipped, so we have to keep track of good clients
+    // indices clnt_indices[i]
     trust_scores[i] = clnt_data_vec[clnt_indices[i]].trust_score;
   }
 
@@ -185,7 +182,12 @@ RByzAux::aggregate_updates(const std::vector<torch::Tensor> &client_updates,
     aggregated_update /= sum_trust;
   }
 
-  Logger::instance().log("Final Aggregated update: " + aggregated_update.slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5)).toString() + "\n");
+  Logger::instance().log(
+      "Final Aggregated update: " +
+      aggregated_update
+          .slice(0, 0, std::min<size_t>(aggregated_update.numel(), 5))
+          .toString() +
+      "\n");
   Logger::instance().log("================================\n");
 
   return aggregated_update;
@@ -222,9 +224,10 @@ void RByzAux::writeServerVD(RegMnistSplitter &splitter,
       remote_info.off = clnt_chunk;
 
       if (srvr_idx >= srvr_indices.size()) {
-        Logger::instance().log("Warning: Not enough VD samples for client " + std::to_string(i) +
-                              "srvr_idx: " + std::to_string(srvr_idx) +
-                              " srvr_indices.size(): " + std::to_string(srvr_indices.size()) + "\n");
+        Logger::instance().log(
+            "Warning: Not enough VD samples for client " + std::to_string(i) +
+            "srvr_idx: " + std::to_string(srvr_idx) + " srvr_indices.size(): " +
+            std::to_string(srvr_indices.size()) + "\n");
         break;
       }
 
@@ -232,7 +235,7 @@ void RByzAux::writeServerVD(RegMnistSplitter &splitter,
       uint64_t sample_offset = mngr.getSampleOffset(srvr_sample_idx);
       local_info.offs.push_back(sample_offset);
       rdma_ops.exec_rdma_write(splitter.getChunkSize(), local_info, remote_info,
-      i, false);
+                               i, RdmaOps::Mode::async);
 
       for (int k = 0; k < splitter.getSamplesPerChunk(); k++) {
         clnt_data_vec[i].inserted_indices.insert(srvr_sample_idx++);
@@ -244,27 +247,32 @@ void RByzAux::writeServerVD(RegMnistSplitter &splitter,
 
 bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
   // Compare the output of the forward pass with the server's output
-  float* clnt_out = clnt_data.forward_pass;
-  uint32_t* clnt_indices = clnt_data.forward_pass_indices;
-  float* srvr_out = mngr.f_pass_data.forward_pass;
-  uint32_t* srvr_indices = mngr.f_pass_data.forward_pass_indices;
+  float *clnt_out = clnt_data.forward_pass;
+  uint32_t *clnt_indices = clnt_data.forward_pass_indices;
+  float *srvr_out = mngr.f_pass_data.forward_pass;
+  uint32_t *srvr_indices = mngr.f_pass_data.forward_pass_indices;
   size_t clnt_f_pass_size = clnt_data.forward_pass_mem_size / sizeof(float);
-  
-  size_t clnt_num_samples = clnt_data.forward_pass_indices_mem_size / sizeof(uint32_t);
-  size_t srvr_num_samples = mngr.f_pass_data.forward_pass_indices_mem_size / sizeof(uint32_t);
+
+  size_t clnt_num_samples =
+      clnt_data.forward_pass_indices_mem_size / sizeof(uint32_t);
+  size_t srvr_num_samples =
+      mngr.f_pass_data.forward_pass_indices_mem_size / sizeof(uint32_t);
   size_t clnt_error_start = clnt_f_pass_size / 2;
 
   // Calculate server error start position
-  size_t srvr_f_pass_size = mngr.f_pass_data.forward_pass_mem_size / sizeof(float);
+  size_t srvr_f_pass_size =
+      mngr.f_pass_data.forward_pass_mem_size / sizeof(float);
   size_t srvr_error_start = srvr_f_pass_size / 2;
 
   // Divided by two because forward pass output contains both loss and error
   // rate
   if (clnt_f_pass_size / 2 != clnt_num_samples) {
-    throw std::runtime_error("[processVDOut] Forward pass and indices sizes do not match");
-  } 
+    throw std::runtime_error(
+        "[processVDOut] Forward pass and indices sizes do not match");
+  }
 
-  Logger::instance().log("$$$$$$$ processVDOut client " + std::to_string(clnt_data.index) + " $$$$$$$\n");
+  Logger::instance().log("$$$$$$$ processVDOut client " +
+                         std::to_string(clnt_data.index) + " $$$$$$$\n");
   // get the original indices of the inserted samples
   std::unordered_set<uint32_t> inserted_indices_set;
   // Logger::instance().log("  > Inserted indices:");
@@ -273,24 +281,30 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
     // if (logi++ % 10 == 0)
     //   Logger::instance().log("\n    $ ");
     // Logger::instance().log(std::to_string(srvr_idx) + " ");
-    if (inserted_indices_set.find(*mngr.getOriginalIndex(srvr_idx)) != inserted_indices_set.end()) {
-      Logger::instance().log("Warning: Duplicate index found: server index " + std::to_string(srvr_idx) + 
-                             " original index " + std::to_string(*mngr.getOriginalIndex(srvr_idx)) + "\n");
+    if (inserted_indices_set.find(*mngr.getOriginalIndex(srvr_idx)) !=
+        inserted_indices_set.end()) {
+      Logger::instance().log("Warning: Duplicate index found: server index " +
+                             std::to_string(srvr_idx) + " original index " +
+                             std::to_string(*mngr.getOriginalIndex(srvr_idx)) +
+                             "\n");
     }
     inserted_indices_set.insert(*mngr.getOriginalIndex(srvr_idx));
   }
 
   if (inserted_indices_set.size() != clnt_data.inserted_indices.size()) {
-    throw std::runtime_error("[processVDOut] Inserted indices set size does not match the number of inserted indices " +
-                              std::to_string(clnt_data.inserted_indices.size()) + 
-                              " vs " + std::to_string(inserted_indices_set.size()));
+    Logger::instance().log("Warning: Inserted indices set size does "
+                             "not match the number of inserted indices " +
+                             std::to_string(clnt_data.inserted_indices.size()) +
+                             " vs " +
+                             std::to_string(inserted_indices_set.size()));
   }
 
-  Logger::instance().log("  > Inserted indices for client " + std::to_string(clnt_data.index) + 
-                         ": " + std::to_string(inserted_indices_set.size()) + 
-                         " indices\n");
+  Logger::instance().log(
+      "  > Inserted indices for client " + std::to_string(clnt_data.index) +
+      ": " + std::to_string(inserted_indices_set.size()) + " indices\n");
 
-  // Map original indices of forward pass to their positions in the server output
+  // Map original indices of forward pass to their positions in the server
+  // output
   std::unordered_map<uint32_t, int> srvr_indices_map;
   for (size_t i = 0; i < srvr_num_samples; ++i) {
     srvr_indices_map[srvr_indices[i]] = i;
@@ -305,8 +319,9 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
   float srvr_loss_total = 0.0f;
   float srvr_error_total = 0.0f;
   int processed_samples = 0;
-  Logger::instance().log("  > Processing " + std::to_string(clnt_num_samples) + 
-                         " samples for client " + std::to_string(clnt_data.index));
+  Logger::instance().log("  > Processing " + std::to_string(clnt_num_samples) +
+                         " samples for client " +
+                         std::to_string(clnt_data.index));
   // Check only the inserted indices (VD samples) to minimize comparisons
   for (size_t i = 0; i < clnt_num_samples && validation_passed; ++i) {
     uint32_t clnt_idx = clnt_indices[i];
@@ -332,12 +347,14 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
       srvr_error_total += srvr_out[srvr_error_start + srvr_i];
 
       if (processed_samples < 1) {
-        Logger::instance().log("    > Processing sample of client" + std::to_string(clnt_data.index) + 
-                              ": idx " + std::to_string(clnt_idx) + 
-                              " loss: " + std::to_string(clnt_out[i]) + 
-                              " err: " + std::to_string(clnt_out[clnt_error_start + i]) + 
-                              " | Server loss: " + std::to_string(srvr_out[srvr_i]) +
-                              " Server err: " + std::to_string(srvr_out[srvr_error_start + srvr_i]) + "\n");
+        Logger::instance().log(
+            "    > Processing sample of client" +
+            std::to_string(clnt_data.index) + ": idx " +
+            std::to_string(clnt_idx) + " loss: " + std::to_string(clnt_out[i]) +
+            " err: " + std::to_string(clnt_out[clnt_error_start + i]) +
+            " | Server loss: " + std::to_string(srvr_out[srvr_i]) +
+            " Server err: " +
+            std::to_string(srvr_out[srvr_error_start + srvr_i]) + "\n");
       }
 
       processed_samples++;
@@ -354,18 +371,20 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
 
         if (!loss_match || !error_match) {
           // Log the mismatch and fail immediately
-          Logger::instance().log("Mismatch at index " + std::to_string(clnt_idx) + 
-                                " - Loss: client=" + std::to_string(clnt_loss) + 
-                                ", server=" + std::to_string(srvr_loss) +
-                                " | Err: client=" + std::to_string(clnt_error) + 
-                                ", server=" + std::to_string(srvr_error) + "\n");
+          Logger::instance().log(
+              "Mismatch at index " + std::to_string(clnt_idx) +
+              " - Loss: client=" + std::to_string(clnt_loss) +
+              ", server=" + std::to_string(srvr_loss) +
+              " | Err: client=" + std::to_string(clnt_error) +
+              ", server=" + std::to_string(srvr_error) + "\n");
           validation_passed = false;
         } else {
-          Logger::instance().log("!Match at index " + std::to_string(clnt_idx) + 
-                                " - Loss: client=" + std::to_string(clnt_loss) +
-                                ", server=" + std::to_string(srvr_loss) +
-                                " | Err: client=" + std::to_string(clnt_error) +
-                                ", server=" + std::to_string(srvr_error) + "\n");
+          Logger::instance().log(
+              "!Match at index " + std::to_string(clnt_idx) +
+              " - Loss: client=" + std::to_string(clnt_loss) +
+              ", server=" + std::to_string(srvr_loss) +
+              " | Err: client=" + std::to_string(clnt_error) +
+              ", server=" + std::to_string(srvr_error) + "\n");
         }
       }
     }
@@ -379,33 +398,36 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
   float processed_samples_proportion =
       static_cast<float>(processed_samples) / clnt_num_samples;
   if (processed_samples_proportion < 0.01) {
-    Logger::instance().log("    WARNING processVDOut: Client " + std::to_string(clnt_data.index) + 
-                             " Processed samples below 1%: " +
-                             std::to_string(processed_samples) + " vs " + 
-                             std::to_string(clnt_num_samples) + "\n");
+    Logger::instance().log(
+        "    WARNING processVDOut: Client " + std::to_string(clnt_data.index) +
+        " Processed samples below 1%: " + std::to_string(processed_samples) +
+        " vs " + std::to_string(clnt_num_samples) + "\n");
 
     validation_passed = false;
   }
 
-  Logger::instance().log("    Client " + std::to_string(clnt_data.index) + 
-                         " VD proc results - Loss: " + std::to_string(clnt_data.loss) + 
-                         ", Error Rate: " + std::to_string(clnt_data.error_rate) + 
-                          " | Server Loss: " + std::to_string(clnt_data.loss_srvr) +
-                          ", Server Err_Rate: " + std::to_string(clnt_data.error_rate_srvr) + "\n");
-  
+  Logger::instance().log(
+      "    Client " + std::to_string(clnt_data.index) +
+      " VD proc results - Loss: " + std::to_string(clnt_data.loss) +
+      ", Error Rate: " + std::to_string(clnt_data.error_rate) +
+      " | Server Loss: " + std::to_string(clnt_data.loss_srvr) +
+      ", Server Err_Rate: " + std::to_string(clnt_data.error_rate_srvr) + "\n");
+
   // All comparisons passed
   Logger::instance().log("    $ VD validation passed for a proportion of " +
-                         std::to_string(processed_samples_proportion * 100) + "%' inserted samples" +
-                         "for client " + std::to_string(clnt_data.index) + " ·····$\n");
+                         std::to_string(processed_samples_proportion * 100) +
+                         "%' inserted samples" + "for client " +
+                         std::to_string(clnt_data.index) + " ·····$\n");
   return validation_passed;
 }
 
-void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz>& clnt_data_vec) {
-  for (ClientDataRbyz& clnt_data : clnt_data_vec) {
-    clnt_data.limit_step_time = std::chrono::milliseconds(step_times[clnt_data.index][0]);
-    Logger::instance().log("Client " + std::to_string(clnt_data.index) + 
-                           " initial limit step time: " + 
-                           std::to_string(clnt_data.limit_step_time.count()) + " ms\n");
+void RByzAux::initTimeoutTime(std::vector<ClientDataRbyz> &clnt_data_vec) {
+  for (ClientDataRbyz &clnt_data : clnt_data_vec) {
+    clnt_data.limit_step_time = millis(step_times[clnt_data.index][0]);
+    Logger::instance().log("Client " + std::to_string(clnt_data.index) +
+                           " initial limit step time: " +
+                           std::to_string(clnt_data.limit_step_time.count()) +
+                           " ms\n");
   }
 }
 
@@ -422,110 +444,92 @@ void RByzAux::logTrustScores(const std::vector<ClientDataRbyz> &clnt_data_vec,
 
 void RByzAux::waitInfinite(ClientDataRbyz &clnt_data, int round) {
   int clnt_idx = clnt_data.index;
+  int total_time_waited = waitInitialTime(clnt_data, round);
 
-  // Wait for client to finish the step indefinitely
-  long total_time_waited = 0;
-  std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
-  // Logger::instance().log("    Waiting for client: " +  std::to_string(clnt_idx) + 
-  //                        " to finish step " + std::to_string(clnt_data.local_step) + 
-  //                        ", round: " + std::to_string(clnt_data.round) + "\n");
-
-  // Logger::instance().log("     -> PRE: Client local step: " + std::to_string(clnt_data.local_step) + 
-  //                        ", next step: " + std::to_string(clnt_data.next_step) + 
-  //                        ", round: " + std::to_string(clnt_data.round) + 
-  //                         ", round to wait: " + std::to_string(round) + "\n");
-
-  if (clnt_data.local_step < clnt_data.next_step && clnt_data.round <= round) {
-    std::this_thread::sleep_for(initial_time);
-    total_time_waited += initial_time.count();
-    Logger::instance().log("     -> Server waited initial: " + std::to_string(total_time_waited) +
-                            " ms for client " + std::to_string(clnt_idx) + "\n");
+  if (total_time_waited == 0) {
+    clnt_data.next_step = clnt_data.local_step + 1;
+    return;
   }
 
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
 
-  std::chrono::milliseconds exp_backoff_time(1);
-  bool advanced = true;
-
+  millis exp_backoff_time(1);
   while (clnt_data.local_step < clnt_data.next_step &&
          clnt_data.round <= round) {
-    std::this_thread::sleep_for(exp_backoff_time);
-    total_time_waited += exp_backoff_time.count();
-    exp_backoff_time =
-        std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
+
+    total_time_waited += waitExpBackoffStep(exp_backoff_time);
     rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
     rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
   }
 
-  // Logger::instance().log("     -> POST Client local step: " + std::to_string(clnt_data.local_step) + 
-  //                       ", next step: " + std::to_string(clnt_data.next_step) + 
-  //                       ", round: " + std::to_string(clnt_data.round) + 
-  //                       ", round to wait: " + std::to_string(round) + "\n");
-
-  clnt_data.next_step += 1;
+  clnt_data.next_step = clnt_data.local_step + 1;
   if (total_time_waited > 0)
-    Logger::instance().log("     -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
+    Logger::instance().log("     -> Server waited: " +
+                           std::to_string(total_time_waited) + " ms\n");
 }
 
 void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
   int clnt_idx = clnt_data.index;
+  int total_time_waited = waitInitialTime(clnt_data, round);
 
-  // Wait for client to finish the step with exponential backoff
-  long total_time_waited = 0;
-  std::chrono::milliseconds initial_time(static_cast<long>(clnt_data.limit_step_time.count()));
-
-  if (clnt_data.local_step < clnt_data.next_step && clnt_data.round <= round) {
-    std::this_thread::sleep_for(initial_time);
-    total_time_waited += initial_time.count();
-    Logger::instance().log("    -> Server waited initial: " + std::to_string(total_time_waited) +
-                            " ms for client " + std::to_string(clnt_idx) + "\n");
+  if (total_time_waited == 0) {
+    clnt_data.next_step = clnt_data.local_step + 1;
+    return;
   }
 
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
   rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
 
-  // Logger::instance().log("    -> Client local step: " + std::to_string(clnt_data.local_step) + 
-  //                        ", next step: " + std::to_string(clnt_data.next_step) + 
-  //                        ", round: " + std::to_string(clnt_data.round) + 
-  //                         ", round to wait: " + std::to_string(round) + "\n");
-  std::chrono::milliseconds exp_backoff_time(1);
+  millis exp_backoff_time(1);
   bool timed_out = false;
-  while (!timed_out && clnt_data.local_step < clnt_data.next_step && clnt_data.round <= round) {
-    std::this_thread::sleep_for(exp_backoff_time);
-    total_time_waited += exp_backoff_time.count();
-    exp_backoff_time =
-        std::chrono::milliseconds(exp_backoff_time.count() * 3 / 2);
-    if (exp_backoff_time.count() > clnt_data.limit_step_time.count() * 0.2) {
+
+  while (!timed_out && clnt_data.local_step < clnt_data.next_step &&
+         clnt_data.round <= round) {
+
+    total_time_waited += waitExpBackoffStep(exp_backoff_time);
+
+    if (total_time_waited > clnt_data.limit_step_time.count() * TIMEOUT_SLACK) {
 
       // Choose lower steps to wait for and increase the limit time
-      if(clnt_data.steps_to_finish <= min_steps) {
-        Logger::instance().log("    -> Server: Client " + std::to_string(clnt_idx) + 
-                                " is Byzantine, skipping\n");
+      if (clnt_data.steps_to_finish <= timeouts_.min_steps) {
+        Logger::instance().log("    -> Server: Client " +
+                               std::to_string(clnt_idx) +
+                               " is Byzantine, skipping\n");
         clnt_data.is_byzantine = true;
 
       } else {
-        long int new_limit = static_cast<long int>(std::ceil(clnt_data.limit_step_time.count() * 1.3));
-        clnt_data.limit_step_time = std::chrono::milliseconds(new_limit);
-        clnt_data.steps_to_finish = step_range(rng);
-        middle_steps = std::max(static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75)), min_steps);
-        step_range = std::uniform_int_distribution<int>(middle_steps, clnt_data.steps_to_finish);
-        Logger::instance().log("    -> Client " + std::to_string(clnt_idx) + 
-                                " lowering steps to finish to: " + std::to_string(clnt_data.steps_to_finish) + "\n");
+        long int new_limit = static_cast<long int>(
+            std::ceil(clnt_data.limit_step_time.count() * TIMEOUT_MULT_));
+        clnt_data.limit_step_time = millis(new_limit);
+        clnt_data.steps_to_finish = timeouts_.step_range(rng);
+
+        int new_mid =
+            static_cast<int>(std::floor(clnt_data.steps_to_finish * 0.75));
+        timeouts_.mid_steps = std::max(new_mid, timeouts_.min_steps);
+        timeouts_.step_range = std::uniform_int_distribution<int>(
+            timeouts_.mid_steps, clnt_data.steps_to_finish);
+        Logger::instance().log("    -> Client " + std::to_string(clnt_idx) +
+                               " lowering steps to finish to: " +
+                               std::to_string(clnt_data.steps_to_finish) +
+                               "\n");
 
         // Client will now do steps_to_finish local steps
         clnt_data.clnt_CAS.store(clnt_data.steps_to_finish);
         rdma_ops.exec_rdma_write(sizeof(int), CLNT_CAS_IDX, clnt_idx);
       }
 
-      Logger::instance().log("    -> Server waiting: Client " + std::to_string(clnt_idx) + " timed out\n");
+      Logger::instance().log("    -> Server waiting: Client " +
+                             std::to_string(clnt_idx) + " timed out\n");
       timed_out = true;
     }
 
     rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_idx);
     rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_idx);
   }
-  Logger::instance().log("    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
+  if (total_time_waited > 0)
+    Logger::instance().log(
+        "    -> Server waited: " + std::to_string(total_time_waited) + " ms\n");
 
   if (!timed_out) {
     clnt_data.next_step = clnt_data.local_step + 1;
@@ -539,12 +543,14 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
                             std::vector<ClientDataRbyz> &clnt_data_vec) {
 
   Logger::instance().logCustom(t_params.logs_dir, t_params.clnts_renew_file,
-                               "TS_threshold " + std::to_string(ts_threshold) + "\n");
+                               "TS_threshold " + std::to_string(ts_threshold) +
+                                   "\n");
 
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
-  Logger::instance().log("reg_sz_data = " +  std::to_string(regMem.reg_sz_data) + "\n"); 
+  Logger::instance().log("reg_sz_data = " + std::to_string(regMem.reg_sz_data) +
+                         "\n");
   int total_steps = t_params.global_iters_fl;
-  for (int &clnt_flag  : regMem.clnt_ready_flags) {
+  for (int &clnt_flag : regMem.clnt_ready_flags) {
     clnt_flag = 0; // Reset client ready flags
   }
 
@@ -556,20 +562,25 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
 
   // RBYZ training loop
   for (int round = 1; round <= global_rounds; round++) {
-    Logger::instance().log("\n\n=================  ROUND " + std::to_string(round) + " STARTED  =================\n");
+    Logger::instance().log("\n\n=================  ROUND " +
+                           std::to_string(round) +
+                           " STARTED  =================\n");
 
-    // Write the current model weights to the server registered memory 
+    // Write the current model weights to the server registered memory
     tops::memcpyTensorVec(regMem.srvr_w, w, regMem.reg_sz_data);
 
-    // Before each round, write the server's VD to the clients to test after first local step
+    // Before each round, write the server's VD to the clients to test after
+    // first local step
     if (round == 1) {
       initTimeoutTime(clnt_data_vec);
       writeServerVD(splitter, clnt_data_vec, t_params.vd_prop_write);
     }
 
     if (round % t_params.test_renewal_freq == 0 && round > 3) {
-      Logger::instance().log("Writing test samples for round " + std::to_string(round) + "\n");
-      Logger::instance().log("Renewing dataset for round " + std::to_string(round) + "\n");
+      Logger::instance().log("Writing test samples for round " +
+                             std::to_string(round) + "\n");
+      Logger::instance().log("Renewing dataset for round " +
+                             std::to_string(round) + "\n");
       renewTrustedClientsColumn(splitter, clnt_data_vec);
       writeServerVD(splitter, clnt_data_vec, t_params.vd_prop_write);
     }
@@ -577,67 +588,49 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     // Signal to clients that the server is ready
     regMem.srvr_ready_rb.store(round);
 
-    // For each client run N rounds of RByz
     for (int srvr_step = 0; srvr_step < local_steps; srvr_step++) {
-      Logger::instance().log(" -- Server: Running step " + std::to_string(srvr_step) + " of RByz\n");
-
-      for (ClientDataRbyz &clnt_data : clnt_data_vec) {
-        rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX, clnt_data.index);
-        rdma_ops.exec_rdma_read(sizeof(int), CLNT_ROUND_IDX, clnt_data.index);
-
-        // Skip clients whose steps were lowered or are Byzantine
-        if (clnt_data.is_byzantine) {
-          Logger::instance().log("  WARNING: skipping Client " + std::to_string(clnt_data.index) + "\n");
-          continue;
-        }
-
-        if (t_params.wait_all) {
-          waitInfinite(clnt_data, round);
-        } else {
-          waitTimeout(clnt_data, round);
-        }
-
-        Logger::instance().log("    -> Client " + std::to_string(clnt_data.index) + 
-                        " local step = " + std::to_string(clnt_data.local_step) + 
-                        " server step = " + std::to_string(srvr_step) + 
-                        " dataset size = " + std::to_string(clnt_data.dataset_size) + "\n");
-      }
+      Logger::instance().log(" -- Server: Running step " +
+                             std::to_string(srvr_step) + " of RByz\n");
+      runSteps(clnt_data_vec, round);
     }
 
     // Run inference on the server before comparing with clients
     mngr.runInference();
 
     int included = 0;
-    for (ClientDataRbyz &clnt_data : clnt_data_vec) {
-      if (clnt_data.is_byzantine) {
+    for (ClientDataRbyz &client : clnt_data_vec) {
+      if (client.is_byzantine) {
         continue;
       }
-      rdma_ops.exec_rdma_read(clnt_data.forward_pass_mem_size,
-                              CLNT_FORWARD_PASS_IDX, clnt_data.index);
-      rdma_ops.exec_rdma_read(clnt_data.forward_pass_indices_mem_size,
-                              CLNT_FORWARD_PASS_INDICES_IDX, clnt_data.index);
+      rdma_ops.exec_rdma_read(client.forward_pass_mem_size,
+                              CLNT_FORWARD_PASS_IDX, client.index);
+      rdma_ops.exec_rdma_read(client.forward_pass_indices_mem_size,
+                              CLNT_FORWARD_PASS_INDICES_IDX, client.index);
 
-      // Only update TS if at least 50% of the server's VD samples were processed
-      clnt_data.include_in_agg = processVDOut(clnt_data, false);
-      if (clnt_data.include_in_agg) {
-        updateTS(clnt_data_vec, clnt_data, clnt_data.loss_srvr,
-          clnt_data.error_rate_srvr);
+      // Only update TS if at least 50% of the server's VD samples were
+      // processed
+      client.include_in_agg = processVDOut(client, false);
+      if (client.include_in_agg) {
+        updateTS(clnt_data_vec, client, client.loss_srvr,
+                 client.error_rate_srvr);
 
-        if (clnt_data.trust_score != 0) {
+        if (client.trust_score != 0) {
           included++;
         }
-      } 
+      }
 
       // Reset next step counter for the next round
-      clnt_data.next_step = 1;
+      client.next_step = 1;
     }
     Logger::instance().logCustom(t_params.logs_dir, t_params.included_agg_file,
                                  std::to_string(included) + "\n");
 
-    Logger::instance().log("    Trust Scores after last step of round " + std::to_string(round) + ":\n");
-    for (const ClientDataRbyz& clnt_data : clnt_data_vec) {
-      Logger::instance().log("    Client " + std::to_string(clnt_data.index) +
-                              " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
+    Logger::instance().log("    Trust Scores after last step of round " +
+                           std::to_string(round) + ":\n");
+    for (const ClientDataRbyz &clnt_data : clnt_data_vec) {
+      Logger::instance().log(
+          "    Client " + std::to_string(clnt_data.index) +
+          " Trust Score: " + std::to_string(clnt_data.trust_score) + "\n");
     }
 
     // For the experiments
@@ -647,9 +640,7 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     std::vector<uint32_t> clnt_indices;
 
     // Read client updates and aggregate them
-    for (size_t i = 0; i < clnt_data_vec.size(); i++) {
-      ClientDataRbyz &client = clnt_data_vec[i];
-
+    for (ClientDataRbyz &client : clnt_data_vec) {
       if (client.is_byzantine) {
         Logger::instance().log("    -> Client " + std::to_string(client.index) +
                                " is Byzantine, skipping\n");
@@ -660,15 +651,16 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
       long total_time_waited = 0;
       std::chrono::microseconds initial_time(20); // time of 10 round trips
       std::chrono::microseconds limit_step_time(30000000); // 30 seconds
-      Logger::instance().log("    Waiting for client " + std::to_string(client.index) +
-                             " to finish round " + std::to_string(round) + "\n");
+      Logger::instance().log(
+          "    Waiting for client " + std::to_string(client.index) +
+          " to finish round " + std::to_string(round) + "\n");
 
       // Wait for the client to finish the round
       while (regMem.clnt_ready_flags[client.index] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_time_waited += initial_time.count();
-        initial_time = std::chrono::microseconds(
-            initial_time.count() * 3 / 2); // Exponential backoff
+        int new_time = initial_time.count() * 1.5;
+        initial_time = std::chrono::microseconds(new_time);
         if (initial_time > limit_step_time) {
           timed_out = true;
           Logger::instance().log(
@@ -687,7 +679,7 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
       if (!timed_out && client.trust_score != 0 && client.include_in_agg) {
         size_t numel_server = regMem.reg_sz_data / sizeof(float);
         torch::Tensor flat_tensor =
-            torch::from_blob(regMem.clnt_ws[i],
+            torch::from_blob(regMem.clnt_ws[client.index],
                              {static_cast<long>(numel_server)}, torch::kFloat32)
                 .clone();
 
@@ -701,7 +693,8 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
       torch::Tensor w_flat = tops::flatten_tensor_vector(w);
       aggregated_update = torch::zeros_like(w_flat);
     } else {
-      aggregated_update = aggregate_updates(clnt_updates, clnt_data_vec, clnt_indices);
+      aggregated_update =
+          aggregate_updates(clnt_updates, clnt_data_vec, clnt_indices);
     }
 
     std::vector<torch::Tensor> aggregated_update_vec =
@@ -710,9 +703,14 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     for (size_t i = 0; i < w.size(); i++) {
       w[i] = w[i] + t_params.global_learn_rate * aggregated_update_vec[i];
     }
-    Logger::instance().log("After aggregating round " + std::to_string(round) + ":\n");
+    Logger::instance().log("After aggregating round " + std::to_string(round) +
+                           ":\n");
     mngr.updateModelParameters(w);
     mngr.runTesting();
+
+    if (mngr.test_accuracy >= acc_info_.threshold_acc) {
+      acc_info_.rounds_to_converge = round;
+    }
 
     // Log accuracy and round to Results
     total_steps++;
@@ -720,13 +718,18 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
                                  std::to_string(total_steps) + " " +
                                      std::to_string(mngr.test_accuracy) + "\n");
 
-    std::cout << "///////////////// Server: Round " << round << " completed /////////////////\n";
-    Logger::instance().log("\n//////////////// Server: Round " + std::to_string(round) + " completed ////////////////\n");
+    std::cout << "///////////////// Server: Round " << round
+              << " completed /////////////////\n";
+    Logger::instance().log("\n//////////////// Server: Round " +
+                           std::to_string(round) +
+                           " completed ////////////////\n");
   }
 
-  Logger::instance().log("\n\n=================  RBYZ SERVER FINISHED  =================\n");
-  std::cout << "\n\n=================  RBYZ SERVER FINISHED  =================\n";
-  awaitTermination(clnt_data_vec, CLNT_FINISHED_RBYZ);  
+  Logger::instance().log(
+      "\n\n=================  RBYZ SERVER FINISHED  =================\n");
+  std::cout
+      << "\n\n=================  RBYZ SERVER FINISHED  =================\n";
+  awaitTermination(clnt_data_vec, CLNT_FINISHED_RBYZ);
 }
 
 /**
@@ -748,19 +751,23 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
           Logger::instance().log(
               "Sample " + std::to_string(i) +
               ": label = " + std::to_string(*mngr.getLabel(i)) +
-              " | og_idx = " + std::to_string(*mngr.getOriginalIndex(i)) + "\n");
+              " | og_idx = " + std::to_string(*mngr.getOriginalIndex(i)) +
+              "\n");
       }
     }
 
     // Reset
     regMem.local_step.store(0);
 
-    Logger::instance().log("\n//////////////// Round " + std::to_string(regMem.round) + " started ////////////////\n");
+    Logger::instance().log("\n//////////////// Round " +
+                           std::to_string(regMem.round) +
+                           " started ////////////////\n");
     // Wait for the server to be ready
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_RB_IDX);
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    } while (regMem.srvr_ready_rb < regMem.round && regMem.srvr_ready_rb != SRVR_FINISHED);
+      std::this_thread::sleep_for(millis(1));
+    } while (regMem.srvr_ready_rb < regMem.round &&
+             regMem.srvr_ready_rb != SRVR_FINISHED);
 
     if (regMem.srvr_ready_rb == SRVR_FINISHED) {
       Logger::instance().log("Server finished early, exiting...\n");
@@ -773,13 +780,11 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
 
     rdma_ops.exec_rdma_read(regMem.reg_sz_data, SRVR_W_IDX);
     tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
-    Logger::instance().log("Round " + std::to_string(regMem.round.load()) +
-                           " weights received:\n");
-
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
 
     Logger::instance().log(
         "Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
+
     while (regMem.local_step.load() < regMem.CAS.load()) {
       // auto start = std::chrono::high_resolution_clock::now();
       int step = regMem.local_step.load();
@@ -788,12 +793,18 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
                              std::to_string(regMem.round.load()) + "\n");
       mngr.runTraining();
 
+      if (t_params.srvr_wait_inc) {
+        int sim_delay = client_delays[regMem.id - 1];
+        std::this_thread::sleep_for(millis(sim_delay));
+      }
+
       regMem.local_step.store(step + 1);
 
       // auto end = std::chrono::high_resolution_clock::now();
-      // std::string time = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
-      // Logger::instance().logCustom("./stepTimes", log_file, time + "\n");
-      // Logger::instance().log("Client: Local step " + std::to_string(regMem.local_step.load()) + " going ahead\n");
+      // std::string time =
+      // std::to_string(std::chrono::duration_cast<millis>(end
+      // - start).count()); Logger::instance().logCustom("./stepTimes",
+      // log_file, time + "\n");
     }
 
     // Write the updates to the registered memory and write to the server
@@ -819,7 +830,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   // Notify the server that the client is done
   regMem.round.store(CLNT_FINISHED_RBYZ);
   rdma_ops.exec_rdma_write(sizeof(int), CLNT_ROUND_IDX);
-  Logger::instance().log("Finish round " + std::to_string(regMem.round.load()) + 
+  Logger::instance().log("Finish round " + std::to_string(regMem.round.load()) +
                          " and notify server\n");
   Logger::instance().log("Client: Finished RByz\n");
 }

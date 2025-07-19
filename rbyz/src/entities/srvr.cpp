@@ -336,7 +336,8 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.test_renewal_freq, "test_renewal_freq")["--test_renewal_freq"]("Frequency of test renewal (every n rounds)") |
       lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
       lyra::opt(t_params.wait_all, "wait_all")["--wait_all"]("Ignore slow clients during RByz") |
-      lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz");
+      lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz") |
+      lyra::opt(t_params.srvr_wait_inc, "srvr_wait_inc")["--srvr_wait_inc"]("Increment for server wait time in timeouts experiment");
 
   auto result = cli.parse({argc, argv});
   if (!result) {
@@ -370,8 +371,9 @@ int main(int argc, char *argv[]) {
   std::cout << "Label flip ratio = " << t_params.flip_ratio << "\n";
   std::cout << "Wait for all clients = " << (t_params.wait_all ? "true" : "false") << "\n";
   std::cout << "Batches for forward pass = " << t_params.batches_fpass_prop << "\n";
+  std::cout << "Server wait increment = " << t_params.srvr_wait_inc << "\n";
 
-  t_params.n_clients = n_clients; // +1 for server
+  t_params.n_clients = n_clients; 
   MnistNet mnist_net;
   Cifar10Net cifar_net;
   std::array<int64_t, 3> layers{3, 3, 3};
@@ -465,15 +467,20 @@ int main(int argc, char *argv[]) {
                            std::to_string(reg_mngr->target_class) + "\n";
   std::string miss_samples_msg = "missclassed_samples " + std::to_string(reg_mngr->missclassed_samples) + "\n";
   std::string class_recall_msg = "src_class_recall " + std::to_string(reg_mngr->src_class_recall) + "\n";
+  std::string rounds_to_converge_msg = "rounds_to_converge " + std::to_string(rbyz_aux.getRoundsToConverge()) + "\n";
 
   Logger::instance().logCustom(dir, final_data_file, acc_msg);
   Logger::instance().logCustom(dir, final_data_file, time_msg);
-  Logger::instance().logCustom(dir, final_data_file, vd_msg);
-  Logger::instance().logCustom(dir, final_data_file, vd_prop_msg);
-  Logger::instance().logCustom(dir, final_data_file, test_renew_msg);
   Logger::instance().logCustom(dir, final_data_file, recall_msg);
   Logger::instance().logCustom(dir, final_data_file, miss_samples_msg);
   Logger::instance().logCustom(dir, final_data_file, class_recall_msg);
+  Logger::instance().logCustom(dir, final_data_file, rounds_to_converge_msg);
+  
+  if (!t_params.only_flt) {
+    Logger::instance().logCustom(dir, final_data_file, vd_msg);
+    Logger::instance().logCustom(dir, final_data_file, vd_prop_msg);
+    Logger::instance().logCustom(dir, final_data_file, test_renew_msg);
+  }
 
   Logger::instance().logCustom(dir, final_data_file, "$ END OF EXECUTION $\n");
   Logger::instance().logCustom(dir, t_params.acc_file, "$ END OF EXECUTION $\n");

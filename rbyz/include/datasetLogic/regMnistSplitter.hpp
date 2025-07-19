@@ -103,7 +103,8 @@ class RegMnistSplitter {
     void initializeValidationDatasetPartitions() {
         // Split the server registered data into n_clients VD sections
         size_t vd_size = mngr.data_info.num_samples / n_clients;
-        extra_col_size = (vd_size / n_clients) * mngr.data_info.get_sample_size();
+        size_t extra_col_size = vd_size * 0.1 * mngr.data_info.get_sample_size();
+        extra_col_size = std::max(extra_col_size, 1UL);
 
         if (vd_size < samples_per_chunk) {
             throw std::runtime_error("Not enough samples in the server VD with the given clnt_vd_proportion. "
