@@ -35,7 +35,9 @@ using namespace resnet;
 /**
  * @brief Prepares RDMA registration configuration
  */
-void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
+void prepareRdmaRegistration(int n_clients, 
+                             TrainInputParams &t_params,
+                             std::vector<RegInfo> &reg_info,
                              RegMemSrvr &regMem,
                              std::vector<ClientDataRbyz> &clnt_data_vec,
                              IRegDatasetMngr &mngr) {
@@ -52,8 +54,11 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].local_step));
     reg_info[i].addr_locs.push_back(castI(&clnt_data_vec[i].round));
     reg_info[i].addr_locs.push_back(castI(regMem.reg_data));
-    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
-    reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
+
+    if (!t_params.only_flt) {
+      reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass));
+      reg_info[i].addr_locs.push_back(castI(clnt_data_vec[i].forward_pass_indices));
+    }
 
     // Set memory sizes
     reg_info[i].data_sizes.push_back(regMem.reg_sz_data);
@@ -65,8 +70,11 @@ void prepareRdmaRegistration(int n_clients, std::vector<RegInfo> &reg_info,
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(MIN_SZ);
     reg_info[i].data_sizes.push_back(mngr.data_info.reg_data_size);
-    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
-    reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
+
+    if (!t_params.only_flt) {
+      reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_mem_size);
+      reg_info[i].data_sizes.push_back(clnt_data_vec[i].forward_pass_indices_mem_size);
+    }
 
     // Set permissions for remote access
     reg_info[i].permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
@@ -89,8 +97,6 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   // Generate random size
   std::uniform_int_distribution<int> sizeDist(min_sz, n_clients);
   int size = sizeDist(rng);
-
-  std::cout << "Random size: " << size << "\n";
 
   std::vector<int> result(allValues.begin(), allValues.begin() + size);
   std::sort(result.begin(), result.end());
@@ -190,7 +196,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     std::vector<uint32_t> clnt_indices;
     clnt_updates.reserve(polled_clients.size());
     Logger::instance().log(
-        "polled_clients size: " + std::to_string(polled_clients.size()) + "\n");
+        "polled_clients size: " + std::to_string(polled_clients.size()) + ":\n");
 
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
@@ -204,7 +210,13 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_wait_time += initial_time.count();
-        initial_time = std::chrono::milliseconds(initial_time.count() * 3 / 2);
+        int64_t new_time = initial_time.count() * 3 / 2;
+        initial_time = std::chrono::microseconds(new_time);
+        if (initial_time.count() % 5000 == 0) {
+          Logger::instance().log("     Client " + 
+                             std::to_string(client) + " ready flag: " + std::to_string(regMem.clnt_ready_flags[client]) + 
+                             " waiting to be: " + std::to_string(round) + "\n");
+        }
         if (initial_time > limit_step_time) {
           timed_out = true;
           Logger::instance().log("    -> Timeout in update gathering by client " + std::to_string(client) + 
@@ -212,7 +224,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
         }
       }
       Logger::instance().log("    -> Server waited: " + std::to_string(total_wait_time) + " us for client " + 
-                             std::to_string(client) + "\n");
+                             std::to_string(client) + " ready flag: " + std::to_string(regMem.clnt_ready_flags[client]) + "\n");
 
       if (!timed_out) {
         size_t numel_server = regMem.reg_sz_data / sizeof(float);
@@ -239,6 +251,10 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     mngr.runTesting();
     Logger::instance().logCustom(t_params.logs_dir, t_params.acc_file, std::to_string(round) + " " +
                                   std::to_string(mngr.test_accuracy) + "\n");
+
+    std::cout << "///////////////// Server: Round " << round << " completed /////////////////\n";
+    Logger::instance().log("\n//////////////// Server: Round " +
+                           std::to_string(round) + " completed ////////////////\n");
   }
 
   Logger::instance().log("FINAL FLTRUST\n");
@@ -351,8 +367,7 @@ int main(int argc, char *argv[]) {
   addr_info.port = strdup(port.c_str());
   std::cout << "Dataset type: " << (t_params.use_mnist ? "MNIST" : "CIFAR10") << "\n";
   std::cout << "Server: n_clients = " << n_clients << "\n";
-  std::cout << "Server: srvr_ip = " << srvr_ip << "\n";
-  std::cout << "Server: port = " << port << "\n";
+  std::cout << "Server address: srvr_ip = " << srvr_ip << ":" << port << "\n";
   std::cout << "Byz clients = " << t_params.n_byz_clnts << "\n";
   std::cout << "Batch size = " << t_params.batch_size << "\n";
   std::cout << "Global learn rate = " << t_params.global_learn_rate << "\n";
@@ -408,7 +423,7 @@ int main(int argc, char *argv[]) {
     clnt_data.init(t_params.local_steps_rbyz);
   }
   allocateServerMemory(n_clients, t_params, *regMem, clnt_data_vec, *reg_mngr);
-  prepareRdmaRegistration(n_clients, reg_info, *regMem, clnt_data_vec,
+  prepareRdmaRegistration(n_clients, t_params, reg_info, *regMem, clnt_data_vec,
                           *reg_mngr);
 
   // Accept connection from each client
@@ -440,7 +455,6 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(n_clients) + "\n");
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(t_params.n_byz_clnts) + "\n");
 
-  std::cout << "SRVR Running FLTrust\n";
   auto start = std::chrono::high_resolution_clock::now();
   std::vector<torch::Tensor> w = run_fltrust_srvr(
       n_clients, t_params, *reg_mngr, *regMem, clnt_data_vec);

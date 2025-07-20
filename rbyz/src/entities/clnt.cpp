@@ -22,7 +22,7 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
+void registerClntMemory(bool only_flt, RegInfo &reg_info, RegMemClnt &regMem,
                         IRegDatasetMngr &mngr) {
   reg_info.addr_locs.push_back(castI(regMem.srvr_w));
   reg_info.addr_locs.push_back(castI(regMem.clnt_w));
@@ -33,8 +33,11 @@ void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
   reg_info.addr_locs.push_back(castI(mngr.data_info.reg_data));
-  reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass));
-  reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
+
+  if (!only_flt) {
+    reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass));
+    reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
+  }
 
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
@@ -45,8 +48,11 @@ void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(mngr.data_info.reg_data_size);
-  reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_mem_size);
-  reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_indices_mem_size);
+
+  if (!only_flt) {
+    reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_mem_size);
+    reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_indices_mem_size);
+  }
 
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
                          IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -63,7 +69,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
   while (round <= rounds) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (regMem.srvr_ready_flag < round && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
@@ -73,6 +79,8 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
 
     // Catch up to the server's round if needed
     if (round < regMem.srvr_ready_flag) {
+      Logger::instance().log("Client: Catching up to server's round " +
+                             std::to_string(regMem.srvr_ready_flag) + "\n");
       round = regMem.srvr_ready_flag;
     }
 
@@ -181,13 +189,14 @@ int main(int argc, char *argv[]) {
 
   regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, reg_sz_data);
 
-  registerClntMemory(reg_info, *regMem, *reg_mngr);
+  registerClntMemory(t_params.only_flt, reg_info, *regMem, *reg_mngr);
   Logger::instance().log("Client: Registered memory for client " + std::to_string(id) + "\n");
 
   // connect to server
   // Sleep to not overload the server when all clients connect
   std::this_thread::sleep_for(std::chrono::milliseconds(id * 200));
   RcConn conn;
+  Logger::instance().log("Client: Connecting to server address " + srvr_ip + ":" + port + "\n");
   int ret = conn.connect(addr_info, reg_info);
 
   if (ret != 0) {

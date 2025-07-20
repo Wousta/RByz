@@ -242,11 +242,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     for (uint32_t i = 0; i < batches_fpass; i++) {
       batches_to_process.insert(batch_indices_f[i]);
     }
-    for (const auto &batch_idx : batches_to_process) {
-      Logger::instance().log(std::to_string(batch_idx) + " ");
-    }
-    Logger::instance().log("\n");
-
     
     if (pending_forward_pass.load()) {
       forward_pass_future.wait();

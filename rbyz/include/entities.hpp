@@ -41,9 +41,9 @@ struct RegMemClnt {
   const int id;               
   const uint32_t reg_sz_data; // Size of the registered parameter vector w
   int srvr_ready_flag;
-  std::atomic<int> clnt_ready_flag;
   float *srvr_w;
   float *clnt_w; 
+  alignas(8) std::atomic<int> clnt_ready_flag;
   alignas(8) std::atomic<int> CAS;
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
@@ -147,8 +147,8 @@ struct TrainInputParams {
   float clnt_vd_proportion;   // Proportion of validation data for each client (proportion of total chunks writable on client)
   float vd_prop_write;        // Proportion of total chunks writable on client to write each time the test is renewed
   int test_renewal_freq;      // Frequency of test renewal (every n rounds)
-  int overwrite_poisoned = 1; // Allow VD samples to overwrite poisoned samples
-  int wait_all = 0; // Ignore slow clients in the trust score calculation
+  int overwrite_poisoned; // Allow VD samples to overwrite poisoned samples
+  int wait_all; // Ignore slow clients in the trust score calculation
   float batches_fpass_prop = 0.0;
 
   //misc
