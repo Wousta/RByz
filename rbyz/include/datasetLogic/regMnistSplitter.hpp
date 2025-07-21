@@ -28,7 +28,7 @@ class RegMnistSplitter {
     IRegDatasetMngr& mngr;
     std::vector<ClientDataRbyz>& clnt_data_vec;
     std::vector<std::vector<size_t>> vd_indices;        // Vector of indices for the start of each VD
-    std::vector<size_t> clnt_chunks;                    // Vector of offsets for the clients till n-1
+    std::vector<size_t> clnt_chunks;                    // Vector of offsets for the clients
 
     // Vector of integers corresponding to the indices in vd_indices and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
@@ -47,7 +47,7 @@ class RegMnistSplitter {
      * @throws std::runtime_error if clnt_vd_proportion exceeds 0.25 (25% limit)
      * @return The number of samples in total to be inserted to each client.
      */
-    void initializeClientChunkOffsets(int overwrite_poisoned) {
+    void initClientChunkOffsets(int overwrite_poisoned) {
         if (clnt_vd_proportion > 0.25) {
             throw std::runtime_error("clnt_vd_proportion must be <= 0.25, max 25%' overwrite of the client dataset");
         }
@@ -100,11 +100,10 @@ class RegMnistSplitter {
      * The last client receives any remaining samples to handle cases where the dataset
      * size is not perfectly divisible by n_clients.
      */
-    void initializeValidationDatasetPartitions() {
+    void initValidationDatasetPartitions() {
         // Split the server registered data into n_clients VD sections
         size_t vd_size = mngr.data_info.num_samples / n_clients;
         size_t extra_col_size = vd_size * 0.1 * mngr.data_info.get_sample_size();
-        extra_col_size = std::max(extra_col_size, 1UL);
 
         if (vd_size < samples_per_chunk) {
             throw std::runtime_error("Not enough samples in the server VD with the given clnt_vd_proportion. "
@@ -163,8 +162,8 @@ class RegMnistSplitter {
             prev_indexes_arrangement[i] = i;
         }
 
-        initializeClientChunkOffsets(t_params.overwrite_poisoned);
-        initializeValidationDatasetPartitions();
+        initClientChunkOffsets(t_params.overwrite_poisoned);
+        initValidationDatasetPartitions();
     }
 
     int getSamplesPerChunk() const {

@@ -227,6 +227,10 @@ void data_poison_attack(bool use_mnist, TrainInputParams &t_params,
   int label_flip_type = t_params.label_flip_type;
   float flip_ratio = t_params.flip_ratio;
 
+  if (flip_ratio < 0.0f || flip_ratio > 1.0f) {
+    throw std::invalid_argument("Invalid flip_ratio. Must be in [0.0, 1.0]");
+  }
+
   // Define target mappings: [setting][dataset][source, target]
   // dataset: 0=MNIST, 1=CIFAR-10
   const int target_mappings[3][2][2] = {
@@ -253,6 +257,15 @@ void data_poison_attack(bool use_mnist, TrainInputParams &t_params,
     int target = target_mappings[setting][dataset][1];
 
     mngr.flipLabelsTargeted(source, target, flip_ratio, rng);
+    break;
+  }
+  case TARGETED_FLIP_4: {
+    // Attack done in FLtrust paper
+    for (int i = 0; i < NUM_CLASSES; i++) {
+        int src = i;
+        int target = NUM_CLASSES - src - 1;
+        mngr.flipLabelsTargeted(src, target, 1.0f, rng);
+    }
     break;
   }
   default:

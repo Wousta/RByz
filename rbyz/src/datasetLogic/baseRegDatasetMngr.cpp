@@ -781,8 +781,8 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio,
                                                    std::mt19937 &rng) {
-  if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
-    throw std::invalid_argument("Flip ratio must be between 0 and 1");
+  if (flip_ratio < 0.0f || flip_ratio > 1.0f) {
+    throw std::invalid_argument("Flip ratio must be between 0 and 1, not " + std::to_string(flip_ratio));
   }
 
   size_t num_samples = data_info.num_samples;
@@ -865,8 +865,8 @@ void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label,
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
                                                       std::mt19937 &rng) {
-  if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
-    throw std::invalid_argument("Flip ratio must be between 0 and 1");
+  if (flip_ratio < 0.0f || flip_ratio > 1.0f) {
+    throw std::invalid_argument("Flip ratio must be between 0 and 1, not " + std::to_string(flip_ratio));
   }
 
   size_t num_samples = data_info.num_samples;

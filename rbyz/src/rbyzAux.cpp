@@ -589,8 +589,6 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     regMem.srvr_ready_rb.store(round);
 
     for (int srvr_step = 0; srvr_step < local_steps; srvr_step++) {
-      Logger::instance().log(" -- Server: Running step " +
-                             std::to_string(srvr_step) + " of RByz\n");
       runSteps(clnt_data_vec, round);
     }
 
@@ -686,13 +684,22 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
     }
 
     if (t_params.srvr_wait_inc) {
-      std::mt19937 rng1 = std::mt19937(round);
-      std::mt19937 rng2 = std::mt19937(round);
-      std::shuffle(clnt_updates.begin(), clnt_updates.end(), rng1);
-      std::shuffle(clnt_indices.begin(), clnt_indices.end(), rng2);
+      std::mt19937 rng = std::mt19937(round);
+      std::vector<int> use_indices(clnt_updates.size());
+      std::iota(use_indices.begin(), use_indices.end(), 0);
+      std::shuffle(use_indices.begin(), use_indices.end(), rng);
+
+      std::vector<torch::Tensor> clnt_updates_copy = clnt_updates;
+      clnt_updates.clear();
+      std::vector<uint32_t> clnt_indices_copy = clnt_indices;
+      clnt_indices.clear();
+
       included = t_params.srvr_wait_inc;
-      clnt_updates.resize(included);
-      clnt_indices.resize(included);
+      for (int i = 0; i < included && i < clnt_updates_copy.size(); i++) {
+        int idx = use_indices[i];
+        clnt_updates.push_back(clnt_updates_copy[idx]);
+        clnt_indices.push_back(clnt_indices_copy[idx]);
+      }
     }
 
     Logger::instance().logCustom(t_params.logs_dir, t_params.included_agg_file,
@@ -820,6 +827,7 @@ void RByzAux::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
     // If overwriting poisoned labels is enabled, byz client has to renew
     // poisoned labels (50% chance)
     if (byz_clnt && t_params.overwrite_poisoned && coinFlip()) {
+      Logger::instance().log("Client: Overwriting poisoned labels\n");
       data_poison_attack(t_params.use_mnist, t_params, mngr);
     }
 

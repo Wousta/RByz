@@ -25,6 +25,7 @@ inline constexpr int CORRUPT_IMAGES_RNG = 2;
 inline constexpr int TARGETED_FLIP_1 = 3;
 inline constexpr int TARGETED_FLIP_2 = 4;
 inline constexpr int TARGETED_FLIP_3 = 5;
+inline constexpr int TARGETED_FLIP_4 = 6;
 
 // addr_locs of buffers
 inline constexpr int SRVR_W_IDX = 0;

@@ -4,6 +4,8 @@
 #include "entities.hpp"
 #include <vector>
 
+#define NUM_CLASSES 10 // Number of classes of CIFAR-10 and MNIST
+
 std::vector<torch::Tensor> no_byz(
   const std::vector<torch::Tensor>& v,
   int lr,

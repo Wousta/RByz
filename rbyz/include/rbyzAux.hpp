@@ -128,7 +128,7 @@ public:
     timeouts_.step_range =
         std::uniform_int_distribution<int>(timeouts_.mid_steps, local_steps);
     acc_info_.rounds_to_converge = global_rounds;
-    acc_info_.threshold_acc = t_params.use_mnist ? 98.6 : 82.5;
+    acc_info_.threshold_acc = t_params.use_mnist ? 96.0 : 81.0;
     ts_threshold = t_params.use_mnist ? 0.88 : 0.12; // Benchmark threshold
 
     int timeout = t_params.use_mnist ? TIMEOUT_MNIST : TIMEOUT_CIFAR10;
