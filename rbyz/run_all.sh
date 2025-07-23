@@ -51,6 +51,7 @@ chunk_size=${17:-1}      # slab size for RByz VDsampling
 # 0: no label flip, 1: random label flip 2: random image corruption (RNG) setting
 # 3: targeted label flip setting (1) 4: targeted label flip setting (2) 5: targeted label flip setting (3)
 # references for the settings: CIFAR-10 -> https://arxiv.org/pdf/2007.08432 | MNIST -> https://arxiv.org/pdf/2407.07818v1
+# 6: targeted label flip of FLtrust paper: https://arxiv.org/abs/2012.13995)
 label_flip_type=${18:-1}
 
 flip_ratio=${19:-0.50}
@@ -61,6 +62,7 @@ test_renewal_freq=${23:-5}    # Frequency of test renewal (every n rounds)
 overwrite_poisoned=${24:-0}   # Allow VD samples to overwrite poisoned samples (1) or not (0)
 wait_all=${25:-0}             # Wait indefinitely for all clients (1) or not (0) in RByz
 batches_fpass=${26:-0.2}
+srvr_wait_inc=${27:-0}        # Server wait increment for slow clients in timeouts experiment (0 to not run experiment)
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
@@ -72,8 +74,9 @@ cleanup() {
   
   # Kill local server process
   echo "Killing local server process..."
+  echo "Profiler PID: $CPU_TRACKER_PID"
   kill $SRVR_PID 2>/dev/null
-  kill $CPU_TRACKER_PID -2 2>/dev/null
+  ps aux | grep profiler | grep -v grep | awk '{print $2}' | xargs -r kill -2 2>/dev/null
   
   # Kill remote client processes on all machines
   for host in "${remote_hosts[@]}"; do
@@ -130,7 +133,8 @@ build/srvr --logs_dir $logs_dir --srvr_ip $srvr_ip --port $port --n_clients $n_c
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
   --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio  --only_flt $only_flt --vd_prop $vd_prop \
-  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all  --batches_fpass $batches_fpass & 
+  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all \
+  --batches_fpass $batches_fpass --srvr_wait_inc $srvr_wait_inc & 
 SRVR_PID=$!
 echo "Started server with PID $SRVR_PID"
 
@@ -166,12 +170,13 @@ for i in "${!remote_hosts[@]}"; do
     ssh $remote_user@$host "cd $remote_script_path && \
       core_id=0; \
       for id in ${client_ids[@]}; do \
-        echo \"Starting client \$id on $host with physical core \$core_id\" && \
         taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
           --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
           --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
           --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio --overwrite_poisoned $overwrite_poisoned \
-          --vd_prop $vd_prop --batches_fpass $batches_fpass & \
+          --vd_prop $vd_prop --batches_fpass $batches_fpass --srvr_wait_inc $srvr_wait_inc & \
+
+        echo \"Client \$id started on $host with physical core \$core_id\ (PID: \$!)\" && \
         core_id=\$((core_id + 1)); \
         if [ \$core_id -eq 16 ]; then core_id=0; fi; \
         sleep 0.2; \
@@ -180,6 +185,7 @@ for i in "${!remote_hosts[@]}"; do
 done
 
 cd $results_path
+echo "Starting CPU tracker for local server process..."
 build/profiler S $only_flt $logs_dir &
 CPU_TRACKER_PID=$!
 

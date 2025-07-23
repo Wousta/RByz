@@ -48,7 +48,7 @@ local_steps_rbyz=3          # Local rounds of RByz
 rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
 
-byz_clients_arr=(0 1 2 3 4 5 6)
+byz_clients_arr=(1 2)
 run() {
     local name=$1
     local rounds=${2:-1}
@@ -91,17 +91,18 @@ batch_size=64
 glob_learning_rate=1.0
 clnt_subset_size=4854
 srvr_subset_size=1460
+local_learn_rate=0.01
 
 #-------------# FLtrust #-------------#
-# only_flt=1    
-# glob_iters_fl=50
-# glob_iters_rbyz=0               
+only_flt=1    
+glob_iters_fl=50
+glob_iters_rbyz=0               
 
-# label_flip_type=0          
-# run "F_cifar_set_0" 3
+# label_flip_type=6          
+# run "F_cifar_set_6" 3
 
-# label_flip_type=3          
-# run "F_cifar_set_3" 3
+label_flip_type=2
+run "F_cifar_set_2" 3
 
 # label_flip_type=4          
 # run "F_cifar_set_4" 3
@@ -114,8 +115,8 @@ only_flt=0
 glob_iters_fl=1
 glob_iters_rbyz=49
 
-label_flip_type=6
-run "R_cifar_set_6" 3
+# label_flip_type=6
+# run "R_cifar_set_6" 3
 
 # label_flip_type=4         
 # run "R_cifar_set_4" 3

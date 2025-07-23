@@ -39,6 +39,10 @@ label_flip_type=1           # 1: Random label flip
 flip_ratio=0.75             # 50% of the data will be flipped
 overwrite_poisoned=0        # Can overwrite poisoned data
 only_flt=0                  # Run RByz
+
+# MNIST Accuracy threshold: 96%
+# CIFAR-10 Accuracy threshold: 81%
+
 batches_fpass=0.2
 
 rm -rf ../logs/$EXPERIMENT/*
@@ -49,11 +53,12 @@ run() {
     echo "=========================================================="
     echo "---- Starting experiment $name ----"
     echo "=========================================================="
-    echo "     Renewal freq: $test_renewal_freq"
+    echo "     srvr wait inc: $srvr_wait_inc"
 
     for ((i=1; i<=1; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
+        echo "‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾"
         ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned \
@@ -79,10 +84,10 @@ srvr_subset_size=1750
 glob_learning_rate=0.04
 glob_iters_rbyz=149
 vd_prop=0.03                # Use the best value obtained from acc_vs_test_size.sh
-vd_prop_write=0.68          # Proportion of total chunks writable on client to write each time the test is renewed
+vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
 test_renewal_freq=1
 
-wait_all=0
+wait_all=1
 
 srvr_wait_inc=1
 run "mnist_wait_1"
@@ -111,8 +116,8 @@ run "mnist_wait_8"
 srvr_wait_inc=9
 run "mnist_wait_9"
 
-srvr_wait_inc=1
-wait_all=1
+# Waiting for all is the same as no experiment
+srvr_wait_inc=0
 run "mnist_wait_10"
 
 
