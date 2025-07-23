@@ -18,7 +18,6 @@
 #include "datasetLogic/regMnistMngr.hpp"
 #include "entities.hpp"
 #include "global/globalConstants.hpp"
-#include "logger.hpp"
 #include "nets/cifar10Net.hpp"
 #include "nets/mnistNet.hpp"
 #include "nets/residual_block.hpp"
@@ -26,6 +25,7 @@
 #include "rbyzAux.hpp"
 #include "rc_conn.hpp"
 #include "rdmaOps.hpp"
+#include "logger.hpp"
 #include "tensorOps.hpp"
 #include "util.hpp"
 
@@ -105,7 +105,10 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
 }
 
 torch::Tensor aggregateUpdates(const std::vector<torch::Tensor> &client_updates,
-                  const torch::Tensor &server_update, std::vector<uint32_t> &clnt_indices, 
+                  const std::vector<torch::Tensor> &client_full_updates,
+                  const torch::Tensor &server_update, 
+                  const torch::Tensor &server_full_update,
+                  const std::vector<uint32_t> &clnt_indices, 
                   std::vector<float> log_TS_vec, TrainInputParams &t_params) {
 
   if (client_updates.empty()) {
@@ -121,18 +124,22 @@ torch::Tensor aggregateUpdates(const std::vector<torch::Tensor> &client_updates,
   normalized_updates.reserve(client_updates.size());
 
   float server_norm = torch::norm(server_update, 2).item<float>();
-  for (const auto &flat_client_update : client_updates) {
-    // Compute cosine similarity
-    torch::Tensor dot_product = torch::dot(flat_client_update, server_update);
-    float client_norm = torch::norm(flat_client_update, 2).item<float>();
+  float server_full_norm = torch::norm(server_full_update, 2).item<float>();
+  for (int i = 0; i < client_updates.size(); i++) {
+    // Compute cosine similarity with learnable parameters
+    torch::Tensor dot_product = torch::dot(client_updates[i], server_update);
+    float client_norm = torch::norm(client_updates[i], 2).item<float>();
     float cosine_sim = dot_product.item<float>() / (client_norm * server_norm);
+
+    // Normalization of the full updates
+    float client_full_norm = torch::norm(client_full_updates[i], 2).item<float>();
 
     // Apply ReLU (max with 0)
     float trust_score = std::max(0.0f, cosine_sim);
     trust_scores.push_back(trust_score);
 
     torch::Tensor normalized_update =
-        flat_client_update * (server_norm / client_norm);
+        client_full_updates[i] * (server_full_norm / client_full_norm);
     normalized_updates.push_back(normalized_update);
   }
 
@@ -157,7 +164,7 @@ torch::Tensor aggregateUpdates(const std::vector<torch::Tensor> &client_updates,
     sum_trust += score;
   }
 
-  torch::Tensor aggregated_update = torch::zeros_like(server_update);
+  torch::Tensor aggregated_update = torch::zeros_like(server_full_update);
   if (sum_trust > 0) {
     for (int i = 0; i < trust_scores.size(); i++) {
       aggregated_update += trust_scores[i] * normalized_updates[i];
@@ -193,8 +200,11 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
     // ROUND, BUT SRVR ONLY READS FROM A RANDOM SUBSET OF CLIENTS
     std::vector<torch::Tensor> clnt_updates;
+    std::vector<torch::Tensor> clnt_full_updates;
     std::vector<uint32_t> clnt_indices;
     clnt_updates.reserve(polled_clients.size());
+    clnt_full_updates.reserve(polled_clients.size());
+    clnt_indices.reserve(polled_clients.size());
     Logger::instance().log(
         "polled_clients size: " + std::to_string(polled_clients.size()) + ":\n");
 
@@ -231,15 +241,19 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
         torch::Tensor flat_tensor = torch::from_blob(regMem.clnt_ws[client],
                             {static_cast<long>(numel_server)}, torch::kFloat32).clone();
 
-        clnt_updates.push_back(flat_tensor);
+        torch::Tensor learn_params = mngr.extractLearnableParams(flat_tensor);
+        clnt_updates.push_back(learn_params);
+        clnt_full_updates.push_back(flat_tensor);
         clnt_indices.push_back(client);
       }
     }
 
     // AGGREGATION PHASE //////////////////////
-    torch::Tensor flat_srvr_update = tops::flatten_tensor_vector(g);
+    torch::Tensor srvr_full_update = tops::flatten_tensor_vector(g);
+    torch::Tensor srvr_update = mngr.extractLearnableParams(srvr_full_update);
     torch::Tensor aggregated_update =
-        aggregateUpdates(clnt_updates, flat_srvr_update, clnt_indices, log_TS_vec, t_params);
+        aggregateUpdates(clnt_updates, clnt_full_updates, 
+                         srvr_update, srvr_full_update, clnt_indices, log_TS_vec, t_params); 
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
 

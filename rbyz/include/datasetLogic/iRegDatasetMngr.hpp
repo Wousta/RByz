@@ -56,6 +56,7 @@ public:
   calculateUpdate(const std::vector<torch::Tensor> &w) = 0;
   virtual std::vector<torch::Tensor>
   updateModelParameters(const std::vector<torch::Tensor> &w) = 0;
+  virtual torch::Tensor extractLearnableParams(const torch::Tensor &input) = 0;
   virtual std::vector<torch::Tensor> getInitialWeights() = 0;
   virtual torch::Device getDevice() = 0;
   virtual std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,

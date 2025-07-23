@@ -37,6 +37,7 @@ public:
                                              uint32_t dataset_size) override;
   std::vector<torch::Tensor>
   updateModelParameters(const std::vector<torch::Tensor> &w) override;
+  torch::Tensor extractLearnableParams(const torch::Tensor &input) override;
   std::vector<torch::Tensor> getInitialWeights() override;
   torch::Device getDevice() override { return device; }
   const NetType &getModel() const { return model; }

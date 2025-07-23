@@ -129,7 +129,7 @@ public:
         std::uniform_int_distribution<int>(timeouts_.mid_steps, local_steps);
     acc_info_.rounds_to_converge = global_rounds;
     acc_info_.threshold_acc = t_params.use_mnist ? 96.0 : 81.0;
-    ts_threshold = t_params.use_mnist ? 0.88 : 0.12; // Benchmark threshold
+    ts_threshold = t_params.use_mnist ? 0.92 : 0.65; // Benchmark threshold
 
     int timeout = t_params.use_mnist ? TIMEOUT_MNIST : TIMEOUT_CIFAR10;
     for (int i = 0; i < t_params.n_clients; i++) {

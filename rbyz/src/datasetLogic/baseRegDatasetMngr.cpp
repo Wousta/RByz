@@ -403,6 +403,20 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
 }
 
 template <typename NetType>
+torch::Tensor BaseRegDatasetMngr<NetType>::extractLearnableParams(const torch::Tensor &input) {
+    std::vector<torch::Tensor> params = model->parameters();
+
+    size_t input_numel = 0;
+    for (const auto& param : params) {
+        input_numel += param.numel();
+    }
+
+    torch::Tensor learnable_params = input.narrow(0, 0, input_numel).clone();
+    
+    return learnable_params;
+}
+
+template <typename NetType>
 template <typename DataLoader>
 void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
   if (only_flt) {
