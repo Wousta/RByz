@@ -272,3 +272,23 @@ void data_poison_attack(bool use_mnist, TrainInputParams &t_params,
     throw std::runtime_error("Unknown label flip type");
   }
 }
+
+void progressiveVDColAttack(float prop, IRegDatasetMngr &mngr, std::vector<std::vector<size_t>> &extra_col_indices) {
+  int minority = mngr.n_clients / 2;
+
+  if (mngr.n_clients % 2 == 0)
+    minority -= 1;
+
+  for (int i = 0; i < minority; i++) {
+    auto &extra_indices = extra_col_indices[i];
+    int numel_corrupted = static_cast<int>(prop * extra_indices.size());
+    if (extra_indices.empty()) {
+      continue; // No extra columns to corrupt for this client
+    }
+
+    for (int j = 0; j < numel_corrupted; j++) {
+      int idx = extra_indices[j];
+      mngr.corruptImage(idx);
+    }
+  }
+}

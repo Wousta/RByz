@@ -104,6 +104,21 @@ std::vector<int> generateRandomUniqueVector(int n_clients, int min_sz) {
   return result;
 }
 
+torch::Tensor aggregateUpdatesAvg(const std::vector<torch::Tensor> &client_updates,
+                                  const torch::Tensor &server_update) {
+  if (client_updates.empty()) {
+    return server_update.clone(); // Return server update if no client updates
+  }
+
+  torch::Tensor aggregated_update = server_update.clone();
+  for (const auto &update : client_updates) {
+    aggregated_update += update;
+  }
+  aggregated_update /= static_cast<float>(client_updates.size() + 1); // +1 for server update
+  //aggregated_update = torch::clamp(aggregated_update, -1.0f, 1.0f); // Clamp values to [-1, 1]
+  return aggregated_update;
+}
+
 torch::Tensor aggregateUpdates(const std::vector<torch::Tensor> &client_updates,
                   const std::vector<torch::Tensor> &client_full_updates,
                   const torch::Tensor &server_update, 
@@ -215,13 +230,13 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
 
       bool timed_out = false;
       long total_wait_time = 0;
-      std::chrono::microseconds initial_time(20); // time of 10 round trips
-      std::chrono::microseconds limit_step_time(200000000); // 5 seconds
+      std::chrono::milliseconds initial_time(1);
+      std::chrono::milliseconds limit_step_time(30000); // 30 seconds
       while (regMem.clnt_ready_flags[client] != round && !timed_out) {
         std::this_thread::sleep_for(initial_time);
         total_wait_time += initial_time.count();
         int64_t new_time = initial_time.count() * 3 / 2;
-        initial_time = std::chrono::microseconds(new_time);
+        initial_time = std::chrono::milliseconds(new_time);
         if (initial_time.count() % 5000 == 0) {
           Logger::instance().log("     Client " + 
                              std::to_string(client) + " ready flag: " + std::to_string(regMem.clnt_ready_flags[client]) + 
@@ -233,7 +248,7 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
                                  " for round " + std::to_string(round) + "\n");
         }
       }
-      Logger::instance().log("    -> Server waited: " + std::to_string(total_wait_time) + " us for client " + 
+      Logger::instance().log("    -> Server waited: " + std::to_string(total_wait_time) + " ms for client " +
                              std::to_string(client) + " ready flag: " + std::to_string(regMem.clnt_ready_flags[client]) + "\n");
 
       if (!timed_out) {
@@ -367,7 +382,8 @@ int main(int argc, char *argv[]) {
       lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
       lyra::opt(t_params.wait_all, "wait_all")["--wait_all"]("Ignore slow clients during RByz") |
       lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz") |
-      lyra::opt(t_params.srvr_wait_inc, "srvr_wait_inc")["--srvr_wait_inc"]("Increment for server wait time in timeouts experiment");
+      lyra::opt(t_params.srvr_wait_inc, "srvr_wait_inc")["--srvr_wait_inc"]("Increment for server wait time in timeouts experiment") |
+      lyra::opt(t_params.extra_col_poison_prop, "extra_col_poison_prop")["--extra_col_poison_prop"]("Proportion of extra columns to poison in the dataset");
 
   auto result = cli.parse({argc, argv});
   if (!result) {
@@ -401,6 +417,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Wait for all clients = " << (t_params.wait_all ? "true" : "false") << "\n";
   std::cout << "Batches for forward pass = " << t_params.batches_fpass_prop << "\n";
   std::cout << "Server wait increment = " << t_params.srvr_wait_inc << "\n";
+  std::cout << "Proportion of extra columns to poison = " << t_params.extra_col_poison_prop << "\n";
 
   t_params.n_clients = n_clients; 
   MnistNet mnist_net;
@@ -470,14 +487,21 @@ int main(int argc, char *argv[]) {
   Logger::instance().logCustom(dir, t_params.ts_file, std::to_string(t_params.n_byz_clnts) + "\n");
 
   auto start = std::chrono::high_resolution_clock::now();
+  RdmaOps rdma_ops(conns);
+  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params, clnt_data_vec);
+
+  if (t_params.extra_col_poison_prop > 0.0f) {
+    Logger::instance().log("Server: Extra column poisoning proportion: " + 
+                           std::to_string(t_params.extra_col_poison_prop) + "\n");
+    rbyz_aux.vdColAttack(t_params.extra_col_poison_prop);
+  }
+
   std::vector<torch::Tensor> w = run_fltrust_srvr(
       n_clients, t_params, *reg_mngr, *regMem, clnt_data_vec);
 
   // Global rounds of RByz
-  RdmaOps rdma_ops(conns);
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
-      rbyz_aux.runRByzServer(n_clients, w, *regMem, clnt_data_vec);
+      rbyz_aux.runRByzServer(n_clients, w, *regMem);
   }
 
   auto end = std::chrono::high_resolution_clock::now();

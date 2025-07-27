@@ -7,7 +7,7 @@
 #include "logger.hpp"
 #include "nets/cifar10Net.hpp"
 #include "nets/mnistNet.hpp"
-#include "rbyzAux.hpp"
+#include "rbyz_clnt.hpp"
 #include "rc_conn.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
@@ -225,10 +225,10 @@ int main(int argc, char *argv[]) {
   std::vector<torch::Tensor> w =
       run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);
 
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
+  RByzClnt rbyz_clnt(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
     Logger::instance().log("Client: Running RByz\n");
-    rbyz_aux.runRByzClient(w, *regMem);
+    rbyz_clnt.runRByzClient(w, *regMem);
   }
   std::cout << "$$$$$ Client " << id << " done $$$$$\n";
 

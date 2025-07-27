@@ -80,9 +80,9 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::getInitialWeights() {
     initialWeights.push_back(param.clone().detach().to(torch::kCPU));
   }
 
-  for (const auto &buffer : model->buffers()) {
-    initialWeights.push_back(buffer.clone().detach().to(torch::kCPU));
-  }
+  // for (const auto &buffer : model->buffers()) {
+  //   initialWeights.push_back(buffer.clone().detach().to(torch::kCPU));
+  // }
 
   return initialWeights;
 }
@@ -107,25 +107,25 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCuda(
     result.push_back(cpu_update);
   }
 
-  for (size_t i = 0; i < buffers.size(); i++) {
-    // Subtract on GPU
-    auto update = buffers[i].clone().detach() - w_cuda[params.size() + i];
-    auto cpu_update = torch::empty_like(update, torch::kCPU);
+  // for (size_t i = 0; i < buffers.size(); i++) {
+  //   // Subtract on GPU
+  //   auto update = buffers[i].clone().detach() - w_cuda[params.size() + i];
+  //   auto cpu_update = torch::empty_like(update, torch::kCPU);
 
-    // Copy result to CPU
-    if (update.dtype() == torch::kFloat32) {
-      cudaMemcpyAsync(cpu_update.data_ptr<float>(), update.data_ptr<float>(),
-                      update.numel() * sizeof(float), cudaMemcpyDeviceToHost,
-                      memcpy_stream_A);
-    } else if (update.dtype() == torch::kInt64) {
-      cudaMemcpyAsync(cpu_update.data_ptr<int64_t>(), update.data_ptr<int64_t>(),
-                      update.numel() * sizeof(int64_t), cudaMemcpyDeviceToHost,
-                      memcpy_stream_B);
-    } else {
-      cpu_update.copy_(update);
-    }
-    result.push_back(cpu_update);
-  }
+  //   // Copy result to CPU
+  //   if (update.dtype() == torch::kFloat32) {
+  //     cudaMemcpyAsync(cpu_update.data_ptr<float>(), update.data_ptr<float>(),
+  //                     update.numel() * sizeof(float), cudaMemcpyDeviceToHost,
+  //                     memcpy_stream_A);
+  //   } else if (update.dtype() == torch::kInt64) {
+  //     cudaMemcpyAsync(cpu_update.data_ptr<int64_t>(), update.data_ptr<int64_t>(),
+  //                     update.numel() * sizeof(int64_t), cudaMemcpyDeviceToHost,
+  //                     memcpy_stream_B);
+  //   } else {
+  //     cpu_update.copy_(update);
+  //   }
+  //   result.push_back(cpu_update);
+  // }
 
   cudaDeviceSynchronize();
   return result;
@@ -170,7 +170,6 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
 
   Logger::instance().log("  Testing:\n");
   auto params = model->parameters();
-  auto buffers = model->buffers();
 
   for (const auto &batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
@@ -368,14 +367,15 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
         cudaMemcpyAsync(cuda_tensor.data_ptr<float>(), param.data_ptr<float>(),
                               param.numel() * sizeof(float), cudaMemcpyHostToDevice,
                               memcpy_stream_A);
-      } else if (param.dtype() == torch::kInt64) {
-        cudaMemcpyAsync(cuda_tensor.data_ptr<int64_t>(), param.data_ptr<int64_t>(),
-                              param.numel() * sizeof(int64_t), cudaMemcpyHostToDevice,
-                              memcpy_stream_B);
-      } else {
-        // For other types, use PyTorch's built-in copy (slower but safe)
-        cuda_tensor.copy_(param);
-      }
+      } 
+      // else if (param.dtype() == torch::kInt64) {
+      //   cudaMemcpyAsync(cuda_tensor.data_ptr<int64_t>(), param.data_ptr<int64_t>(),
+      //                         param.numel() * sizeof(int64_t), cudaMemcpyHostToDevice,
+      //                         memcpy_stream_B);
+      // } else {
+      //   // For other types, use PyTorch's built-in copy (slower but safe)
+      //   cuda_tensor.copy_(param);
+      // }
       
       w_cuda.push_back(cuda_tensor);
     }
@@ -386,9 +386,9 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
       params[i].data().copy_(w_cuda[i]);
     }
 
-    for (size_t i = 0; i < buffers.size(); ++i) {
-      buffers[i].data().copy_(w_cuda[param_count + i]);
-    }
+    // for (size_t i = 0; i < buffers.size(); ++i) {
+    //   buffers[i].data().copy_(w_cuda[param_count + i]);
+    // }
     return w_cuda;
   } else {
     for (size_t i = 0; i < params.size(); ++i) {
@@ -901,10 +901,7 @@ void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
   while (corrupted_indices.size() < num_to_corrupt) {
     size_t idx = sample_dist(rng);
     if (corrupted_indices.find(idx) == corrupted_indices.end()) {
-      float *image_ptr = getImage(idx);
-      
-      // Set all image pixels to zero (garbage values)
-      std::memset(image_ptr, 0, data_info.image_size);   
+      corruptImage(idx);
       corrupted_indices.insert(idx);
     }
   }

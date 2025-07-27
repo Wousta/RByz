@@ -150,6 +150,7 @@ struct TrainInputParams {
   int overwrite_poisoned; // Allow VD samples to overwrite poisoned samples
   int wait_all; // Ignore slow clients in the trust score calculation
   float batches_fpass_prop = 0.0;
+  float extra_col_poison_prop = 0.0;  // For the progressive poisoning of trusted clients column experiment
 
   //misc
   int only_flt;

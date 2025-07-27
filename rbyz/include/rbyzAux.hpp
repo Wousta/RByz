@@ -20,17 +20,20 @@ class RByzAux {
 private:
   const float TIMEOUT_SLACK = 1.4;
   const float STEP_TIME_REDUCE = 0.95;
+  const float F_PASS_MIN_VD_PROP = 0.01;
   const int local_steps;
   const int global_rounds;
   const bool byz_clnt;
   float ts_threshold; // Trust score threshold for VD extra column client
-                      // selection (not yet used)
+
   RdmaOps &rdma_ops;
   IRegDatasetMngr &mngr;
   TrainInputParams t_params;
+  std::vector<ClientDataRbyz> &clnt_data_vec;
   std::vector<std::vector<int>> step_times;
   std::mt19937 rng;
   std::bernoulli_distribution coin_flip{0.5}; // 50% chance
+  RegMnistSplitter splitter;
 
   struct acc_info {
     float threshold_acc;    // Accuracy threshold for convergence
@@ -44,29 +47,23 @@ private:
     std::uniform_int_distribution<int> step_range;
   } timeouts_;
 
-  void updateTS(std::vector<ClientDataRbyz> &clnt_data_vec,
-                ClientDataRbyz &clnt_data, float srvr_loss,
+  void updateTS(ClientDataRbyz &clnt_data, float srvr_loss,
                 float srvr_error_rate);
 
   torch::Tensor
   aggregate_updates(const std::vector<torch::Tensor> &client_updates,
-                    const std::vector<ClientDataRbyz> &clnt_data_vec,
                     const std::vector<uint32_t> &clnt_indices);
 
-  void writeServerVD(RegMnistSplitter &splitter,
-                     std::vector<ClientDataRbyz> &clnt_data, float proportion);
+  void writeServerVD(RegMnistSplitter &splitter, float proportion);
 
   bool processVDOut(ClientDataRbyz &clnt_data, bool check_byz);
-  void initTimeoutTime(std::vector<ClientDataRbyz> &clnt_data_vec);
-  void runBenchMark(std::vector<ClientDataRbyz> &clnt_data_vec);
-  void logTrustScores(const std::vector<ClientDataRbyz> &clnt_data_vec,
-                      int only_flt) const;
+  void initTimeoutTime();
+  void logTrustScores(int only_flt) const;
   void waitTimeout(ClientDataRbyz &clnt_data, int round);
   void waitInfinite(ClientDataRbyz &clnt_data, int round);
-  void renewTrustedClientsColumn(RegMnistSplitter &splitter,
-                                 std::vector<ClientDataRbyz> &clnt_data_vec);
+  void renewTrustedClientsColumn(RegMnistSplitter &splitter);
 
-  inline void runSteps(std::vector<ClientDataRbyz> &clnt_data_vec, int round) {
+  inline void runSteps(int round) {
     for (ClientDataRbyz &clnt_data : clnt_data_vec) {
       rdma_ops.exec_rdma_read(sizeof(int), CLNT_LOCAL_STEP_IDX,
                               clnt_data.index);
@@ -117,11 +114,14 @@ public:
   uint32_t extra_vd_col_sz = 0;
   uint32_t extra_vd_col_max_samples = 0;
 
-  RByzAux(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params)
-      : rdma_ops(rdma_ops), mngr(mngr), t_params(t_params),
+  RByzAux(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params, 
+          std::vector<ClientDataRbyz> &clnt_data_vec)
+      : rdma_ops(rdma_ops), mngr(mngr), t_params(t_params), clnt_data_vec(clnt_data_vec),
+        splitter(t_params, mngr, clnt_data_vec),
         local_steps(t_params.local_steps_rbyz),
         global_rounds(t_params.global_iters_rbyz),
         byz_clnt(mngr.worker_id <= t_params.n_byz_clnts), rng(14) {
+
 
     timeouts_.min_steps = std::floor(local_steps * 0.5);
     timeouts_.mid_steps = std::ceil(local_steps * 0.75);
@@ -139,11 +139,10 @@ public:
 
   RByzAux() = delete;
 
-  void awaitTermination(std::vector<ClientDataRbyz> &clnt_data_vec, int code);
-  void runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem);
+  void awaitTermination(int code);
   void runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
-                     RegMemSrvr &regMem,
-                     std::vector<ClientDataRbyz> &clnt_data_vec);
+                     RegMemSrvr &regMem);
   inline bool coinFlip() { return coin_flip(rng); }
   int getRoundsToConverge() const { return acc_info_.rounds_to_converge; }
+  void vdColAttack(float proportion);
 };

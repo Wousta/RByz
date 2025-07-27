@@ -22,7 +22,8 @@ class RegMnistSplitter {
     const int samples_per_chunk;
     const float clnt_vd_proportion;                     // Proportion of the client dataset that will be overwritten with server data
     int samples_per_vd_split = 0;
-    int extra_col_size = 0;                             // Number of samples in the "extra" column for VD, if used
+    int extra_col_numel;                                // Number of samples in the "extra" column for VD, if used
+    size_t extra_col_size;
     int extra_col_idx = 0;
     uint32_t chunk_sz_bytes;
     IRegDatasetMngr& mngr;
@@ -103,7 +104,8 @@ class RegMnistSplitter {
     void initValidationDatasetPartitions() {
         // Split the server registered data into n_clients VD sections
         size_t vd_size = mngr.data_info.num_samples / n_clients;
-        size_t extra_col_size = vd_size * 0.1 * mngr.data_info.get_sample_size();
+        extra_col_numel = vd_size * 0.1;
+        extra_col_size = extra_col_numel * mngr.data_info.get_sample_size();
 
         if (vd_size < samples_per_chunk) {
             throw std::runtime_error("Not enough samples in the server VD with the given clnt_vd_proportion. "
@@ -233,6 +235,26 @@ class RegMnistSplitter {
         return vd_indices[derangement[clnt_idx]];
     }
 
+    std::vector<size_t> getServerIndices(int idx) {
+        if (idx < 0 || idx >= n_clients) {
+            throw std::out_of_range("[getServerIndices] Client index out of range");
+        }
+        return vd_indices[idx];
+    }
+
+    std::vector<std::vector<size_t>> getExtraColIndices() {
+        std::vector<std::vector<size_t>> extra_col_indices(n_clients);
+
+        for (int i = 0; i < n_clients; i++) {
+            extra_col_indices[i].reserve(extra_col_numel);
+            for (int j = 0; j < extra_col_numel; j++) {
+                extra_col_indices[i].push_back(vd_indices[i][j]);
+            }
+        }
+
+        return extra_col_indices;
+    }
+
     size_t getExtraColSectionToRenew() {
         size_t res = vd_indices[extra_col_idx][0];
         extra_col_idx = (extra_col_idx + 1) % n_clients; // Cycle through the extra column sections
@@ -244,7 +266,7 @@ class RegMnistSplitter {
     }
 
     int getExtraColNumSamplesPerSection() {
-        return extra_col_size / mngr.data_info.get_sample_size();
+        return extra_col_numel;
     }
 
     /**

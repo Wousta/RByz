@@ -86,6 +86,7 @@ file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseRegDatasetMngr.cpp\
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regMnistMngr.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regCIFAR10Mngr.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rbyzAux.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../src/rbyz_clnt.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rdmaOps.cpp\"\n")
 
 add_library(torch_implementations STATIC ${UNITY_SRC})

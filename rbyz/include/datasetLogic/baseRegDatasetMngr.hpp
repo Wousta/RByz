@@ -48,6 +48,11 @@ public:
                           std::mt19937 &rng) override;
   void corruptImagesRandom(float flip_ratio, std::mt19937 &rng) override;
   std::vector<size_t> findSamplesWithLabel(int label) override;
+  
+  inline void corruptImage(int idx) override {
+    float *image_ptr = getImage(idx);
+    std::memset(image_ptr, 0, data_info.image_size);
+  }
 
   // Getters for specific sample data
   inline uint64_t getSampleOffset(size_t image_idx) override {
