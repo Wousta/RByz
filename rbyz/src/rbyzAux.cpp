@@ -724,5 +724,5 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w, RegMem
       "\n\n=================  RBYZ SERVER FINISHED  =================\n");
   std::cout
       << "\n\n=================  RBYZ SERVER FINISHED  =================\n";
-  awaitTermination(CLNT_FINISHED_RBYZ);
+  awaitTermination(global_rounds + 1);
 }

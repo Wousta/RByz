@@ -17,7 +17,6 @@ inline constexpr int MEM_FREE = 0;
 inline constexpr int MEM_OCCUPIED = 1;
 inline constexpr int SRVR_READY_RBYZ = -1;
 inline constexpr int SRVR_FINISHED_RBYZ = -2;
-inline constexpr int CLNT_FINISHED_RBYZ = -3;
 
 // Byz attack settings
 inline constexpr int NO_ATTACK = 0;

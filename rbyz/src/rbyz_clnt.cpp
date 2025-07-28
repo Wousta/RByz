@@ -1,4 +1,5 @@
 #include "rbyz_clnt.hpp"
+#include "logger.hpp"
 #include "tensorOps.hpp"
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
@@ -93,7 +94,7 @@ void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) 
   }
 
   // Notify the server that the client is done
-  regMem.round.store(CLNT_FINISHED_RBYZ);
+  regMem.round.store(global_rounds + 1);
   rdma_ops.exec_rdma_write(sizeof(int), CLNT_ROUND_IDX);
   Logger::instance().log("Finish round " + std::to_string(regMem.round.load()) +
                          " and notify server\n");
