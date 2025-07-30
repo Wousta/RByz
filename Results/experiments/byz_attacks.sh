@@ -16,7 +16,7 @@ EXPERIMENT="byz_attacks"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
 #REMOTE_HOSTS=("dcldelta4" "dcldelta2")
 PORT="2400"
-REMOTE_HOSTS=("dcldelta3")
+REMOTE_HOSTS=("dcldelta3" "dcldelta4")
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -32,11 +32,11 @@ redis-cli -h "$IP_ADDRESS" -p "$PORT" SET nid "0" >/dev/null
 echo "Redis server started on $IP_ADDRESS:$PORT"
 
 # Common parameters
-clients=10
+clients=20
 local_learn_rate=0.01
-chunk_size=2                # Slab size for RByz VDsampling
+chunk_size=1                # Slab size for RByz VDsampling
 overwrite_poisoned=1        # Do not overwrite poisoned data
-test_renewal_freq=3
+test_renewal_freq=1
 vd_prop=0.03
 vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
 flip_ratio=1.0
@@ -48,15 +48,16 @@ local_steps_rbyz=3          # Local rounds of RByz
 rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
 
-byz_clients_arr=(1 2)
+byz_clients_arr=(12 14 16 18 19)
 run() {
     local name=$1
-    local rounds=${2:-1}
+    local rounds=${2:-5}
+    local -n byz_clients_ref=${3:-byz_clients_arr}
     echo "=========================================================="
     echo "---- Starting experiment $name ----"
     echo "=========================================================="
 
-    for byz_clients in "${byz_clients_arr[@]}"; do
+    for byz_clients in "${byz_clients_ref[@]}"; do
         for ((i=1; i<=$rounds; i++)); do
             echo "______________________________________________________________________"
             echo "-- Experiment $name with $byz_clients byzantine clients round $i --"
@@ -119,30 +120,31 @@ runNobyz() {
 ########## MNIST Experiments ##########
 use_mnist="true"
 batch_size=32
-clnt_subset_size=5825
-srvr_subset_size=1750
+clnt_subset_size=2912  #5825
+srvr_subset_size=1760 #1750
 local_learn_rate=0.08
 
 #-------------# FLtrust #-------------#
-# only_flt=1    
-# glob_iters_fl=50
-# glob_iters_rbyz=0    
-# glob_learning_rate=0.5
+only_flt=1    
+glob_iters_fl=50
+glob_iters_rbyz=0    
+glob_learning_rate=0.5
 
-# label_flip_type=0           
-# run "F_mnist_set_0"
+label_flip_type=6           
+custom_byz_arr=(19)
+run "F_mnist_set_6" 5 custom_byz_arr
 
 # label_flip_type=3           
 # run "F_mnist_set_3"
 
 # #---------------# RByz #--------------#
-# only_flt=0 
-# glob_iters_fl=1
-# glob_iters_rbyz=50
-# glob_learning_rate=0.5
+only_flt=0 
+glob_iters_fl=1
+glob_iters_rbyz=49
+glob_learning_rate=0.5
 
-# label_flip_type=0         
-# run "R_mnist_set_0"
+# label_flip_type=6         
+# run "R_mnist_set_6"
 
 # label_flip_type=3         
 # run "R_mnist_set_3"
@@ -164,11 +166,12 @@ glob_iters_rbyz=0
 # label_flip_type=0
 # runNobyz "F_cifar_set_0" 3
 
-# label_flip_type=3          
-# run "F_cifar_set_3" 3
+# label_flip_type=3    
+# custom_byz_arr=(3 4 5 6)      
+# run "F_cifar_set_3" 3 custom_byz_arr
 
-label_flip_type=6          
-run "F_cifar_set_6" 3
+# label_flip_type=6          
+# run "F_cifar_set_6" 3
 
 # label_flip_type=2
 # run "F_cifar_set_2" 3

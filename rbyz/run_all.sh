@@ -63,10 +63,171 @@ overwrite_poisoned=${24:-0}   # Allow VD samples to overwrite poisoned samples (
 wait_all=${25:-0}             # Wait indefinitely for all clients (1) or not (0) in RByz
 batches_fpass=${26:-0.2}
 srvr_wait_inc=${27:-0}        # Server wait increment for slow clients in timeouts experiment (0 to not run experiment)
+extra_col_poison_prop=${28:-0.0}  # For the progressive poisoning of trusted clients column experiment
 
 # Calculate clients per machine (even distribution)
 clients_per_machine=$((n_clients / ${#remote_hosts[@]}))
 remainder=$((n_clients % ${#remote_hosts[@]}))
+
+monitor_server_errors() {
+    # Monitor server process for crashes that might indicate RDMA errors
+    while kill -0 $SRVR_PID 2>/dev/null; do
+        sleep 0.1
+    done
+    
+    # Check exit code when process dies
+    wait $SRVR_PID 2>/dev/null
+    local exit_code=$?
+    
+    # Common exit codes for RDMA errors or crashes
+    if [ $exit_code -ne 0 ] && [ $exit_code -ne 130 ] && [ $exit_code -ne 143 ]; then
+        echo "Server crashed with exit code $exit_code, likely RDMA error"
+        touch "/tmp/rdma_error_detected"
+    fi
+}
+
+restart_experiment() {
+    local max_retries=3
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        echo "Starting attempt $((retry_count + 1)) of $max_retries"
+        
+        # Start server without log capture
+        build/srvr --logs_dir $logs_dir --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
+          --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
+          --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
+          --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio  --only_flt $only_flt --vd_prop $vd_prop \
+          --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all \
+          --batches_fpass $batches_fpass --srvr_wait_inc $srvr_wait_inc --extra_col_poison_prop $extra_col_poison_prop &
+        
+        SRVR_PID=$!
+        echo "Started server with PID $SRVR_PID"
+        
+        # Start clients after a brief delay
+        sleep 2
+        start_clients
+        
+        # Monitor server process for crashes in background
+        monitor_server_errors &
+        MONITOR_PID=$!
+        
+        # Wait for server to complete or fail
+        wait $SRVR_PID
+        server_exit_code=$?
+        
+        # Kill the monitor process
+        kill $MONITOR_PID 2>/dev/null
+        wait $MONITOR_PID 2>/dev/null
+        
+        # Check if RDMA error was detected
+        if [ -f "/tmp/rdma_error_detected" ]; then
+            echo "RDMA error detected during execution. Cleaning up and retrying..."
+            rm -f "/tmp/rdma_error_detected"
+            cleanup_for_restart
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+                sleep 5  # Wait before retry
+            fi
+        elif [ $server_exit_code -eq 0 ]; then
+            echo "Experiment completed successfully"
+            return 0
+        else
+            echo "Server failed with exit code $server_exit_code"
+            # For non-zero exit codes, assume it might be RDMA related and retry
+            echo "Assuming RDMA-related error. Cleaning up and retrying..."
+            cleanup_for_restart
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+                sleep 5
+            fi
+        fi
+    done
+    
+    echo "Max retries reached. Experiment failed."
+    exit 1
+}
+
+start_clients() {
+    echo "Starting clients on remote machines..."
+    client_id=1
+
+    for i in "${!remote_hosts[@]}"; do
+      host=${remote_hosts[$i]}
+      # Calculate how many clients to run on this machine
+      local_clients=$clients_per_machine
+      if [ $i -lt $remainder ]; then
+        # Distribute remainder clients one per machine until used up
+        local_clients=$((local_clients + 1))
+      fi
+      
+      # Only start clients if there are any allocated to this machine
+      if [ $local_clients -gt 0 ]; then
+        echo "Starting $local_clients clients on $host..."
+        
+        # Create a range of client IDs for this machine
+        client_ids=()
+        for ((j=0; j<local_clients; j++)); do
+          client_ids+=($client_id)
+          client_id=$((client_id + 1))
+        done
+
+        # Start profiling CPU
+        ssh $remote_user@$host "cd $results_path && \
+          echo \"Starting CPU profiling on $host\" && \
+          build/profiler C $only_flt $logs_dir" &
+
+        ssh $remote_user@$host "cd $remote_script_path && \
+          core_id=0; \
+          for id in ${client_ids[@]}; do \
+            taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
+              --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
+              --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
+              --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio --overwrite_poisoned $overwrite_poisoned \
+              --vd_prop $vd_prop --batches_fpass $batches_fpass --srvr_wait_inc $srvr_wait_inc & \
+
+            echo \"Client \$id started on $host with physical core \$core_id\ (PID: \$!)\" && \
+            core_id=\$((core_id + 1)); \
+            if [ \$core_id -eq 16 ]; then core_id=0; fi; \
+            sleep 0.2; \
+          done" &
+      fi
+    done
+}
+
+cleanup_for_restart() {
+    echo "Cleaning up for restart..."
+    
+    # Kill server process
+    if [ ! -z "$SRVR_PID" ]; then
+        kill $SRVR_PID 2>/dev/null
+    fi
+    
+    # Kill monitor process if it exists
+    if [ ! -z "$MONITOR_PID" ]; then
+        kill $MONITOR_PID 2>/dev/null
+        wait $MONITOR_PID 2>/dev/null
+    fi
+    
+    # Kill local profiler processes
+    ps aux | grep profiler | grep -v grep | awk '{print $2}' | xargs -r kill -2 2>/dev/null
+    
+    # Clean up remote clients and profilers
+    for host in "${remote_hosts[@]}"; do
+        ssh $remote_user@$host "
+            # Kill client processes
+            ps aux | grep clnt | grep -v grep | awk '{print \$2}' | xargs -r kill -9 2>/dev/null
+            # Kill profiler processes
+            ps aux | grep profiler | grep -v grep | awk '{print \$2}' | xargs -r kill -2 2>/dev/null
+        " &
+    done
+    wait
+    
+    # Clear RDMA resources and temporary files
+    echo "Clearing RDMA resources..."
+    rm -f "/tmp/rdma_error_detected" 2>/dev/null
+    sleep 2
+}
 
 # Cleanup function: kill local and remote processes
 cleanup() {
@@ -129,67 +290,15 @@ trap cleanup SIGINT SIGTERM
 # rm -rf $results_path/logs/*
 
 # Start the server process locally
-build/srvr --logs_dir $logs_dir --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
-  --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
-  --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-  --global_iters_rbyz $glob_iters_rbyz --chunk_size $chunk_size --label_flip_type $label_flip_type --flip_ratio $flip_ratio  --only_flt $only_flt --vd_prop $vd_prop \
-  --vd_prop_write $vd_prop_write --test_renewal_freq $test_renewal_freq --overwrite_poisoned $overwrite_poisoned --wait_all $wait_all \
-  --batches_fpass $batches_fpass --srvr_wait_inc $srvr_wait_inc & 
-SRVR_PID=$!
-echo "Started server with PID $SRVR_PID"
+restart_experiment
 
-echo "Starting clients on remote machines..."
-#sleep 10
-client_id=1
-
-for i in "${!remote_hosts[@]}"; do
-  host=${remote_hosts[$i]}
-  # Calculate how many clients to run on this machine
-  local_clients=$clients_per_machine
-  if [ $i -lt $remainder ]; then
-    # Distribute remainder clients one per machine until used up
-    local_clients=$((local_clients + 1))
-  fi
-  
-  # Only start clients if there are any allocated to this machine
-  if [ $local_clients -gt 0 ]; then
-    echo "Starting $local_clients clients on $host..."
-    
-    # Create a range of client IDs for this machine
-    client_ids=()
-    for ((j=0; j<local_clients; j++)); do
-      client_ids+=($client_id)
-      client_id=$((client_id + 1))
-    done
-
-    # Start profiling CPU
-    ssh $remote_user@$host "cd $results_path && \
-      echo \"Starting CPU profiling on $host\" && \
-      build/profiler C $only_flt $logs_dir" &
-
-    ssh $remote_user@$host "cd $remote_script_path && \
-      core_id=0; \
-      for id in ${client_ids[@]}; do \
-        taskset -c \$core_id build/clnt --srvr_ip $srvr_ip --port $port --id \$id --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
-          --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
-          --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \
-          --global_iters_rbyz $glob_iters_rbyz --only_flt $only_flt --label_flip_type $label_flip_type --flip_ratio $flip_ratio --overwrite_poisoned $overwrite_poisoned \
-          --vd_prop $vd_prop --batches_fpass $batches_fpass --srvr_wait_inc $srvr_wait_inc & \
-
-        echo \"Client \$id started on $host with physical core \$core_id\ (PID: \$!)\" && \
-        core_id=\$((core_id + 1)); \
-        if [ \$core_id -eq 16 ]; then core_id=0; fi; \
-        sleep 0.2; \
-      done" &
-  fi
-done
-
+# Start CPU tracker for the successful server process
 cd $results_path
 echo "Starting CPU tracker for local server process..."
 build/profiler S $only_flt $logs_dir &
 CPU_TRACKER_PID=$!
 
-# Wait for the local server process
+# Wait for the local server process (this should only run after successful restart)
 wait $SRVR_PID
 cleanup
 

@@ -28,13 +28,13 @@ redis-cli -h "$IP_ADDRESS" -p "$PORT" SET nid "0" >/dev/null
 
 # Common parameters
 clients=10
-byz_clients=3
+byz_clients=5
 epochs=1                    # Local rounds of FLtrust
 local_steps_rbyz=3          # Local rounds of RByz
 glob_iters_fl=1
 chunk_size=2                # Slab size for RByz VDsampling
 label_flip_type=1           # 1: Random label flip
-flip_ratio=0.75             # 50% of the data will be flipped
+flip_ratio=0.25             # 25% of the data will be flipped
 overwrite_poisoned=0        # Cannot overwrite poisoned data
 only_flt=0                  # Run RByz
 vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
