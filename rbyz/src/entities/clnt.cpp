@@ -7,7 +7,7 @@
 #include "logger.hpp"
 #include "nets/cifar10Net.hpp"
 #include "nets/mnistNet.hpp"
-#include "rbyz_clnt.hpp"
+#include "rbyzClnt.hpp"
 #include "rc_conn.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"

@@ -85,7 +85,7 @@ struct ClientDataRbyz {
   // The server will have a different loss and error rate of the samples that it inserted to the client
   alignas(8) float loss = 777.0f;         // These are high initial values to not mess up the UpdateTrustScore function
   alignas(8) float error_rate = 777.0f;   // That needs to find the minimum loss and error rate of all clients
-  alignas(8) float loss_srvr;             // These are initialized before checking this client by RByzAux::processVDOut
+  alignas(8) float loss_srvr;             // These are initialized before checking this client by RByzSrvr::processVDOut
   alignas(8) float error_rate_srvr;
 
   // Dataset data

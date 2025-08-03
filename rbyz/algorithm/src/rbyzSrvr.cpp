@@ -1,4 +1,4 @@
-#include "rbyzAux.hpp"
+#include "rbyzSrvr.hpp"
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
@@ -14,10 +14,9 @@
 #include <unistd.h>
 #include <unordered_map>
 
-
 //////////////////////////////////////////////////////////////
 ////////////////////// SERVER FUNCTIONS //////////////////////
-void RByzAux::awaitTermination(int code) {
+void RByzSrvr::awaitTermination(int code) {
   Logger::instance().log(
       "Server: Waiting for all clients to complete Task...\n");
   for (int i = 0; i < clnt_data_vec.size(); i++) {
@@ -45,7 +44,7 @@ void RByzAux::awaitTermination(int code) {
   }
 }
 
-void RByzAux::renewTrustedClientsColumn(RegMnistSplitter &splitter) {
+void RByzSrvr::renewTrustedClientsColumn(RegMnistSplitter &splitter) {
   int clnts_to_renew = 0;
   for (auto &client : clnt_data_vec) {
     if (client.trust_score <= ts_threshold) {
@@ -103,8 +102,8 @@ void RByzAux::renewTrustedClientsColumn(RegMnistSplitter &splitter) {
                                std::to_string(clnts_to_renew) + "\n");
 }
 
-void RByzAux::updateTS(ClientDataRbyz &clnt_data, float srvr_loss,
-                       float srvr_error_rate) {
+void RByzSrvr::updateTS(ClientDataRbyz &clnt_data, float srvr_loss,
+                        float srvr_error_rate) {
   float w_loss = clnt_data.loss;
   float w_err = clnt_data.error_rate;
 
@@ -131,8 +130,8 @@ void RByzAux::updateTS(ClientDataRbyz &clnt_data, float srvr_loss,
 }
 
 torch::Tensor
-RByzAux::aggregate_updates(const std::vector<torch::Tensor> &client_updates,
-                           const std::vector<uint32_t> &clnt_indices) {
+RByzSrvr::aggregate_updates(const std::vector<torch::Tensor> &client_updates,
+                            const std::vector<uint32_t> &clnt_indices) {
   Logger::instance().log("\nComputing aggregation data ================\n");
   float trust_scores[client_updates.size()];
   for (int i = 0; i < client_updates.size(); i++) {
@@ -156,7 +155,7 @@ RByzAux::aggregate_updates(const std::vector<torch::Tensor> &client_updates,
   return aggregated_update;
 }
 
-void RByzAux::writeServerVD(RegMnistSplitter &splitter, float proportion) {
+void RByzSrvr::writeServerVD(RegMnistSplitter &splitter, float proportion) {
   std::vector<int> derangement = splitter.generateDerangement();
 
   // Send the VD samples to the clients
@@ -201,7 +200,7 @@ void RByzAux::writeServerVD(RegMnistSplitter &splitter, float proportion) {
   Logger::instance().log("Server: VD samples sent to all clients\n");
 }
 
-bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
+bool RByzSrvr::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
   // Compare the output of the forward pass with the server's output
   float *clnt_out = clnt_data.forward_pass;
   uint32_t *clnt_indices = clnt_data.forward_pass_indices;
@@ -220,7 +219,8 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
       mngr.f_pass_data.forward_pass_mem_size / sizeof(float);
   size_t srvr_error_start = srvr_f_pass_size / 2;
 
-  // Divided by two because forward pass output contains both loss and error rate
+  // Divided by two because forward pass output contains both loss and error
+  // rate
   if (clnt_f_pass_size / 2 != clnt_num_samples) {
     throw std::runtime_error(
         "[processVDOut] Forward pass and indices sizes do not match");
@@ -248,10 +248,10 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
 
   if (inserted_indices_set.size() != clnt_data.inserted_indices.size()) {
     Logger::instance().log("Warning: Inserted indices set size does "
-                             "not match the number of inserted indices " +
-                             std::to_string(clnt_data.inserted_indices.size()) +
-                             " vs " +
-                             std::to_string(inserted_indices_set.size()));
+                           "not match the number of inserted indices " +
+                           std::to_string(clnt_data.inserted_indices.size()) +
+                           " vs " +
+                           std::to_string(inserted_indices_set.size()));
   }
 
   Logger::instance().log(
@@ -376,7 +376,7 @@ bool RByzAux::processVDOut(ClientDataRbyz &clnt_data, bool check_byz) {
   return validation_passed;
 }
 
-void RByzAux::initTimeoutTime() {
+void RByzSrvr::initTimeoutTime() {
   for (ClientDataRbyz &clnt_data : clnt_data_vec) {
     clnt_data.limit_step_time = millis(step_times[clnt_data.index][0]);
     Logger::instance().log("Client " + std::to_string(clnt_data.index) +
@@ -386,7 +386,7 @@ void RByzAux::initTimeoutTime() {
   }
 }
 
-void RByzAux::logTrustScores(int only_flt) const {
+void RByzSrvr::logTrustScores(int only_flt) const {
   std::string filename = t_params.ts_file;
   Logger::instance().logCustom(t_params.logs_dir, filename, "- Round end -\n");
 
@@ -396,7 +396,7 @@ void RByzAux::logTrustScores(int only_flt) const {
   }
 }
 
-void RByzAux::waitInfinite(ClientDataRbyz &clnt_data, int round) {
+void RByzSrvr::waitInfinite(ClientDataRbyz &clnt_data, int round) {
   int clnt_idx = clnt_data.index;
   int total_time_waited = waitInitialTime(clnt_data, round);
 
@@ -423,7 +423,7 @@ void RByzAux::waitInfinite(ClientDataRbyz &clnt_data, int round) {
                            std::to_string(total_time_waited) + " ms\n");
 }
 
-void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
+void RByzSrvr::waitTimeout(ClientDataRbyz &clnt_data, int round) {
   int clnt_idx = clnt_data.index;
   int total_time_waited = waitInitialTime(clnt_data, round);
 
@@ -490,7 +490,7 @@ void RByzAux::waitTimeout(ClientDataRbyz &clnt_data, int round) {
   }
 }
 
-void RByzAux::vdColAttack(float proportion) {
+void RByzSrvr::vdColAttack(float proportion) {
   int minority = mngr.n_clients / 2;
   auto extra_col_indices = splitter.getExtraColIndices();
 
@@ -499,7 +499,7 @@ void RByzAux::vdColAttack(float proportion) {
 
   Logger::instance().log("    -> Server: Corrupting " +
                          std::to_string(minority) + " extra columns\n");
-         
+
   int images_corrupted = 0;
   for (int i = 0; i < minority; i++) {
     auto &extra_indices = extra_col_indices[i];
@@ -521,7 +521,8 @@ void RByzAux::vdColAttack(float proportion) {
 
 //////////////////////////////////////////////////////////////
 /////////////////////// RBYZ ALGORITHM ///////////////////////
-void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w, RegMemSrvr &regMem) {
+void RByzSrvr::runRByzServer(int n_clients, std::vector<torch::Tensor> &w,
+                             RegMemSrvr &regMem) {
 
   Logger::instance().logCustom(t_params.logs_dir, t_params.clnts_renew_file,
                                "TS_threshold " + std::to_string(ts_threshold) +
@@ -573,7 +574,6 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w, RegMem
     // Run inference on the server before comparing with clients
     mngr.runInference();
 
-    
     for (ClientDataRbyz &client : clnt_data_vec) {
       if (client.is_byzantine) {
         continue;
@@ -587,8 +587,7 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w, RegMem
       // processed
       client.include_in_agg = processVDOut(client, false);
       if (client.include_in_agg) {
-        updateTS(client, client.loss_srvr,
-                 client.error_rate_srvr);
+        updateTS(client, client.loss_srvr, client.error_rate_srvr);
       }
 
       // Reset next step counter for the next round
@@ -656,7 +655,7 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w, RegMem
 
         clnt_updates.push_back(flat_tensor);
         clnt_indices.push_back(client.index);
-        
+
         included++;
       }
     }
@@ -681,15 +680,14 @@ void RByzAux::runRByzServer(int n_clients, std::vector<torch::Tensor> &w, RegMem
     }
 
     Logger::instance().logCustom(t_params.logs_dir, t_params.included_agg_file,
-                              std::to_string(included) + "\n");
+                                 std::to_string(included) + "\n");
 
     torch::Tensor aggregated_update;
     if (clnt_updates.empty()) {
       torch::Tensor w_flat = tops::flatten_tensor_vector(w);
       aggregated_update = torch::zeros_like(w_flat);
     } else {
-      aggregated_update =
-          aggregate_updates(clnt_updates, clnt_indices);
+      aggregated_update = aggregate_updates(clnt_updates, clnt_indices);
     }
 
     std::vector<torch::Tensor> aggregated_update_vec =

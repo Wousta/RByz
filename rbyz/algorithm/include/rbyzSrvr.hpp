@@ -16,7 +16,7 @@
 
 using millis = std::chrono::milliseconds;
 
-class RByzAux {
+class RByzSrvr {
 private:
   const float TIMEOUT_SLACK = 1.4;
   const float STEP_TIME_REDUCE = 0.95;
@@ -71,7 +71,7 @@ private:
 
       if (clnt_data.is_byzantine) {
         Logger::instance().log("  WARNING: skipping Client " +
-                                std::to_string(clnt_data.index) + "\n");
+                               std::to_string(clnt_data.index) + "\n");
         continue;
       }
 
@@ -114,14 +114,13 @@ public:
   uint32_t extra_vd_col_sz = 0;
   uint32_t extra_vd_col_max_samples = 0;
 
-  RByzAux(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params, 
-          std::vector<ClientDataRbyz> &clnt_data_vec)
-      : rdma_ops(rdma_ops), mngr(mngr), t_params(t_params), clnt_data_vec(clnt_data_vec),
-        splitter(t_params, mngr, clnt_data_vec),
+  RByzSrvr(RdmaOps &rdma_ops, IRegDatasetMngr &mngr, TrainInputParams &t_params,
+           std::vector<ClientDataRbyz> &clnt_data_vec)
+      : rdma_ops(rdma_ops), mngr(mngr), t_params(t_params),
+        clnt_data_vec(clnt_data_vec), splitter(t_params, mngr, clnt_data_vec),
         local_steps(t_params.local_steps_rbyz),
         global_rounds(t_params.global_iters_rbyz),
         byz_clnt(mngr.worker_id <= t_params.n_byz_clnts), rng(14) {
-
 
     timeouts_.min_steps = std::floor(local_steps * 0.5);
     timeouts_.mid_steps = std::ceil(local_steps * 0.75);
@@ -137,7 +136,7 @@ public:
     }
   }
 
-  RByzAux() = delete;
+  RByzSrvr() = delete;
 
   void awaitTermination(int code);
   void runRByzServer(int n_clients, std::vector<torch::Tensor> &w,

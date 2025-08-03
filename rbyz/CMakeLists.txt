@@ -46,6 +46,7 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../rdma-api/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../shared
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/algorithm/include
 )
 
 add_library(libnorm SHARED IMPORTED)
@@ -85,8 +86,8 @@ file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/registeredCIFAR10.cpp\"
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseRegDatasetMngr.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regMnistMngr.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regCIFAR10Mngr.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/rbyzAux.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/rbyz_clnt.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../algorithm/src/rbyzSrvr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../algorithm/src/rbyzClnt.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rdmaOps.cpp\"\n")
 
 add_library(torch_implementations STATIC ${UNITY_SRC})

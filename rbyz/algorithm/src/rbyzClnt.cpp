@@ -1,4 +1,4 @@
-#include "rbyz_clnt.hpp"
+#include "rbyzClnt.hpp"
 #include "logger.hpp"
 #include "tensorOps.hpp"
 #include "attacks.hpp"
@@ -9,7 +9,6 @@ void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) 
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
   Logger::instance().log("Client: Starting RByz with accuracy\n");
   // std::string log_file = "stepTimes_" + std::to_string(regMem.id) + ".log";
-  // Set manager epochs to 1, the epochs will be controled by RByz
   mngr.kNumberOfEpochs = 1;
   regMem.clnt_ready_flag.store(0);
 

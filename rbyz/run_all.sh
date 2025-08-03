@@ -6,10 +6,10 @@ if [ -n "$1" ]; then
   # Convert space-separated string back to array
   read -ra remote_hosts <<< "$1"
 else
-  echo "No remote hosts provided, exiting"
-  exit 1
+  remote_hosts=("dcldelta4")
+  echo "No remote hosts provided, defaulting to dcldelta4"
 fi
-logs_dir=${2:-""}
+logs_dir=${2:-"run_all"}
 srvr_ip=${3:-"192.168.128.103"}
 port=${4:-"2000"}
 remote_user="bustaman"
@@ -17,7 +17,7 @@ remote_script_path="/home/bustaman/rbyz/rbyz"
 results_path="/home/bustaman/rbyz/Results"
 
 # Must change the order of parameters here, number one is logs_dir, etc
-use_mnist=${5:-false}       # First argument: true/false for MNIST vs CIFAR-10
+use_mnist=${5:-true}       # First argument: true/false for MNIST vs CIFAR-10
 n_clients=${6:-10}          
 epochs=${7:-5}             
 batch_size=${8:-64}        
@@ -286,8 +286,8 @@ trap cleanup SIGINT SIGTERM
 
 # echo "Redis server started on $srvr_ip:$port"
 
-# rm -rf logs/*
-# rm -rf $results_path/logs/*
+rm -rf logs/*
+rm -rf $results_path/logs/*
 
 # Start the server process locally
 restart_experiment
