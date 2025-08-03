@@ -7,7 +7,7 @@
 #include "logger.hpp"
 #include "nets/cifar10Net.hpp"
 #include "nets/mnistNet.hpp"
-#include "rbyzAux.hpp"
+#include "rbyz_clnt.hpp"
 #include "rc_conn.hpp"
 #include "rdmaOps.hpp"
 #include "tensorOps.hpp"
@@ -22,18 +22,22 @@
 
 using ltncyVec = std::vector<std::pair<int, std::chrono::nanoseconds::rep>>;
 
-void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
+void registerClntMemory(bool only_flt, RegInfo &reg_info, RegMemClnt &regMem,
                         IRegDatasetMngr &mngr) {
   reg_info.addr_locs.push_back(castI(regMem.srvr_w));
   reg_info.addr_locs.push_back(castI(regMem.clnt_w));
   reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_flag));
   reg_info.addr_locs.push_back(castI(&regMem.clnt_ready_flag));
+  reg_info.addr_locs.push_back(castI(&regMem.srvr_ready_rb));
   reg_info.addr_locs.push_back(castI(&regMem.CAS));
   reg_info.addr_locs.push_back(castI(&regMem.local_step));
   reg_info.addr_locs.push_back(castI(&regMem.round));
   reg_info.addr_locs.push_back(castI(mngr.data_info.reg_data));
-  reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass));
-  reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
+
+  if (!only_flt) {
+    reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass));
+    reg_info.addr_locs.push_back(castI(mngr.f_pass_data.forward_pass_indices));
+  }
 
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
   reg_info.data_sizes.push_back(regMem.reg_sz_data);
@@ -42,9 +46,13 @@ void registerClntMemory(RegInfo &reg_info, RegMemClnt &regMem,
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(MIN_SZ);
+  reg_info.data_sizes.push_back(MIN_SZ);
   reg_info.data_sizes.push_back(mngr.data_info.reg_data_size);
-  reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_mem_size);
-  reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_indices_mem_size);
+
+  if (!only_flt) {
+    reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_mem_size);
+    reg_info.data_sizes.push_back(mngr.f_pass_data.forward_pass_indices_mem_size);
+  }
 
   reg_info.permissions = IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE |
                          IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
@@ -61,7 +69,7 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
   while (round <= rounds) {
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_IDX);
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (regMem.srvr_ready_flag < round && regMem.srvr_ready_flag != SRVR_FINISHED);
 
     if (regMem.srvr_ready_flag == SRVR_FINISHED) {
@@ -71,6 +79,8 @@ std::vector<torch::Tensor> run_fltrust_clnt(int rounds, RdmaOps &rdma_ops,
 
     // Catch up to the server's round if needed
     if (round < regMem.srvr_ready_flag) {
+      Logger::instance().log("Client: Catching up to server's round " +
+                             std::to_string(regMem.srvr_ready_flag) + "\n");
       round = regMem.srvr_ready_flag;
     }
 
@@ -135,7 +145,9 @@ int main(int argc, char *argv[]) {
     lyra::opt(t_params.flip_ratio, "flip_ratio")["--flip_ratio"]("Label flip ratio: 0.0 - 1.0") |
     lyra::opt(t_params.overwrite_poisoned, "overwrite_poisoned")["--overwrite_poisoned"]("Allow VD samples to overwrite poisoned samples") |
     lyra::opt(t_params.clnt_vd_proportion, "vd_prop")["--vd_prop"]("Proportion of VD samples to write to clients (0.0 - 0.25)") |
-    lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz");
+    lyra::opt(t_params.batches_fpass_prop, "batches_fpass")["--batches_fpass"]("Number of batches for forward pass in RByz")|
+    lyra::opt(t_params.srvr_wait_inc, "srvr_wait_inc")["--srvr_wait_inc"]("Increment for server wait time in timeouts experiment");
+
   auto result = cli.parse({ argc, argv });
   if (!result) {
     std::cerr << "Error in command line: " << result.errorMessage()
@@ -177,13 +189,14 @@ int main(int argc, char *argv[]) {
 
   regMem = std::make_unique<RegMemClnt>(id, t_params.local_steps_rbyz, reg_sz_data);
 
-  registerClntMemory(reg_info, *regMem, *reg_mngr);
+  registerClntMemory(t_params.only_flt, reg_info, *regMem, *reg_mngr);
   Logger::instance().log("Client: Registered memory for client " + std::to_string(id) + "\n");
 
   // connect to server
   // Sleep to not overload the server when all clients connect
   std::this_thread::sleep_for(std::chrono::milliseconds(id * 200));
   RcConn conn;
+  Logger::instance().log("Client: Connecting to server address " + srvr_ip + ":" + port + "\n");
   int ret = conn.connect(addr_info, reg_info);
 
   if (ret != 0) {
@@ -192,7 +205,6 @@ int main(int argc, char *argv[]) {
 
   std::vector<RcConn> conns = {conn}; 
   RdmaOps rdma_ops(conns);
-  std:: cout << "\nClient id: " << id << " connected to server\n";
   Logger::instance().log("Client id: " + std::to_string(id) + " connected to server\n");
 
   Logger::instance().log("PRE: first mnist samples\n");
@@ -213,15 +225,12 @@ int main(int argc, char *argv[]) {
   std::vector<torch::Tensor> w =
       run_fltrust_clnt(t_params.global_iters_fl, rdma_ops, *reg_mngr, *regMem);
 
-  RByzAux rbyz_aux(rdma_ops, *reg_mngr, t_params);
+  RByzClnt rbyz_clnt(rdma_ops, *reg_mngr, t_params);
   if (!t_params.only_flt) {
     Logger::instance().log("Client: Running RByz\n");
-    rbyz_aux.runRByzClient(w, *regMem);
+    rbyz_clnt.runRByzClient(w, *regMem);
   }
-
-  regMem->round.store(t_params.global_iters_rbyz);
-  rdma_ops.exec_rdma_write(MIN_SZ, CLNT_ROUND_IDX);
-  std::cout << "\n$$$$$ Client done $$$$$\n";
+  std::cout << "$$$$$ Client " << id << " done $$$$$\n";
 
   while (regMem->srvr_ready_flag != SRVR_FINISHED) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

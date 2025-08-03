@@ -37,6 +37,7 @@ public:
                                              uint32_t dataset_size) override;
   std::vector<torch::Tensor>
   updateModelParameters(const std::vector<torch::Tensor> &w) override;
+  torch::Tensor extractLearnableParams(const torch::Tensor &input) override;
   std::vector<torch::Tensor> getInitialWeights() override;
   torch::Device getDevice() override { return device; }
   const NetType &getModel() const { return model; }
@@ -47,6 +48,11 @@ public:
                           std::mt19937 &rng) override;
   void corruptImagesRandom(float flip_ratio, std::mt19937 &rng) override;
   std::vector<size_t> findSamplesWithLabel(int label) override;
+  
+  inline void corruptImage(int idx) override {
+    float *image_ptr = getImage(idx);
+    std::memset(image_ptr, 0, data_info.image_size);
+  }
 
   // Getters for specific sample data
   inline uint64_t getSampleOffset(size_t image_idx) override {

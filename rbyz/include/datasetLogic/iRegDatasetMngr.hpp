@@ -56,6 +56,7 @@ public:
   calculateUpdate(const std::vector<torch::Tensor> &w) = 0;
   virtual std::vector<torch::Tensor>
   updateModelParameters(const std::vector<torch::Tensor> &w) = 0;
+  virtual torch::Tensor extractLearnableParams(const torch::Tensor &input) = 0;
   virtual std::vector<torch::Tensor> getInitialWeights() = 0;
   virtual torch::Device getDevice() = 0;
   virtual std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
@@ -75,5 +76,6 @@ public:
   virtual void flipLabelsTargeted(int source_label, int target_label,
                                   float flip_ratio, std::mt19937 &rng) = 0;
   virtual void corruptImagesRandom(float flip_ratio, std::mt19937 &rng) = 0;
+  virtual void corruptImage(int idx) = 0;
   virtual std::vector<size_t> findSamplesWithLabel(int label) = 0;
 };

@@ -5,13 +5,13 @@ acc_vs_test_sz.py - Create bar chart or line chart comparing validation data per
 Iterates over folders in the specified base directory (or default /home/bustaman/rbyz/Results/keep/acc_vs_test_size)
 with format {dataset}_<percentage>%vd, extracts data from R_final_data.log files,
 and creates a bar chart (default) or line chart showing mean accuracy with standard deviation error bars.
+The dataset (mnist or cifar) is automatically detected from the directory structure.
 
 Usage:
-    python acc_vs_test_sz.py mnist
-    python acc_vs_test_sz.py cifar
-    python acc_vs_test_sz.py mnist -b /path/to/custom/directory
-    python acc_vs_test_sz.py mnist -l  # Line chart
-    python acc_vs_test_sz.py mnist --line  # Line chart
+    python acc_vs_test_sz.py
+    python acc_vs_test_sz.py -b /path/to/custom/directory
+    python acc_vs_test_sz.py -l  # Line chart
+    python acc_vs_test_sz.py --line  # Line chart
 """
 
 import os
@@ -35,6 +35,22 @@ def extract_percentage_from_folder(folder_name: str, dataset: str) -> float:
     match = re.search(pattern, folder_name)
     if match:
         return float(match.group(1))
+    return None
+
+
+def extract_dataset_from_path(base_dir: str) -> str:
+    """Extract dataset name from the base directory path by looking for subdirectories starting with mnist or cifar"""
+    if not os.path.exists(base_dir):
+        return None
+    
+    for item in os.listdir(base_dir):
+        item_path = os.path.join(base_dir, item)
+        if os.path.isdir(item_path):
+            if item.startswith('mnist'):
+                return 'mnist'
+            elif item.startswith('cifar'):
+                return 'cifar'
+    
     return None
 
 
@@ -69,19 +85,24 @@ def get_log_data_via_script(log_file_path: str) -> Dict:
         return {}
 
 
-def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep/acc_vs_test_size") -> List[Tuple[float, List[float]]]:
-    """Collect accuracy data from all folders for the specified dataset"""
-    base_path = os.path.join(base_dir, dataset)
+def collect_data(base_dir: str = "/home/bustaman/rbyz/Results/keep/acc_vs_test_size") -> Tuple[str, List[Tuple[float, List[float]]]]:
+    """Collect accuracy data from all folders and determine dataset automatically"""
+    # First, determine the dataset from the directory structure
+    dataset = extract_dataset_from_path(base_dir)
+    if not dataset:
+        print(f"Error: Could not determine dataset (mnist or cifar) from directory structure in {base_dir}")
+        return None, []
     
-    if not os.path.exists(base_path):
-        print(f"Error: Base path {base_path} does not exist")
-        return []
+    print(f"Detected dataset: {dataset.upper()}")
     
     data_points = []
     
-    # Iterate through all subdirectories
-    for folder_name in os.listdir(base_path):
-        folder_path = os.path.join(base_path, folder_name)
+    # Iterate through all subdirectories that start with the dataset name
+    for folder_name in os.listdir(base_dir):
+        if not folder_name.startswith(dataset):
+            continue
+            
+        folder_path = os.path.join(base_dir, folder_name)
         
         # Skip if not a directory
         if not os.path.isdir(folder_path):
@@ -116,7 +137,7 @@ def collect_data(dataset: str, base_dir: str = "/home/bustaman/rbyz/Results/keep
     # Sort by percentage
     data_points.sort(key=lambda x: x[0])
     
-    return data_points
+    return dataset, data_points
 
 
 def create_chart(data_points: List[Tuple[float, List[float]]], dataset: str, use_line_chart: bool = False) -> None:
@@ -181,14 +202,17 @@ def create_chart(data_points: List[Tuple[float, List[float]]], dataset: str, use
         output_suffix = "bars"
     
     # Customize the plot
-    plt.xlabel('Max Validation Data per client %', fontsize=12)
-    plt.ylabel('Model Accuracy', fontsize=12)
-    plt.title(f'RByz Accuracy vs Validation Data Percentage - {dataset.upper()}', fontsize=14)
-    
+    plt.xlabel('Max Validation Data per client %', fontsize=18)
+    plt.ylabel('Model Accuracy', fontsize=18)
+    plt.title(f'RByz Accuracy vs Validation Data Percentage - {dataset.upper()}', fontsize=18)
+
     # Set y-axis limits for better visualization
     min_acc = min(means) - max(stds) - 1
     max_acc = max(means) + max(stds) + 1
     plt.ylim(min_acc, max_acc)
+    
+    # Make tick labels bigger
+    plt.tick_params(axis='both', which='major', labelsize=14)
     
     # Add grid for better readability
     plt.grid(True, alpha=0.3)
@@ -205,10 +229,10 @@ def create_chart(data_points: List[Tuple[float, List[float]]], dataset: str, use
     output_dir = "/home/bustaman/rbyz/Results/experiments/plots"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Save the plot
-    output_path = os.path.join(output_dir, f"acc_vs_test_sz_{output_suffix}_{dataset}.png")
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Plot saved as {output_path}")
+    # Save the plot as PDF
+    output_path_pdf = os.path.join(output_dir, f"acc_vs_test_sz_{output_suffix}_{dataset}.pdf")
+    plt.savefig(output_path_pdf, bbox_inches='tight')
+    print(f"PDF plot saved as {output_path_pdf}")
     
     # Show the plot
     plt.show()
@@ -221,17 +245,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python acc_vs_test_sz.py mnist
-    python acc_vs_test_sz.py cifar
-    python acc_vs_test_sz.py mnist -b /path/to/custom/directory
-    python acc_vs_test_sz.py mnist -l  # Line chart
-    python acc_vs_test_sz.py mnist --line  # Line chart
+    python acc_vs_test_sz.py
+    python acc_vs_test_sz.py -b /path/to/custom/directory
+    python acc_vs_test_sz.py -l  # Line chart
+    python acc_vs_test_sz.py --line  # Line chart
         """
     )
-    
-    parser.add_argument('dataset', 
-                       choices=['mnist', 'cifar'],
-                       help='Dataset to process (mnist or cifar)')
     
     parser.add_argument('-b', '--base-dir', 
                        default="/home/bustaman/rbyz/Results/keep/acc_vs_test_size",
@@ -245,8 +264,14 @@ Examples:
     
     print(f"Using base directory: {args.base_dir}")
     chart_type = "line" if args.line else "bar"
-    print(f"Collecting data from {args.dataset.upper()} log files...")
-    data_points = collect_data(args.dataset, args.base_dir)
+    print(f"Collecting data from log files...")
+    
+    # Collect data and automatically determine dataset
+    dataset, data_points = collect_data(args.base_dir)
+    
+    if not dataset:
+        print("Could not determine dataset. Exiting.")
+        sys.exit(1)
     
     if not data_points:
         print("No data found. Exiting.")
@@ -256,8 +281,8 @@ Examples:
     for percentage, accuracies in data_points:
         print(f"  {percentage}%: {len(accuracies)} runs")
     
-    print(f"\nCreating {chart_type} chart for {args.dataset.upper()}...")
-    create_chart(data_points, args.dataset, args.line)
+    print(f"\nCreating {chart_type} chart for {dataset.upper()}...")
+    create_chart(data_points, dataset, args.line)
 
 
 if __name__ == "__main__":

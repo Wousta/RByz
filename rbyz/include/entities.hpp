@@ -19,11 +19,12 @@ struct RegMemSrvr {
   std::atomic<int> srvr_ready_flag;
   float *srvr_w;
   std::vector<int> clnt_ready_flags;
+  std::atomic<int> srvr_ready_rb;
   std::vector<float *> clnt_ws;
   void *reg_data;
 
   RegMemSrvr(int n_clients, uint32_t reg_sz_data, void *reg_data)
-      : reg_sz_data(reg_sz_data), n_clients(n_clients), srvr_ready_flag(0),
+      : reg_sz_data(reg_sz_data), n_clients(n_clients), srvr_ready_flag(0), srvr_ready_rb(0),
         clnt_ready_flags(n_clients, 0), clnt_ws(n_clients), reg_data(reg_data) {
           srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
         }
@@ -40,16 +41,17 @@ struct RegMemClnt {
   const int id;               
   const uint32_t reg_sz_data; // Size of the registered parameter vector w
   int srvr_ready_flag;
-  std::atomic<int> clnt_ready_flag;
   float *srvr_w;
   float *clnt_w; 
+  alignas(8) std::atomic<int> clnt_ready_flag;
   alignas(8) std::atomic<int> CAS;
   alignas(8) std::atomic<int> local_step;
   alignas(8) std::atomic<int> round;
+  alignas(8) std::atomic<int> srvr_ready_rb;
 
   RegMemClnt(int id, int local_steps_rbyz, uint32_t reg_sz_data)
-      : id(id), reg_sz_data(reg_sz_data), srvr_ready_flag(0),
-        clnt_ready_flag(0), CAS(local_steps_rbyz), local_step(0), round(0) {
+      : id(id), reg_sz_data(reg_sz_data), srvr_ready_flag(0), srvr_ready_rb(0),
+        clnt_ready_flag(0), CAS(local_steps_rbyz), local_step(0), round(1) {
     srvr_w = reinterpret_cast<float *>(malloc(reg_sz_data));
     clnt_w = reinterpret_cast<float *>(malloc(reg_sz_data));
   }
@@ -124,7 +126,8 @@ struct TrainInputParams {
   std::string logs_dir = "";
   std::string ts_file = "";
   std::string acc_file= "";
-  std::string included_agg_file= "";
+  std::string included_agg_file = "";
+  std::string clnts_renew_file = "clnts_used_to_renew.log";
 
   bool use_mnist = false;
   int n_clients;
@@ -144,12 +147,14 @@ struct TrainInputParams {
   float clnt_vd_proportion;   // Proportion of validation data for each client (proportion of total chunks writable on client)
   float vd_prop_write;        // Proportion of total chunks writable on client to write each time the test is renewed
   int test_renewal_freq;      // Frequency of test renewal (every n rounds)
-  int overwrite_poisoned = 1; // Allow VD samples to overwrite poisoned samples
-  int wait_all = 0; // Ignore slow clients in the trust score calculation
+  int overwrite_poisoned; // Allow VD samples to overwrite poisoned samples
+  int wait_all; // Ignore slow clients in the trust score calculation
   float batches_fpass_prop = 0.0;
+  float extra_col_poison_prop = 0.0;  // For the progressive poisoning of trusted clients column experiment
 
   //misc
   int only_flt;
   int label_flip_type;
   float flip_ratio;
+  int srvr_wait_inc = 0;    // Server wait increment for slow clients in timeouts experiment
 };
