@@ -58,7 +58,7 @@ RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet n
                           ", worker id = " + std::to_string(worker_id) + "\n");
 
   int label_flip_type = t_params.label_flip_type;
-  if (label_flip_type && label_flip_type != RANDOM_FLIP) {
+  if (label_flip_type && label_flip_type != RANDOM_FLIP && label_flip_type != TARGETED_FLIP_4) {
     const int target_mappings[3][2] = {
       {8, 0}, // TARGETED_FLIP_1
       {1, 5}, // TARGETED_FLIP_2  

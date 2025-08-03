@@ -38,7 +38,7 @@ for log_file in "$log_dir"/*.log; do
         if [ $count -gt 0 ]; then
             # Use bash arithmetic for ceiling: (sum + count - 1) / count
             avg=$(( (sum + count - 1) / count ))
-            avg=$(( (avg * 11) / 10 ))
+            avg=$(( (avg * 80) / 100 ))
             #avg=$(( (avg * 6) / 5 ))
             #avg=$(( (avg * 5) / 4 ))
             #avg=$(( (avg * 3) / 2 ))

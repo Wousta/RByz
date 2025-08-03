@@ -25,15 +25,17 @@ inline constexpr int CORRUPT_IMAGES_RNG = 2;
 inline constexpr int TARGETED_FLIP_1 = 3;
 inline constexpr int TARGETED_FLIP_2 = 4;
 inline constexpr int TARGETED_FLIP_3 = 5;
+inline constexpr int TARGETED_FLIP_4 = 6;
 
 // addr_locs of buffers
 inline constexpr int SRVR_W_IDX = 0;
 inline constexpr int CLNT_W_IDX = 1;
 inline constexpr int SRVR_READY_IDX = 2;
 inline constexpr int CLNT_READY_IDX = 3;
-inline constexpr int CLNT_CAS_IDX = 4;
-inline constexpr int CLNT_LOCAL_STEP_IDX = 5;
-inline constexpr int CLNT_ROUND_IDX = 6;
-inline constexpr int REG_DATASET_IDX = 7;
-inline constexpr int CLNT_FORWARD_PASS_IDX = 8;
-inline constexpr int CLNT_FORWARD_PASS_INDICES_IDX = 9;
+inline constexpr int SRVR_READY_RB_IDX = 4;
+inline constexpr int CLNT_CAS_IDX = 5;
+inline constexpr int CLNT_LOCAL_STEP_IDX = 6;
+inline constexpr int CLNT_ROUND_IDX = 7;
+inline constexpr int REG_DATASET_IDX = 8;
+inline constexpr int CLNT_FORWARD_PASS_IDX = 9;
+inline constexpr int CLNT_FORWARD_PASS_INDICES_IDX = 10;

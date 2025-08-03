@@ -80,9 +80,9 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::getInitialWeights() {
     initialWeights.push_back(param.clone().detach().to(torch::kCPU));
   }
 
-  for (const auto &buffer : model->buffers()) {
-    initialWeights.push_back(buffer.clone().detach().to(torch::kCPU));
-  }
+  // for (const auto &buffer : model->buffers()) {
+  //   initialWeights.push_back(buffer.clone().detach().to(torch::kCPU));
+  // }
 
   return initialWeights;
 }
@@ -107,25 +107,25 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::calculateUpdateCuda(
     result.push_back(cpu_update);
   }
 
-  for (size_t i = 0; i < buffers.size(); i++) {
-    // Subtract on GPU
-    auto update = buffers[i].clone().detach() - w_cuda[params.size() + i];
-    auto cpu_update = torch::empty_like(update, torch::kCPU);
+  // for (size_t i = 0; i < buffers.size(); i++) {
+  //   // Subtract on GPU
+  //   auto update = buffers[i].clone().detach() - w_cuda[params.size() + i];
+  //   auto cpu_update = torch::empty_like(update, torch::kCPU);
 
-    // Copy result to CPU
-    if (update.dtype() == torch::kFloat32) {
-      cudaMemcpyAsync(cpu_update.data_ptr<float>(), update.data_ptr<float>(),
-                      update.numel() * sizeof(float), cudaMemcpyDeviceToHost,
-                      memcpy_stream_A);
-    } else if (update.dtype() == torch::kInt64) {
-      cudaMemcpyAsync(cpu_update.data_ptr<int64_t>(), update.data_ptr<int64_t>(),
-                      update.numel() * sizeof(int64_t), cudaMemcpyDeviceToHost,
-                      memcpy_stream_B);
-    } else {
-      cpu_update.copy_(update);
-    }
-    result.push_back(cpu_update);
-  }
+  //   // Copy result to CPU
+  //   if (update.dtype() == torch::kFloat32) {
+  //     cudaMemcpyAsync(cpu_update.data_ptr<float>(), update.data_ptr<float>(),
+  //                     update.numel() * sizeof(float), cudaMemcpyDeviceToHost,
+  //                     memcpy_stream_A);
+  //   } else if (update.dtype() == torch::kInt64) {
+  //     cudaMemcpyAsync(cpu_update.data_ptr<int64_t>(), update.data_ptr<int64_t>(),
+  //                     update.numel() * sizeof(int64_t), cudaMemcpyDeviceToHost,
+  //                     memcpy_stream_B);
+  //   } else {
+  //     cpu_update.copy_(update);
+  //   }
+  //   result.push_back(cpu_update);
+  // }
 
   cudaDeviceSynchronize();
   return result;
@@ -170,7 +170,6 @@ void BaseRegDatasetMngr<NetType>::test(DataLoader &data_loader) {
 
   Logger::instance().log("  Testing:\n");
   auto params = model->parameters();
-  auto buffers = model->buffers();
 
   for (const auto &batch : data_loader) {
     auto data = batch.data.to(device), targets = batch.target.to(device);
@@ -238,22 +237,12 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   std::unordered_set<uint32_t> batches_to_process;
   if (!only_flt) {
     batches_to_process.reserve(batches_fpass);
-    Logger::instance().log(
-        "Batches to process for forward pass: " + std::to_string(batches_fpass) + "\n");
     std::shuffle(batch_indices_f.begin(), batch_indices_f.end(), rng);
     for (uint32_t i = 0; i < batches_fpass; i++) {
       batches_to_process.insert(batch_indices_f[i]);
     }
-    Logger::instance().log("Batches to process for forward pass: \n");
-    for (const auto &batch_idx : batches_to_process) {
-      Logger::instance().log(std::to_string(batch_idx) + " ");
-    }
-    Logger::instance().log("\n");
-
     
     if (pending_forward_pass.load()) {
-      Logger::instance().log(
-          "Waiting for previous forward pass processing to complete\n");
       forward_pass_future.wait();
       pending_forward_pass.store(false);
     }
@@ -282,11 +271,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   for (const auto &batch : data_loader) {
     if (!only_flt && batches_to_process.find(batch_idx) != batches_to_process.end()) {
       for (int i = 0; i < batch.data.size(0); ++i) {
-        if (i < 3) {
-          Logger::instance().log(
-              "       - Original index for sample " + std::to_string(f_pass_idx) +
-              ": " + std::to_string(*getOriginalIndex(global_sample_idx)) + "\n");
-        }
         f_pass_data.forward_pass_indices[f_pass_idx] = *getOriginalIndex(global_sample_idx);
         global_sample_idx++;
         f_pass_idx++;
@@ -327,8 +311,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
     auto output = model->forward(data);
 
     if (!only_flt && batches_to_process.find(batch_idx) != batches_to_process.end()) {
-      Logger::instance().log(
-          "Batch going to be processed: " + std::to_string(batch_idx) + "\n");
       auto individual_losses = torch::nn::functional::cross_entropy(output, targets, 
       torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone));
       current_buffer.outputs.push_back(output);
@@ -357,10 +339,6 @@ void BaseRegDatasetMngr<NetType>::train(size_t epoch,
   }
 
   if (!only_flt) {
-    Logger::instance().log(
-        "\nStarting concurrent forward pass processing for epoch " +
-        std::to_string(epoch) + "\n");
-
     // Move current buffer to pending and start concurrent processing
     pending_buffer = std::move(current_buffer);
     forward_pass_future = std::async(
@@ -389,14 +367,15 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
         cudaMemcpyAsync(cuda_tensor.data_ptr<float>(), param.data_ptr<float>(),
                               param.numel() * sizeof(float), cudaMemcpyHostToDevice,
                               memcpy_stream_A);
-      } else if (param.dtype() == torch::kInt64) {
-        cudaMemcpyAsync(cuda_tensor.data_ptr<int64_t>(), param.data_ptr<int64_t>(),
-                              param.numel() * sizeof(int64_t), cudaMemcpyHostToDevice,
-                              memcpy_stream_B);
-      } else {
-        // For other types, use PyTorch's built-in copy (slower but safe)
-        cuda_tensor.copy_(param);
-      }
+      } 
+      // else if (param.dtype() == torch::kInt64) {
+      //   cudaMemcpyAsync(cuda_tensor.data_ptr<int64_t>(), param.data_ptr<int64_t>(),
+      //                         param.numel() * sizeof(int64_t), cudaMemcpyHostToDevice,
+      //                         memcpy_stream_B);
+      // } else {
+      //   // For other types, use PyTorch's built-in copy (slower but safe)
+      //   cuda_tensor.copy_(param);
+      // }
       
       w_cuda.push_back(cuda_tensor);
     }
@@ -407,9 +386,9 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
       params[i].data().copy_(w_cuda[i]);
     }
 
-    for (size_t i = 0; i < buffers.size(); ++i) {
-      buffers[i].data().copy_(w_cuda[param_count + i]);
-    }
+    // for (size_t i = 0; i < buffers.size(); ++i) {
+    //   buffers[i].data().copy_(w_cuda[param_count + i]);
+    // }
     return w_cuda;
   } else {
     for (size_t i = 0; i < params.size(); ++i) {
@@ -424,6 +403,20 @@ std::vector<torch::Tensor> BaseRegDatasetMngr<NetType>::updateModelParameters(
 }
 
 template <typename NetType>
+torch::Tensor BaseRegDatasetMngr<NetType>::extractLearnableParams(const torch::Tensor &input) {
+    std::vector<torch::Tensor> params = model->parameters();
+
+    size_t input_numel = 0;
+    for (const auto& param : params) {
+        input_numel += param.numel();
+    }
+
+    torch::Tensor learnable_params = input.narrow(0, 0, input_numel).clone();
+    
+    return learnable_params;
+}
+
+template <typename NetType>
 template <typename DataLoader>
 void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
   if (only_flt) {
@@ -433,8 +426,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
 
   // Wait for any pending forward pass processing
   if (pending_forward_pass.load()) {
-    Logger::instance().log(
-        "Waiting for pending forward pass processing before inference\n");
     forward_pass_future.wait();
     pending_forward_pass.store(false);
   }
@@ -496,10 +487,10 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
         torch::nn::functional::CrossEntropyFuncOptions().reduction(torch::kNone)
     );
 
-    if (torch::isnan(individual_losses).any().template item<bool>()) {
-      Logger::instance().log("ERROR: NaN values detected in individual_losses\n");
-      throw std::runtime_error("NaN values in individual_losses");
-    }
+    // if (torch::isnan(individual_losses).any().template item<bool>()) {
+    //   Logger::instance().log("ERROR: NaN values detected in individual_losses\n");
+    //   throw std::runtime_error("NaN values in individual_losses");
+    // }
 
     inference_buffer.outputs.push_back(output);
     inference_buffer.targets.push_back(targets);
@@ -513,10 +504,6 @@ void BaseRegDatasetMngr<NetType>::runInferenceBase(DataLoader &data_loader) {
 
   // For inference, process synchronously since we need immediate results
   processForwardPass(inference_buffer);
-
-  Logger::instance().log("Inference completed - Loss: " + std::to_string(loss) +
-                         ", Error rate: " + std::to_string(error_rate) +
-                         ", Total samples: " + std::to_string(total) + "\n");
 }
 
 template <typename NetType>
@@ -524,7 +511,6 @@ std::vector<size_t>
 BaseRegDatasetMngr<NetType>::getClientsSamplesCount(uint32_t clnt_subset_size,
                                                     uint32_t srvr_subset_size,
                                                     uint32_t dataset_size) {
-  Logger::instance().log("Getting samples count for each client\n");
   std::vector<size_t> samples_count(n_clients, 0);
 
   // Allocate indices to workers
@@ -640,10 +626,6 @@ void BaseRegDatasetMngr<NetType>::processForwardPassConcurrent(
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
-
-  Logger::instance().log(
-      "----------!!! Processed forward passConcurrent with " + std::to_string(curr_idx) +
-      " samples !!!----------\n");
 }
 
 /**
@@ -695,19 +677,19 @@ void BaseRegDatasetMngr<NetType>::processBatchResults(
     if (curr_idx < forward_pass_size / 2) {
       f_pass_data.forward_pass[curr_idx] = losses_accessor[i];
       f_pass_data.forward_pass[error_start + curr_idx] = correct_accessor[i] ? 0.0f : 1.0f;
-      if (curr_idx == 0)
-        Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-      if (curr_idx % 64 == 0) {
-        Logger::instance().log(
-            "Processed sample " + std::to_string(curr_idx) +
-            " with original index: " +
-            std::to_string(f_pass_data.forward_pass_indices[curr_idx]) +
-            " label: " + std::to_string(targets[i].template item<int64_t>()) + " with loss: " +
-            std::to_string(f_pass_data.forward_pass[curr_idx]) +
-            " and error: " +
-            std::to_string(f_pass_data.forward_pass[error_start + curr_idx]) +
-            "\n");
-      }
+      // if (curr_idx == 0)
+      //   Logger::instance().log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+      // if (curr_idx % 64 == 0) {
+      //   Logger::instance().log(
+      //       "Processed sample " + std::to_string(curr_idx) +
+      //       " with original index: " +
+      //       std::to_string(f_pass_data.forward_pass_indices[curr_idx]) +
+      //       " label: " + std::to_string(targets[i].template item<int64_t>()) + " with loss: " +
+      //       std::to_string(f_pass_data.forward_pass[curr_idx]) +
+      //       " and error: " +
+      //       std::to_string(f_pass_data.forward_pass[error_start + curr_idx]) +
+      //       "\n");
+      // }
 
       curr_idx++;
     } else {
@@ -730,9 +712,6 @@ void BaseRegDatasetMngr<NetType>::processForwardPass(ForwardPassBuffer buffer) {
     processBatchResults(buffer.outputs[i], buffer.targets[i], buffer.losses[i],
                         curr_idx);
   }
-  Logger::instance().log(
-      "----------!!! Processed forward pass with " + std::to_string(curr_idx) +
-      " samples !!!----------\n");
 }
 
 template <typename NetType>
@@ -816,8 +795,8 @@ void BaseRegDatasetMngr<NetType>::initDataInfo(
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::flipLabelsRandom(float flip_ratio,
                                                    std::mt19937 &rng) {
-  if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
-    throw std::invalid_argument("Flip ratio must be between 0 and 1");
+  if (flip_ratio < 0.0f || flip_ratio > 1.0f) {
+    throw std::invalid_argument("Flip ratio must be between 0 and 1, not " + std::to_string(flip_ratio));
   }
 
   size_t num_samples = data_info.num_samples;
@@ -900,8 +879,8 @@ void BaseRegDatasetMngr<NetType>::flipLabelsTargeted(int source_label,
 template <typename NetType>
 void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
                                                       std::mt19937 &rng) {
-  if (flip_ratio <= 0.0f || flip_ratio >= 1.0f) {
-    throw std::invalid_argument("Flip ratio must be between 0 and 1");
+  if (flip_ratio < 0.0f || flip_ratio > 1.0f) {
+    throw std::invalid_argument("Flip ratio must be between 0 and 1, not " + std::to_string(flip_ratio));
   }
 
   size_t num_samples = data_info.num_samples;
@@ -922,10 +901,7 @@ void BaseRegDatasetMngr<NetType>::corruptImagesRandom(float flip_ratio,
   while (corrupted_indices.size() < num_to_corrupt) {
     size_t idx = sample_dist(rng);
     if (corrupted_indices.find(idx) == corrupted_indices.end()) {
-      float *image_ptr = getImage(idx);
-      
-      // Set all image pixels to zero (garbage values)
-      std::memset(image_ptr, 0, data_info.image_size);   
+      corruptImage(idx);
       corrupted_indices.insert(idx);
     }
   }

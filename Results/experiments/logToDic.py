@@ -13,7 +13,7 @@ Usage:
     Save to file:
         python logToDic.py R_final_data.log -o output.py
     
-    JSON output:
+    JSON output:cd
         python logToDic.py R_final_data.log --json
     
     JSON to file:

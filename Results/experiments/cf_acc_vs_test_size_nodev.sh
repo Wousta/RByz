@@ -14,7 +14,7 @@ ORIGINAL_DIR=$(pwd)
 EXPERIMENT="cf_acc_vs_test_size_nodev"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
 PORT=2100
-REMOTE_HOSTS=("dcldelta4")
+REMOTE_HOSTS=("dcldelta3")
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -33,13 +33,13 @@ echo "Redis server started on $IP_ADDRESS:$PORT"
 clients=10
 byz_clients=3
 epochs=1                    # Local rounds of FLtrust
-local_steps_rbyz=5          # Local rounds of RByz
+local_steps_rbyz=3          # Local rounds of RByz
 glob_iters_fl=1
-glob_iters_rbyz=99
+glob_iters_rbyz=49
 chunk_size=2                # Slab size for RByz VDsampling
 label_flip_type=1           # 1: Random label flip
-flip_ratio=0.75              # 50% of the data will be flipped
-overwrite_poisoned=0        # Do not overwrite poisoned data
+flip_ratio=0.75             # 50% of the data will be flipped
+overwrite_poisoned=1        # overwrite poisoned data?
 only_flt=0                  # Run RByz
 test_renewal_freq=1000      # Renew test samples every n rounds (fixed 50% of VD is renewed)
 vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is written
@@ -51,7 +51,7 @@ cd ../../rbyz
 
 run() {
     local name=$1
-    local iters=${2:-1}
+    local iters=${2:-3}
     echo "=========================================================="
     echo "---- Starting experiment $name iters: $iters ----"
     echo "=========================================================="
@@ -78,57 +78,38 @@ run() {
 
 #######################################
 ########## MNIST Experiments ##########
-# use_mnist="true"
-# batch_size=32
-# glob_learning_rate=0.09
-# local_learn_rate=0.01
-# clnt_subset_size=5900
-# srvr_subset_size=1000
 
-# vd_prop=0.25
-# run "mnist_25%vd"
-
-# vd_prop=0.2
-# run "mnist_20%vd"
-
-# vd_prop=0.15
-# run "mnist_15%vd"
-
-# vd_prop=0.10
-# run "mnist_10%vd"
-
-# vd_prop=0.05
-# run "mnist_5%vd"
 
 #######################################
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
+clnt_subset_size=4504
+srvr_subset_size=4960
 glob_learning_rate=0.4
 local_learn_rate=0.01
-clnt_subset_size=4000
-srvr_subset_size=10000
+glob_iters_rbyz=49
 
-vd_prop=0.25
-run "cifar_25%vd"
+# vd_prop=0.25
+# run "cifar_25%vd"
 
-vd_prop=0.23
-run "cifar_23%vd"
+# vd_prop=0.23
+# run "cifar_23%vd"
 
-vd_prop=0.21
-run "cifar_21%vd"
+# vd_prop=0.21
+# run "cifar_21%vd"
 
-vd_prop=0.19
-run "cifar_19%vd"
+# vd_prop=0.19
+# run "cifar_19%vd"
 
-vd_prop=0.17
-run "cifar_17%vd" 
+# vd_prop=0.17
+# run "cifar_17%vd" 
 
-vd_prop=0.15
-run "cifar_15%vd" 
+# vd_prop=0.15
+# run "cifar_15%vd" 
 
-vd_prop=0.13
-run "cifar_13%vd" 
+# vd_prop=0.13
+# run "cifar_13%vd" 
 
 vd_prop=0.11
 run "cifar_11%vd" 
@@ -144,5 +125,8 @@ run "cifar_5%vd"
 
 vd_prop=0.03
 run "cifar_3%vd" 
+
+vd_prop=0.01
+run "cifar_1%vd"
 
 cd "$ORIGINAL_DIR"

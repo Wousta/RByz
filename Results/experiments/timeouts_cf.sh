@@ -7,14 +7,14 @@ cleanup() {
     echo "Cleanup complete. Exiting..."
     exit 1
 }
-trap cleanup SIGTERM SIGINT INT TERM QUIT EXIT 
+trap cleanup INT TERM QUIT EXIT SIGINT SIGTERM
 
-# Accuracy vs Test Size Experiment
+# Comparison of timing out medium speed clients vs waiting for all Experiment
 ORIGINAL_DIR=$(pwd)
-EXPERIMENT="mn_acc_vs_test_size_nodev"
+EXPERIMENT="timeouts_cf"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
-PORT=2450
-REMOTE_HOSTS=("dcldelta3")
+REMOTE_HOSTS=("dcldelta4")
+PORT="2300"
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -27,23 +27,18 @@ redis-cli -h "$IP_ADDRESS" -p "$PORT" SET srvr "0" >/dev/null
 redis-cli -h "$IP_ADDRESS" -p "$PORT" SET clnt "0" >/dev/null
 redis-cli -h "$IP_ADDRESS" -p "$PORT" SET nid "0" >/dev/null
 
-echo "Redis server started on $IP_ADDRESS:$PORT"
-
 # Common parameters
 clients=10
 byz_clients=3
+local_learn_rate=0.01
 epochs=1                    # Local rounds of FLtrust
-local_steps_rbyz=5          # Local rounds of RByz
+local_steps_rbyz=3          # Local rounds of RByz
 glob_iters_fl=1
-glob_iters_rbyz=3
 chunk_size=2                # Slab size for RByz VDsampling
 label_flip_type=1           # 1: Random label flip
 flip_ratio=0.75             # 50% of the data will be flipped
-overwrite_poisoned=0        # Do not overwrite poisoned data
+overwrite_poisoned=0        # Can overwrite poisoned data
 only_flt=0                  # Run RByz
-test_renewal_freq=1000      # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
-vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
-wait_all=1
 batches_fpass=0.2
 
 rm -rf ../logs/$EXPERIMENT/*
@@ -51,21 +46,18 @@ cd ../../rbyz
 
 run() {
     local name=$1
-    local iters=${2:-1}
-
     echo "=========================================================="
-    echo "---- Starting experiment $name iters: $iters ----"
-    echo "     VD prop: $vd_prop"
+    echo "---- Starting experiment $name ----"
     echo "=========================================================="
+    echo "     srvr wait inc: $srvr_wait_inc"
 
-    for ((i=1; i<=$iters; i++)); do
+    for ((i=1; i<=3; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
-        echo "‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾"
         ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned \
-            $wait_all $batches_fpass &
+            $wait_all $batches_fpass $srvr_wait_inc &
 
         current_pid=$!
         wait $current_pid
@@ -79,87 +71,49 @@ run() {
 }
 
 #######################################
-########## MNIST Experiments ##########
-use_mnist="true"
-batch_size=32
-glob_learning_rate=0.04
-local_learn_rate=0.08
-clnt_subset_size=4800
-srvr_subset_size=12000
-
-# vd_prop=0.25
-# run "mnist_25%vd" 
-
-# vd_prop=0.23
-# run "mnist_23%vd"
-
-# vd_prop=0.21
-# run "mnist_21%vd"
-
-# vd_prop=0.19
-# run "mnist_19%vd"
-
-# vd_prop=0.17
-# run "mnist_17%vd"
-
-# vd_prop=0.15
-# run "mnist_15%vd"
-
-# vd_prop=0.13
-# run "mnist_13%vd" 
-
-# vd_prop=0.11
-# run "mnist_11%vd" 
-
-# vd_prop=0.09
-# run "mnist_9%vd" 
-
-vd_prop=0.07
-run "mnist_7%vd" 
-
-vd_prop=0.05
-run "mnist_5%vd" 
-
-vd_prop=0.03
-run "mnist_3%vd"
-
-vd_prop=0.01
-run "mnist_1%vd"
-
-#######################################
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
-glob_learning_rate=0.5
-local_learn_rate=0.01
-clnt_subset_size=4900
-srvr_subset_size=1000
+clnt_subset_size=4504
+srvr_subset_size=4960
+glob_learning_rate=0.4
+glob_iters_rbyz=49
+vd_prop=0.11                # Use the best value obtained from acc_vs_test_size.sh
+vd_prop_write=0.2
+test_renewal_freq=2       
 
-# vd_prop=0.25
-# run "cifar_25%vd"
+wait_all=1
 
-# vd_prop=0.23
-# run "cifar_23%vd"
+srvr_wait_inc=1
+run "cifar_wait_1"
 
-# vd_prop=0.2
-# run "cifar_20%vd"
+srvr_wait_inc=2
+run "cifar_wait_2"
 
-# vd_prop=0.17
-# run "cifar_17%vd"
+srvr_wait_inc=3
+run "cifar_wait_3"
 
-# vd_prop=0.14
-# run "cifar_14%vd"
+srvr_wait_inc=4
+run "cifar_wait_4"
 
-# vd_prop=0.11
-# run "cifar_11%vd"
+srvr_wait_inc=5
+run "cifar_wait_5"
 
-# vd_prop=0.08
-# run "cifar_8%vd"
+srvr_wait_inc=6
+run "cifar_wait_6"
 
-# vd_prop=0.05
-# run "cifar_5%vd"
+srvr_wait_inc=7
+run "cifar_wait_7"
 
-# vd_prop=0.02
-# run "cifar_2%vd"
+srvr_wait_inc=8
+run "cifar_wait_8"
+
+srvr_wait_inc=9
+run "cifar_wait_9"
+
+# Waiting for all is the same as no experiment
+srvr_wait_inc=0
+run "cifar_wait_10"
+
 
 cd "$ORIGINAL_DIR"

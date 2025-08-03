@@ -20,18 +20,18 @@ class RegMnistSplitter {
     private:
     const int n_clients;
     const int samples_per_chunk;
-    const float clnt_vd_proportion;                 // Proportion of the client dataset that will be overwritten with server data
+    const float clnt_vd_proportion;                     // Proportion of the client dataset that will be overwritten with server data
     int samples_per_vd_split = 0;
-    int extra_col_size = 0;                      // Number of samples in the "extra" column for VD, if used
-    uint64_t extra_col_idx = 0;
+    int extra_col_numel;                                // Number of samples in the "extra" column for VD, if used
+    size_t extra_col_size;
+    int extra_col_idx = 0;
     uint32_t chunk_sz_bytes;
     IRegDatasetMngr& mngr;
     std::vector<ClientDataRbyz>& clnt_data_vec;
-    std::vector<std::vector<size_t>> vd_indexes;        // Vector of indices for the start of each VD
-    std::vector<size_t> extra_col_indices;              // start indices of each column (where the "extra column" starts)
-    std::vector<size_t> clnt_chunks;                    // Vector of offsets for the clients till n-1
+    std::vector<std::vector<size_t>> vd_indices;        // Vector of indices for the start of each VD
+    std::vector<size_t> clnt_chunks;                    // Vector of offsets for the clients
 
-    // Vector of integers corresponding to the indices in vd_indexes and lbl_offsets that each client will use, 
+    // Vector of integers corresponding to the indices in vd_indices and lbl_offsets that each client will use, 
     // indices cannot be repeated in consecutive rounds per client 
     std::vector<int> prev_indexes_arrangement;  
     std::mt19937 rng;
@@ -48,7 +48,7 @@ class RegMnistSplitter {
      * @throws std::runtime_error if clnt_vd_proportion exceeds 0.25 (25% limit)
      * @return The number of samples in total to be inserted to each client.
      */
-    void initializeClientChunkOffsets(int overwrite_poisoned) {
+    void initClientChunkOffsets(int overwrite_poisoned) {
         if (clnt_vd_proportion > 0.25) {
             throw std::runtime_error("clnt_vd_proportion must be <= 0.25, max 25%' overwrite of the client dataset");
         }
@@ -101,10 +101,11 @@ class RegMnistSplitter {
      * The last client receives any remaining samples to handle cases where the dataset
      * size is not perfectly divisible by n_clients.
      */
-    void initializeValidationDatasetPartitions() {
+    void initValidationDatasetPartitions() {
         // Split the server registered data into n_clients VD sections
         size_t vd_size = mngr.data_info.num_samples / n_clients;
-        extra_col_size = (vd_size / n_clients) * mngr.data_info.get_sample_size();
+        extra_col_numel = vd_size * 0.1;
+        extra_col_size = extra_col_numel * mngr.data_info.get_sample_size();
 
         if (vd_size < samples_per_chunk) {
             throw std::runtime_error("Not enough samples in the server VD with the given clnt_vd_proportion. "
@@ -122,7 +123,6 @@ class RegMnistSplitter {
         for (int i = 0; i < n_clients; i++) {
             size_t start_idx = i * vd_size;
             size_t end_idx;
-            extra_col_indices.push_back(start_idx);
 
             if (i == n_clients - 1) {
                 end_idx = mngr.data_info.num_samples;
@@ -146,26 +146,26 @@ class RegMnistSplitter {
                 indices_put++;
             }
             
-            vd_indexes[i] = indices;
+            vd_indices[i] = indices;
             Logger::instance().log("Client " + std::to_string(i) + " image index: " + 
-                                std::to_string(vd_indexes[i][0]) + " size: " + 
-                                std::to_string(vd_indexes[i].size()) + "\n");
+                                std::to_string(vd_indices[i][0]) + " size: " + 
+                                std::to_string(vd_indices[i].size()) + "\n");
         }
     }
 
     public:
     RegMnistSplitter(TrainInputParams& t_params, IRegDatasetMngr& mngr, std::vector<ClientDataRbyz>& clnt_data_vec)
         : n_clients(clnt_data_vec.size()), samples_per_chunk(t_params.chunk_size), clnt_vd_proportion(t_params.clnt_vd_proportion), 
-          mngr(mngr), clnt_data_vec(clnt_data_vec), vd_indexes(n_clients), prev_indexes_arrangement(n_clients), 
-          rng(50), extra_col_indices(n_clients) {
+          mngr(mngr), clnt_data_vec(clnt_data_vec), vd_indices(n_clients), prev_indexes_arrangement(n_clients), 
+          rng(50) {
 
         // Used to select the VD splits for each client
         for (int i = 0; i < n_clients; i++) {
             prev_indexes_arrangement[i] = i;
         }
 
-        initializeClientChunkOffsets(t_params.overwrite_poisoned);
-        initializeValidationDatasetPartitions();
+        initClientChunkOffsets(t_params.overwrite_poisoned);
+        initValidationDatasetPartitions();
     }
 
     int getSamplesPerChunk() const {
@@ -232,11 +232,31 @@ class RegMnistSplitter {
      * @return A vector containing the selected server indices for the client.
      */
     std::vector<size_t> getServerIndices(int clnt_idx, std::vector<int> derangement) {
-        return vd_indexes[derangement[clnt_idx]];
+        return vd_indices[derangement[clnt_idx]];
+    }
+
+    std::vector<size_t> getServerIndices(int idx) {
+        if (idx < 0 || idx >= n_clients) {
+            throw std::out_of_range("[getServerIndices] Client index out of range");
+        }
+        return vd_indices[idx];
+    }
+
+    std::vector<std::vector<size_t>> getExtraColIndices() {
+        std::vector<std::vector<size_t>> extra_col_indices(n_clients);
+
+        for (int i = 0; i < n_clients; i++) {
+            extra_col_indices[i].reserve(extra_col_numel);
+            for (int j = 0; j < extra_col_numel; j++) {
+                extra_col_indices[i].push_back(vd_indices[i][j]);
+            }
+        }
+
+        return extra_col_indices;
     }
 
     size_t getExtraColSectionToRenew() {
-        size_t res = extra_col_indices[extra_col_idx];
+        size_t res = vd_indices[extra_col_idx][0];
         extra_col_idx = (extra_col_idx + 1) % n_clients; // Cycle through the extra column sections
         return res;
     }
@@ -246,7 +266,7 @@ class RegMnistSplitter {
     }
 
     int getExtraColNumSamplesPerSection() {
-        return extra_col_size / mngr.data_info.get_sample_size();
+        return extra_col_numel;
     }
 
     /**

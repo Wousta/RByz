@@ -9,12 +9,12 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT INT TERM QUIT EXIT 
 
-# Accuracy vs Test Size Experiment
 ORIGINAL_DIR=$(pwd)
-EXPERIMENT="mn_acc_vs_test_size_nodev"
+EXPERIMENT="extra_col_poison_byz"
 IP_ADDRESS=$(ip addr show | grep -A2 "ibp.*UP" | grep "inet " | head -1 | awk '{print $2}' | cut -d'/' -f1)
-PORT=2450
-REMOTE_HOSTS=("dcldelta3")
+#REMOTE_HOSTS=("dcldelta4" "dcldelta2")
+PORT="2400"
+REMOTE_HOSTS=("dcldelta4")
 
 echo "Running experiment $EXPERIMENT on Server IP: $IP_ADDRESS"
 
@@ -31,41 +31,36 @@ echo "Redis server started on $IP_ADDRESS:$PORT"
 
 # Common parameters
 clients=10
-byz_clients=3
-epochs=1                    # Local rounds of FLtrust
-local_steps_rbyz=5          # Local rounds of RByz
-glob_iters_fl=1
-glob_iters_rbyz=3
+local_learn_rate=0.01
 chunk_size=2                # Slab size for RByz VDsampling
-label_flip_type=1           # 1: Random label flip
-flip_ratio=0.75             # 50% of the data will be flipped
-overwrite_poisoned=0        # Do not overwrite poisoned data
-only_flt=0                  # Run RByz
-test_renewal_freq=1000      # Renew test samples every 5 rounds (fixed 50% of VD is renewed)
-vd_prop_write=1.0           # Proportion of total chunks writable on client to write each time the test is renewed
-wait_all=1
+overwrite_poisoned=1        # Do not overwrite poisoned data
+test_renewal_freq=3000
+flip_ratio=1.0
 batches_fpass=0.2
+wait_all=1
+epochs=3
+local_steps_rbyz=3          # Local rounds of RByz
+label_flip_type=2  
+byz_clients=4
+srvr_wait_inc=0
+only_flt=0
 
 rm -rf ../logs/$EXPERIMENT/*
 cd ../../rbyz
 
 run() {
     local name=$1
-    local iters=${2:-1}
-
     echo "=========================================================="
     echo "---- Starting experiment $name iters: $iters ----"
-    echo "     VD prop: $vd_prop"
     echo "=========================================================="
 
-    for ((i=1; i<=$iters; i++)); do
+    for ((i=1; i<=3; i++)); do
         echo "______________________________________________________"
         echo "---- Running experiment $name iteration $i ----"
-        echo "‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾"
         ./run_all.sh "${REMOTE_HOSTS[*]}" $EXPERIMENT $IP_ADDRESS $PORT $use_mnist $clients $epochs $batch_size $glob_learning_rate \
             $local_learn_rate $byz_clients $clnt_subset_size $srvr_subset_size $glob_iters_fl $local_steps_rbyz $glob_iters_rbyz \
             $chunk_size $label_flip_type $flip_ratio $only_flt $vd_prop $vd_prop_write $test_renewal_freq $overwrite_poisoned \
-            $wait_all $batches_fpass &
+            $wait_all $batches_fpass $srvr_wait_inc $extra_col_poison_prop &
 
         current_pid=$!
         wait $current_pid
@@ -79,87 +74,37 @@ run() {
 }
 
 #######################################
-########## MNIST Experiments ##########
-use_mnist="true"
-batch_size=32
-glob_learning_rate=0.04
-local_learn_rate=0.08
-clnt_subset_size=4800
-srvr_subset_size=12000
-
-# vd_prop=0.25
-# run "mnist_25%vd" 
-
-# vd_prop=0.23
-# run "mnist_23%vd"
-
-# vd_prop=0.21
-# run "mnist_21%vd"
-
-# vd_prop=0.19
-# run "mnist_19%vd"
-
-# vd_prop=0.17
-# run "mnist_17%vd"
-
-# vd_prop=0.15
-# run "mnist_15%vd"
-
-# vd_prop=0.13
-# run "mnist_13%vd" 
-
-# vd_prop=0.11
-# run "mnist_11%vd" 
-
-# vd_prop=0.09
-# run "mnist_9%vd" 
-
-vd_prop=0.07
-run "mnist_7%vd" 
-
-vd_prop=0.05
-run "mnist_5%vd" 
-
-vd_prop=0.03
-run "mnist_3%vd"
-
-vd_prop=0.01
-run "mnist_1%vd"
-
-#######################################
 ########## CIFAR Experiments ##########
 use_mnist="false"
 batch_size=64
-glob_learning_rate=0.5
+clnt_subset_size=4854
+srvr_subset_size=1460
+vd_prop=0.03
+vd_prop_write=1.0         
+glob_learning_rate=1.0
 local_learn_rate=0.01
-clnt_subset_size=4900
-srvr_subset_size=1000
 
-# vd_prop=0.25
-# run "cifar_25%vd"
+#---------------# RByz #--------------#
+glob_iters_fl=1
+glob_iters_rbyz=49
 
-# vd_prop=0.23
-# run "cifar_23%vd"
 
-# vd_prop=0.2
-# run "cifar_20%vd"
+extra_col_poison_prop=0.0
+run "R_cifar_0%_poison"
 
-# vd_prop=0.17
-# run "cifar_17%vd"
+extra_col_poison_prop=0.2
+run "R_cifar_20%_poison"
 
-# vd_prop=0.14
-# run "cifar_14%vd"
+extra_col_poison_prop=0.4
+run "R_cifar_40%_poison"
 
-# vd_prop=0.11
-# run "cifar_11%vd"
+extra_col_poison_prop=0.6
+run "R_cifar_60%_poison"
 
-# vd_prop=0.08
-# run "cifar_8%vd"
+extra_col_poison_prop=0.8
+run "R_cifar_80%_poison"
 
-# vd_prop=0.05
-# run "cifar_5%vd"
-
-# vd_prop=0.02
-# run "cifar_2%vd"
+extra_col_poison_prop=1.0
+run "R_cifar_100%_poison"
 
 cd "$ORIGINAL_DIR"

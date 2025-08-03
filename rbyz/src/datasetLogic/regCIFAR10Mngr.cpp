@@ -64,7 +64,7 @@ RegCIFAR10Mngr::RegCIFAR10Mngr(int worker_id, TrainInputParams &t_params, Cifar1
   test_loader = std::move(test_loader_temp);
 
   int label_flip_type = t_params.label_flip_type;
-  if (label_flip_type && label_flip_type != RANDOM_FLIP) {
+  if (label_flip_type && label_flip_type != RANDOM_FLIP && label_flip_type != TARGETED_FLIP_4) {
     const int target_mappings[3][2] = {
       {5, 3}, // TARGETED_FLIP_1
       {0, 2}, // TARGETED_FLIP_2  
