@@ -210,6 +210,8 @@ run_fltrust_srvr(int n_clients, TrainInputParams t_params, IRegDatasetMngr &mngr
     // Run local training
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
     mngr.runTraining();
+
+    // g is the delta 
     std::vector<torch::Tensor> g = mngr.calculateUpdate(w_pre_train);
     
     // NOTE: RIGHT NOW EVERY CLIENT TRAINS AND READS THE AGGREGATED W IN EACH
