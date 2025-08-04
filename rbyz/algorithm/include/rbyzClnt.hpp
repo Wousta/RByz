@@ -5,10 +5,8 @@
 #include <random>
 #include <vector>
 
-#include "datasetLogic/iRegDatasetMngr.hpp"
-#include "datasetLogic/regMnistSplitter.hpp"
 #include "entities.hpp"
-#include "logger.hpp"
+#include "manager/iRegDatasetMngr.hpp"
 #include "rdmaOps.hpp"
 
 using millis = std::chrono::milliseconds;

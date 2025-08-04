@@ -13,17 +13,17 @@
 #include <vector>
 
 #include "attacks.hpp"
-#include "datasetLogic/iRegDatasetMngr.hpp"
-#include "datasetLogic/regCIFAR10Mngr.hpp"
-#include "datasetLogic/regMnistMngr.hpp"
+#include "manager/iRegDatasetMngr.hpp"
+#include "manager/regCIFAR10Mngr.hpp"
+#include "manager/regMnistMngr.hpp"
 #include "entities.hpp"
 #include "fltrustSrvr.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
-#include "nets/cifar10Net.hpp"
-#include "nets/mnistNet.hpp"
-#include "nets/residual_block.hpp"
-#include "nets/resnet.hpp"
+#include "net/cifar10Net.hpp"
+#include "net/mnistNet.hpp"
+#include "net/residual_block.hpp"
+#include "net/resnet.hpp"
 #include "rbyzSrvr.hpp"
 #include "rc_conn.hpp"
 #include "rdmaOps.hpp"
@@ -264,19 +264,19 @@ int main(int argc, char *argv[]) {
   auto start = std::chrono::high_resolution_clock::now();
   RdmaOps rdma_ops(conns);
   FLtrustSrvr fltrust(rdma_ops, *reg_mngr, t_params, clnt_data_vec, *regMem);
-  RByzSrvr rbyz_aux(rdma_ops, *reg_mngr, t_params, clnt_data_vec);
+  RByzSrvr rbyz(rdma_ops, *reg_mngr, t_params, clnt_data_vec);
 
   if (t_params.extra_col_poison_prop > 0.0f) {
     Logger::instance().log(
         "Server: Extra column poisoning proportion: " + std::to_string(t_params.extra_col_poison_prop) + "\n");
-    rbyz_aux.vdColAttack(t_params.extra_col_poison_prop);
+    rbyz.vdColAttack(t_params.extra_col_poison_prop);
   }
 
   std::vector<torch::Tensor> w = fltrust.run();
 
   // Global rounds of RByz
   if (!t_params.only_flt) {
-    rbyz_aux.runRByzServer(n_clients, w, *regMem);
+    rbyz.runRByzServer(n_clients, w, *regMem);
   }
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -294,7 +294,7 @@ int main(int argc, char *argv[]) {
       "src_targ_class " + std::to_string(reg_mngr->src_class) + " " + std::to_string(reg_mngr->target_class) + "\n";
   std::string miss_samples_msg = "missclassed_samples " + std::to_string(reg_mngr->missclassed_samples) + "\n";
   std::string class_recall_msg = "src_class_recall " + std::to_string(reg_mngr->src_class_recall) + "\n";
-  std::string rounds_to_converge_msg = "rounds_to_converge " + std::to_string(rbyz_aux.getRoundsToConverge()) + "\n";
+  std::string rounds_to_converge_msg = "rounds_to_converge " + std::to_string(rbyz.getRoundsToConverge()) + "\n";
 
   Logger::instance().logCustom(dir, final_data_file, acc_msg);
   Logger::instance().logCustom(dir, final_data_file, time_msg);

@@ -47,6 +47,7 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../shared
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/algorithm/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/datasetLogic/include
 )
 
 add_library(libnorm SHARED IMPORTED)
@@ -79,13 +80,15 @@ file(APPEND ${UNITY_SRC} "#define USE_PYTHON 0\n")
 file(APPEND ${UNITY_SRC} "#include <torch/csrc/api/include/torch/all.h>\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/tensorOps.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/attacks.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../include/datasetLogic/subsetSampler.hpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../include/datasetLogic/registeredMNIST.hpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/transform.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/registeredCIFAR10.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/baseRegDatasetMngr.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regMnistMngr.cpp\"\n")
-file(APPEND ${UNITY_SRC} "#include \"../src/datasetLogic/regCIFAR10Mngr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/include/subsetSampler.hpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/include/dataset/registeredMNIST.hpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/src/transform.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/src/dataset/registeredCIFAR10.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/src/manager/baseRegDatasetMngr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/src/manager/regMnistMngr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../datasetLogic/src/manager/regCIFAR10Mngr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../algorithm/src/fltrustSrvr.cpp\"\n")
+file(APPEND ${UNITY_SRC} "#include \"../algorithm/src/datasetSplitter.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../algorithm/src/rbyzSrvr.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../algorithm/src/rbyzClnt.cpp\"\n")
 file(APPEND ${UNITY_SRC} "#include \"../src/rdmaOps.cpp\"\n")

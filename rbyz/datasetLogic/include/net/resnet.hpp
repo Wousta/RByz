@@ -4,7 +4,7 @@
 #pragma once
 
 #include <torch/torch.h>
-#include "nets/nnet.hpp"
+#include "net/nnet.hpp"
 #include "residual_block.hpp"
 
 namespace resnet {

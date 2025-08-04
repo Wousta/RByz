@@ -5,10 +5,10 @@
 #include <random>
 #include <vector>
 
-#include "datasetLogic/iRegDatasetMngr.hpp"
-#include "datasetLogic/regMnistSplitter.hpp"
+#include "datasetSplitter.hpp"
 #include "entities.hpp"
 #include "logger.hpp"
+#include "manager/iRegDatasetMngr.hpp"
 #include "rdmaOps.hpp"
 
 using millis = std::chrono::milliseconds;
@@ -34,7 +34,7 @@ class RByzSrvr {
   std::vector<std::vector<int>> step_times;
   std::mt19937 rng;
   std::bernoulli_distribution coin_flip{0.5};  // 50% chance
-  RegMnistSplitter splitter;
+  DatasetSplitter splitter;
 
   struct acc_info {
     float threshold_acc;     // Accuracy threshold for convergence
@@ -53,14 +53,14 @@ class RByzSrvr {
   torch::Tensor aggregate_updates(const std::vector<torch::Tensor> &client_updates,
                                   const std::vector<uint32_t> &clnt_indices);
 
-  void writeServerVD(RegMnistSplitter &splitter, float proportion);
+  void writeServerVD(DatasetSplitter &splitter, float proportion);
 
   bool processVDOut(ClientDataRbyz &clnt_data, bool check_byz);
   void initTimeoutTime();
   void logTrustScores(int only_flt) const;
   void waitTimeout(ClientDataRbyz &clnt_data, int round);
   void waitInfinite(ClientDataRbyz &clnt_data, int round);
-  void renewTrustedClientsColumn(RegMnistSplitter &splitter);
+  void renewTrustedClientsColumn(DatasetSplitter &splitter);
 
   inline void runSteps(int round) {
     for (ClientDataRbyz &clnt_data : clnt_data_vec) {

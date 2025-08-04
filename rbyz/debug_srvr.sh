@@ -52,8 +52,7 @@ vd_prop=${17:-1.0}  # Proportion of validation data for each client
 # rm -rf $results_path/logs/*
 # rm -rf $results_path/accLogs/*
 
-gdb -ex "break /home/bustaman/rbyz/rbyz/include/datasetLogic/regMnistSplitter.hpp:111" \
-    -ex "start" \
+gdb -ex "start" \
     --args build/srvr --srvr_ip $srvr_ip --port $port --n_clients $n_clients $load_use_mnist_param --n_byz $n_byz_clnts \
   --epochs $epochs --batch_size $batch_size --global_learn_rate $glob_learn_rate --local_learn_rate $local_learn_rate --clnt_subset_size $clnt_subset_size \
   --srvr_subset_size $srvr_subset_size --global_iters_fl $glob_iters_fl --local_steps_rbyz $local_steps_rbyz \

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "datasetLogic/iRegDatasetMngr.hpp"
+#include "manager/iRegDatasetMngr.hpp"
 #include "entities.hpp"
 #include <vector>
 

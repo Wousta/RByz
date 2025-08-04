@@ -10,7 +10,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include "attacks.hpp"
 #include "global/globalConstants.hpp"
 #include "logger.hpp"
 #include "rdmaOps.hpp"
@@ -43,7 +42,7 @@ void RByzSrvr::awaitTermination(int code) {
   }
 }
 
-void RByzSrvr::renewTrustedClientsColumn(RegMnistSplitter &splitter) {
+void RByzSrvr::renewTrustedClientsColumn(DatasetSplitter &splitter) {
   int clnts_to_renew = 0;
   for (auto &client : clnt_data_vec) {
     if (client.trust_score <= ts_threshold) {
@@ -151,7 +150,7 @@ torch::Tensor RByzSrvr::aggregate_updates(const std::vector<torch::Tensor> &clie
   return aggregated_update;
 }
 
-void RByzSrvr::writeServerVD(RegMnistSplitter &splitter, float proportion) {
+void RByzSrvr::writeServerVD(DatasetSplitter &splitter, float proportion) {
   std::vector<int> derangement = splitter.generateDerangement();
 
   // Send the VD samples to the clients

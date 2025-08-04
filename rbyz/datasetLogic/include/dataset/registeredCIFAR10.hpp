@@ -4,19 +4,20 @@
 // Copyright 2020-present pytorch-cpp Authors
 #pragma once
 
-#include "datasetLogic/structs.hpp"
-#include <cstddef>
-#include <fstream>
-#include <string>
 #include <torch/data/datasets/base.h>
 #include <torch/data/example.h>
 #include <torch/types.h>
+
+#include <cstddef>
+#include <string>
+
+#include "structs.hpp"
 
 // CIFAR10 dataset
 // based on:
 // https://github.com/pytorch/pytorch/blob/master/torch/csrc/api/include/torch/data/datasets/mnist.h.
 class RegCIFAR10 : public torch::data::datasets::Dataset<RegCIFAR10> {
-public:
+ public:
   // The mode in which the dataset is loaded
   enum Mode { kTrain, kTest, kBuild };
 
@@ -26,7 +27,7 @@ public:
   // CIFAR10 dataset (binary version), available from
   // http://www.cs.toronto.edu/~kriz/cifar.html.
   explicit RegCIFAR10(const std::string &root, Mode mode = Mode::kTrain);
-  explicit RegCIFAR10(RegTrainData& data_info, std::unordered_map<size_t, size_t> index_map);
+  explicit RegCIFAR10(RegTrainData &data_info, std::unordered_map<size_t, size_t> index_map);
 
   // Returns the `Example` at the given `index`.
   torch::data::Example<> get(size_t index) override;
@@ -43,7 +44,7 @@ public:
   // Returns all targets stacked into a single tensor.
   const torch::Tensor &targets() const;
 
-private:
+ private:
   torch::Tensor images_;
   torch::Tensor targets_;
   Mode mode_;

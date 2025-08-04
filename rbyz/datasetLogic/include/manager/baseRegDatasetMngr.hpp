@@ -1,25 +1,25 @@
 #pragma once
 
-#include "datasetLogic/iRegDatasetMngr.hpp"
-#include "datasetLogic/subsetSampler.hpp"
-#include "nets/cifar10Net.hpp"
-#include "nets/mnistNet.hpp"
-#include "structs.hpp"
-
 #include <ATen/core/TensorBody.h>
 #include <cuda_runtime.h>
-#include <future>
 #include <torch/data/datasets/base.h>
-#include <utility>
+
+#include <future>
 #include <vector>
 
-template <typename NetType> class BaseRegDatasetMngr : public IRegDatasetMngr {
-public:
+#include "manager/iRegDatasetMngr.hpp"
+#include "net/cifar10Net.hpp"
+#include "net/mnistNet.hpp"
+#include "structs.hpp"
+#include "subsetSampler.hpp"
+
+template <typename NetType>
+class BaseRegDatasetMngr : public IRegDatasetMngr {
+ public:
   BaseRegDatasetMngr(int worker_id, TrainInputParams &t_params, NetType net);
   virtual ~BaseRegDatasetMngr();
 
-  inline std::vector<torch::Tensor>
-  calculateUpdate(const std::vector<torch::Tensor> &w) override {
+  inline std::vector<torch::Tensor> calculateUpdate(const std::vector<torch::Tensor> &w) override {
     if (device.is_cuda()) {
       return calculateUpdateCuda(w);
     } else {
@@ -30,13 +30,12 @@ public:
   virtual void runTraining() override = 0;
   virtual void runTesting() override = 0;
   virtual void runInference() override = 0;
-  virtual void renewDataset(float proportion = 1.0, std::optional<int> seed = std::nullopt) override = 0;
+  virtual void renewDataset(float proportion = 1.0,
+                            std::optional<int> seed = std::nullopt) override = 0;
 
-  std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size,
-                                             uint32_t srvr_subset_size,
+  std::vector<size_t> getClientsSamplesCount(uint32_t clnt_subset_size, uint32_t srvr_subset_size,
                                              uint32_t dataset_size) override;
-  std::vector<torch::Tensor>
-  updateModelParameters(const std::vector<torch::Tensor> &w) override;
+  std::vector<torch::Tensor> updateModelParameters(const std::vector<torch::Tensor> &w) override;
   torch::Tensor extractLearnableParams(const torch::Tensor &input) override;
   std::vector<torch::Tensor> getInitialWeights() override;
   torch::Device getDevice() override { return device; }
@@ -48,7 +47,7 @@ public:
                           std::mt19937 &rng) override;
   void corruptImagesRandom(float flip_ratio, std::mt19937 &rng) override;
   std::vector<size_t> findSamplesWithLabel(int label) override;
-  
+
   inline void corruptImage(int idx) override {
     float *image_ptr = getImage(idx);
     std::memset(image_ptr, 0, data_info.image_size);
@@ -57,17 +56,17 @@ public:
   // Getters for specific sample data
   inline uint64_t getSampleOffset(size_t image_idx) override {
     if (image_idx >= data_info.num_samples) {
-      throw std::out_of_range("Image index out of range in "
-                              "RegisteredMnistTrain::getSampleOffset()");
+      throw std::out_of_range(
+          "Image index out of range in "
+          "RegisteredMnistTrain::getSampleOffset()");
     }
     return image_idx * data_info.get_sample_size();
   }
 
   inline void *getSample(size_t image_idx) override {
     if (image_idx >= data_info.num_samples) {
-      throw std::out_of_range(
-          "Image index " + std::to_string(image_idx) +
-          " out of range in RegisteredMnistTrain::getSample()");
+      throw std::out_of_range("Image index " + std::to_string(image_idx) +
+                              " out of range in RegisteredMnistTrain::getSample()");
     }
 
     return getBasePointerForIndex(image_idx);
@@ -78,8 +77,7 @@ public:
   }
 
   inline int64_t *getLabel(size_t image_idx) override {
-    return reinterpret_cast<int64_t *>(getBasePointerForIndex(image_idx) +
-                                       data_info.index_size);
+    return reinterpret_cast<int64_t *>(getBasePointerForIndex(image_idx) + data_info.index_size);
   }
 
   // UINT8CHANGE
@@ -89,24 +87,23 @@ public:
   //                                   data_info.label_size);
   // }
   inline float *getImage(size_t image_idx) override {
-    return reinterpret_cast<float *>(getBasePointerForIndex(image_idx) +
-                                     data_info.index_size +
+    return reinterpret_cast<float *>(getBasePointerForIndex(image_idx) + data_info.index_size +
                                      data_info.label_size);
   }
 
-protected:
-  uint64_t renew_idx = 0; // Index for build dataset when renewing samples for RByz
+ protected:
+  uint64_t renew_idx = 0;  // Index for build dataset when renewing samples for RByz
   size_t forward_pass_size;
-  uint32_t batches_fpass; // Number of batches to copy to forward pass buffer
-  uint32_t total_batches; // Total number of batches in the dataset
+  uint32_t batches_fpass;  // Number of batches to copy to forward pass buffer
+  uint32_t total_batches;  // Total number of batches in the dataset
   NetType model;
   std::mt19937 rng;
-  std::vector<uint32_t> batch_indices_f; // used to randomly select batches for forward pass
+  std::vector<uint32_t> batch_indices_f;  // used to randomly select batches for forward pass
   std::map<int64_t, std::vector<size_t>> label_to_indices;
-  std::vector<size_t> indices; // Indices of samples in the registered dataset
+  std::vector<size_t> indices;  // Indices of samples in the registered dataset
   torch::Device device;
-  cudaStream_t memcpy_stream_A; // Stream for async memcpy
-  cudaStream_t memcpy_stream_B; // Stream for async memcpy
+  cudaStream_t memcpy_stream_A;  // Stream for async memcpy
+  cudaStream_t memcpy_stream_B;  // Stream for async memcpy
 
   std::future<void> forward_pass_future;
   std::atomic<bool> pending_forward_pass{false};
@@ -120,35 +117,30 @@ protected:
 
   void processForwardPassConcurrent(ForwardPassBuffer buffer);
   void processForwardPass(ForwardPassBuffer buffer);
-  void processBatchResults(const torch::Tensor &output,
-                           const torch::Tensor &targets,
-                           const torch::Tensor &individual_losses,
-                           size_t &curr_idx);
+  void processBatchResults(const torch::Tensor &output, const torch::Tensor &targets,
+                           const torch::Tensor &individual_losses, size_t &curr_idx);
 
   virtual void buildLabelToIndicesMap() = 0;
   virtual void initDataInfo(const std::vector<size_t> &indices, int img_size);
   torch::Device init_device();
-  SubsetSampler get_subset_sampler(
-      int worker_id, size_t dataset_size, int64_t subset_size, uint32_t srvr_subset_size,
-      const std::map<int64_t, std::vector<size_t>> &label_to_indices);
-  std::vector<torch::Tensor>
-  calculateUpdateCuda(const std::vector<torch::Tensor> &w_cuda);
-  std::vector<torch::Tensor>
-  calculateUpdateCPU(const std::vector<torch::Tensor> &w);
-
-  template <typename DataLoader> void test(DataLoader &data_loader);
+  SubsetSampler get_subset_sampler(int worker_id, size_t dataset_size, int64_t subset_size,
+                                   uint32_t srvr_subset_size,
+                                   const std::map<int64_t, std::vector<size_t>> &label_to_indices);
+  std::vector<torch::Tensor> calculateUpdateCuda(const std::vector<torch::Tensor> &w_cuda);
+  std::vector<torch::Tensor> calculateUpdateCPU(const std::vector<torch::Tensor> &w);
 
   template <typename DataLoader>
-  void train(size_t epoch, torch::optim::Optimizer &optimizer,
-             DataLoader &data_loader);
+  void test(DataLoader &data_loader);
+
+  template <typename DataLoader>
+  void train(size_t epoch, torch::optim::Optimizer &optimizer, DataLoader &data_loader);
 
   template <typename DataLoader>
   void runInferenceBase(DataLoader &registered_loader);
 
   // Registered dataset specific methods
   inline char *getBasePointerForIndex(size_t image_idx) const {
-    return static_cast<char *>(data_info.reg_data) +
-           (image_idx * data_info.get_sample_size());
+    return static_cast<char *>(data_info.reg_data) + (image_idx * data_info.get_sample_size());
   }
 };
 

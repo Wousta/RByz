@@ -1,13 +1,15 @@
-#include "datasetLogic/regMnistMngr.hpp"
-#include "datasetLogic/regCIFAR10Mngr.hpp"
-#include "datasetLogic/registeredMNIST.hpp"
-#include "datasetLogic/subsetSampler.hpp"
-#include "global/globalConstants.hpp"
-#include "logger.hpp"
-#include "nets/mnistNet.hpp"
-#include "tensorOps.hpp"
+#include "manager/regMnistMngr.hpp"
+
 #include <string>
 #include <vector>
+
+#include "dataset/registeredMNIST.hpp"
+#include "global/globalConstants.hpp"
+#include "logger.hpp"
+#include "manager/regCIFAR10Mngr.hpp"
+#include "net/mnistNet.hpp"
+#include "subsetSampler.hpp"
+#include "tensorOps.hpp"
 
 void RegMnistMngr::init() {
   // To refresh VD samples in RByz
@@ -17,12 +19,12 @@ void RegMnistMngr::init() {
   // Needed for subset sampler to partition the dataset
   buildLabelToIndicesMap();
 
-  SubsetSampler train_sampler = get_subset_sampler(
-      worker_id, DATASET_SIZE_MNIST, subset_size, t_params.srvr_subset_size, label_to_indices);
+  SubsetSampler train_sampler = get_subset_sampler(worker_id, DATASET_SIZE_MNIST, subset_size,
+                                                   t_params.srvr_subset_size, label_to_indices);
   auto &indices = train_sampler.indices();
 
   // Init reg data structures and pin memory
-  initDataInfo(indices, IMG_SIZE);  
+  initDataInfo(indices, IMG_SIZE);
   buildRegisteredDataset(indices);
 
   auto loader_temp =
@@ -35,36 +37,33 @@ void RegMnistMngr::init() {
     // Build dataset no longer needed except for server for refresh VD samples in RByz
     build_dataset.reset();
   }
-    
 }
 
 RegMnistMngr::RegMnistMngr(int worker_id, TrainInputParams &t_params, MnistNet net)
     : BaseRegDatasetMngr<MnistNet>(worker_id, t_params, net),
       optimizer(model->parameters(), torch::optim::SGDOptions(learn_rate)),
       test_dataset(
-          torch::data::datasets::MNIST(
-              kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
+          torch::data::datasets::MNIST(kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
               .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
               .map(torch::data::transforms::Stack<>())) {
-
   test_dataset_size = test_dataset.size().value();
   auto test_loader_temp = torch::data::make_data_loader(
-      test_dataset,
-      torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
+      test_dataset, torch::data::DataLoaderOptions().batch_size(kTestBatchSize));
   test_loader = std::move(test_loader_temp);
 
-  Logger::instance().log("MNISTMngr: label_flip_type = " + std::to_string(t_params.label_flip_type) +
-                          ", overwrite_poisoned = " + std::to_string(t_params.overwrite_poisoned) +
-                          ", worker id = " + std::to_string(worker_id) + "\n");
+  Logger::instance().log(
+      "MNISTMngr: label_flip_type = " + std::to_string(t_params.label_flip_type) +
+      ", overwrite_poisoned = " + std::to_string(t_params.overwrite_poisoned) +
+      ", worker id = " + std::to_string(worker_id) + "\n");
 
   int label_flip_type = t_params.label_flip_type;
   if (label_flip_type && label_flip_type != RANDOM_FLIP && label_flip_type != TARGETED_FLIP_4) {
     const int target_mappings[3][2] = {
-      {8, 0}, // TARGETED_FLIP_1
-      {1, 5}, // TARGETED_FLIP_2  
-      {4, 9}  // TARGETED_FLIP_3
+        {8, 0},  // TARGETED_FLIP_1
+        {1, 5},  // TARGETED_FLIP_2
+        {4, 9}   // TARGETED_FLIP_3
     };
-    int setting = label_flip_type - TARGETED_FLIP_1; // Convert to 0-based index (2->0, 3->1, 4->2)
+    int setting = label_flip_type - TARGETED_FLIP_1;  // Convert to 0-based index (2->0, 3->1, 4->2)
     src_class = target_mappings[setting][0];
     target_class = target_mappings[setting][1];
     attack_is_targeted_flip = true;
@@ -83,10 +82,8 @@ void RegMnistMngr::buildLabelToIndicesMap() {
                      .map(torch::data::transforms::Stack<>());
 
   size_t index = 0;
-  // Create a DataLoader to iterate over the dataset
-  auto data_loader =
-      torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
-          dataset, /*batch size*/ 1);
+  auto data_loader = torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
+      dataset, /*batch size*/ 1);
 
   for (const auto &example : *data_loader) {
     int64_t label = example.target.item<int64_t>();
@@ -94,8 +91,9 @@ void RegMnistMngr::buildLabelToIndicesMap() {
     ++index;
   }
 
-  // Needs fixed seed so every worker has the same shuffled label_to_indices map, so that subset sampler 
-  // Distributes the corresponding indices to each worker, this shuffling is not strictly necessary
+  // Needs fixed seed so every worker has the same shuffled label_to_indices map, so that subset
+  // sampler Distributes the corresponding indices to each worker, this shuffling is not strictly
+  // necessary
   std::mt19937 rng(42);
   for (auto &pair : label_to_indices) {
     std::shuffle(pair.second.begin(), pair.second.end(), rng);
@@ -109,12 +107,13 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
   std::vector<size_t> poisoned_labels;
 
   size_t i = 0;  // Counter for the registered memory
-  for (const auto& original_idx : indices) {
+  for (const auto &original_idx : indices) {
     auto example = build_dataset->get(original_idx);
     int64_t label = example.target.item<int64_t>();
 
-    // // Put them at the end of the dataset if they are poisoned
-    if (!overwrite_poisoned && label == src_class && worker_id != 0 && worker_id <= t_params.n_byz_clnts) {
+    // Put them at the end of the dataset if they are poisoned
+    if (!overwrite_poisoned && label == src_class && worker_id != 0 &&
+        worker_id <= t_params.n_byz_clnts) {
       poisoned_labels.push_back(original_idx);
       continue;
     }
@@ -122,10 +121,6 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
     *getOriginalIndex(i) = static_cast<uint32_t>(original_idx);
     *getLabel(i) = label;
 
-    // UINT8CHANGE
-    // auto image_tensor = example.data.to(torch::kUInt8); 
-    // auto reshaped_image = image_tensor.reshape({1,28, 28}).contiguous();
-    // std::memcpy(getImage(i), reshaped_image.data_ptr<uint8_t>(), data_info.image_size);
     auto normalized_image = example.data.to(torch::kFloat32);
     auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
     std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
@@ -142,10 +137,6 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
     *getOriginalIndex(i) = static_cast<uint32_t>(poisoned_idx);
     *getLabel(i) = label;
 
-    // UINT8CHANGE
-    // auto image_tensor = example.data.to(torch::kUInt8); 
-    // auto reshaped_image = image_tensor.reshape({1,28, 28}).contiguous();
-    // std::memcpy(getImage(i), reshaped_image.data_ptr<uint8_t>(), data_info.image_size);
     auto normalized_image = example.data.to(torch::kFloat32);
     auto reshaped_image = normalized_image.reshape({1, 28, 28}).contiguous();
     std::memcpy(getImage(i), reshaped_image.data_ptr<float>(), data_info.image_size);
@@ -155,13 +146,14 @@ void RegMnistMngr::buildRegisteredDataset(const std::vector<size_t> &indices) {
   }
 
   train_dataset = RegisteredMNIST(data_info, index_map)
-      .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-      .map(torch::data::transforms::Stack<>());
+                      .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+                      .map(torch::data::transforms::Stack<>());
 }
 
 void RegMnistMngr::renewDataset(float proportion, std::optional<int> seed) {
   if (worker_id != 0) {
-    Logger::instance().log("[renewDataset] Warning: Renewing dataset for worker " + std::to_string(worker_id) +
+    Logger::instance().log("[renewDataset] Warning: Renewing dataset for worker " +
+                           std::to_string(worker_id) +
                            " is not supported, only server can renew dataset.\n");
     return;
   }
@@ -170,8 +162,8 @@ void RegMnistMngr::renewDataset(float proportion, std::optional<int> seed) {
     throw std::invalid_argument("[renewDataset] Proportion must be between 0 and 1");
   }
 
-  Logger::instance().log("Renewing MNIST dataset with proportion: " +
-                        std::to_string(proportion) + "\n");
+  Logger::instance().log("Renewing MNIST dataset with proportion: " + std::to_string(proportion) +
+                         "\n");
 
   if (proportion == 1.0f) {
     for (size_t i = 0; i < data_info.num_samples; i++) {
