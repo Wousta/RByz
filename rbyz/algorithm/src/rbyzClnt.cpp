@@ -1,9 +1,9 @@
 #include "rbyzClnt.hpp"
-#include "logger.hpp"
-#include "tensorOps.hpp"
+
 #include "attacks.hpp"
 #include "global/globalConstants.hpp"
-
+#include "logger.hpp"
+#include "tensorOps.hpp"
 
 void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) {
   Logger::instance().log("\n\n==============  STARTING RBYZ  ==============\n");
@@ -17,26 +17,21 @@ void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) 
       Logger::instance().log("POST: first mnist samples\n");
       for (int i = 0; i < 320; i++) {
         if (i % 32 == 0)
-          Logger::instance().log(
-              "Sample " + std::to_string(i) +
-              ": label = " + std::to_string(*mngr.getLabel(i)) +
-              " | og_idx = " + std::to_string(*mngr.getOriginalIndex(i)) +
-              "\n");
+          Logger::instance().log("Sample " + std::to_string(i) +
+                                 ": label = " + std::to_string(*mngr.getLabel(i)) +
+                                 " | og_idx = " + std::to_string(*mngr.getOriginalIndex(i)) + "\n");
       }
     }
 
     // Reset
     regMem.local_step.store(0);
 
-    Logger::instance().log("\n//////////////// Round " +
-                           std::to_string(regMem.round) +
-                           " started ////////////////\n");
+    Logger::instance().log("\n//// Round " + std::to_string(regMem.round) + " started ////\n");
     // Wait for the server to be ready
     do {
       rdma_ops.exec_rdma_read(sizeof(int), SRVR_READY_RB_IDX);
       std::this_thread::sleep_for(millis(1));
-    } while (regMem.srvr_ready_rb < regMem.round &&
-             regMem.srvr_ready_rb != SRVR_FINISHED);
+    } while (regMem.srvr_ready_rb < regMem.round && regMem.srvr_ready_rb != SRVR_FINISHED);
 
     if (regMem.srvr_ready_rb == SRVR_FINISHED) {
       Logger::instance().log("Server finished early, exiting...\n");
@@ -51,17 +46,12 @@ void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) 
     tops::writeToTensorVec(w, regMem.srvr_w, regMem.reg_sz_data);
     std::vector<torch::Tensor> w_pre_train = mngr.updateModelParameters(w);
 
-    Logger::instance().log(
-        "Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
+    Logger::instance().log("Steps to run: " + std::to_string(regMem.CAS.load()) + "\n");
 
     while (regMem.local_step.load() < regMem.CAS.load()) {
       // auto start = std::chrono::high_resolution_clock::now();
       int step = regMem.local_step.load();
-      Logger::instance().log(" ...... Client: Running step " +
-                             std::to_string(step) + " of RByz in round " +
-                             std::to_string(regMem.round.load()) + "\n");
       mngr.runTraining();
-
       regMem.local_step.store(step + 1);
 
       // auto end = std::chrono::high_resolution_clock::now();
@@ -79,7 +69,7 @@ void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) 
     // If overwriting poisoned labels is enabled, byz client has to renew
     // poisoned labels (50% chance)
     if (byz_clnt && t_params.overwrite_poisoned && coinFlip()) {
-      Logger::instance().log("Client: Overwriting poisoned labels\n");
+      Logger::instance().log("Overwriting poisoned labels\n");
       data_poison_attack(t_params.use_mnist, t_params, mngr);
     }
 
@@ -87,9 +77,8 @@ void RByzClnt::runRByzClient(std::vector<torch::Tensor> &w, RegMemClnt &regMem) 
     rdma_ops.exec_rdma_write(sizeof(int), CLNT_READY_IDX);
     regMem.round.store(regMem.round + 1);
 
-    Logger::instance().log("\n//////////////// Client: Round " +
-                           std::to_string(regMem.round - 1) +
-                           " completed ////////////////\n");
+    Logger::instance().log("\n//// Round " + std::to_string(regMem.round - 1) +
+                           " completed ////\n");
   }
 
   // Notify the server that the client is done

@@ -1,4 +1,5 @@
 #include "fltrustSrvr.hpp"
+
 #include "tensorOps.hpp"
 
 std::vector<int> FLtrustSrvr::generateRandomUniqueVector(int n_clients, int min_sz) {
@@ -21,10 +22,9 @@ std::vector<int> FLtrustSrvr::generateRandomUniqueVector(int n_clients, int min_
   return result;
 }
 
-torch::Tensor FLtrustSrvr::aggregateUpdates(
-    const std::vector<torch::Tensor> &clnt_updates,
-    const torch::Tensor &server_update,
-    const std::vector<uint32_t> &clnt_indices) {
+torch::Tensor FLtrustSrvr::aggregateUpdates(const std::vector<torch::Tensor> &clnt_updates,
+                                            const torch::Tensor &server_update,
+                                            const std::vector<uint32_t> &clnt_indices) {
   if (clnt_updates.empty()) {
     return server_update.clone();
   }
@@ -50,8 +50,7 @@ torch::Tensor FLtrustSrvr::aggregateUpdates(
     norm_updates.push_back(norm_update);
   }
 
-  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file,
-                               "- Round end -\n");
+  Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, "- Round end -\n");
   for (int i = 0; i < log_TS_vec.size(); i++) {
     std::string message = std::to_string(log_TS_vec[i]) + "\n";
     Logger::instance().logCustom(t_params.logs_dir, t_params.ts_file, message);
@@ -118,16 +117,15 @@ std::vector<torch::Tensor> FLtrustSrvr::run() {
     std::vector<uint32_t> clnt_indices;
     clnt_updates.reserve(polled_clients.size());
     clnt_indices.reserve(polled_clients.size());
-    Logger::instance().log("polled_clients size: " +
-                           std::to_string(polled_clients.size()) + ":\n");
+    Logger::instance().log("polled_clients size: " + std::to_string(polled_clients.size()) + ":\n");
 
     for (size_t i = 0; i < polled_clients.size(); i++) {
       int client = polled_clients[i];
       if (!expBackoffWait(round, client)) {
         size_t numel_server = regMem.reg_sz_data / sizeof(float);
         torch::Tensor flat_tensor =
-            torch::from_blob(regMem.clnt_ws[client],
-                             {static_cast<long>(numel_server)}, torch::kFloat32)
+            torch::from_blob(regMem.clnt_ws[client], {static_cast<long>(numel_server)},
+                             torch::kFloat32)
                 .clone();
 
         torch::Tensor learn_params = mngr.extractLearnableParams(flat_tensor);
@@ -139,8 +137,7 @@ std::vector<torch::Tensor> FLtrustSrvr::run() {
     // AGGREGATION PHASE //////////////////////
     torch::Tensor srvr_full_update = tops::flatten_tensor_vector(g);
     torch::Tensor srvr_update = mngr.extractLearnableParams(srvr_full_update);
-    torch::Tensor aggregated_update = aggregateUpdates(
-        clnt_updates, srvr_update, clnt_indices);
+    torch::Tensor aggregated_update = aggregateUpdates(clnt_updates, srvr_update, clnt_indices);
     std::vector<torch::Tensor> aggregated_update_vec =
         tops::reconstruct_tensor_vector(aggregated_update, w);
 
@@ -149,13 +146,12 @@ std::vector<torch::Tensor> FLtrustSrvr::run() {
     }
     mngr.updateModelParameters(w);
     mngr.runTesting();
-    Logger::instance().logCustom(t_params.logs_dir, t_params.acc_file,
-                                 std::to_string(round) + " " +
-                                     std::to_string(mngr.test_accuracy) + "\n");
+    Logger::instance().logCustom(
+        t_params.logs_dir, t_params.acc_file,
+        std::to_string(round) + " " + std::to_string(mngr.test_accuracy) + "\n");
 
     std::cout << "/// Server: Round " << round << " completed ///\n";
-    Logger::instance().log("\n/// Server: Round " +
-                           std::to_string(round) + " completed ///\n");
+    Logger::instance().log("\n/// Server: Round " + std::to_string(round) + " completed ///\n");
   }
 
   Logger::instance().log("FINAL FLTRUST\n");
