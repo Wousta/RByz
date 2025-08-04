@@ -19,11 +19,11 @@ results_path="/home/bustaman/rbyz/Results"
 # Must change the order of parameters here, number one is logs_dir, etc
 use_mnist=${5:-true}       # First argument: true/false for MNIST vs CIFAR-10
 n_clients=${6:-10}          
-epochs=${7:-5}             
+epochs=${7:-3}             
 batch_size=${8:-64}        
-glob_learn_rate=${9:-0.01}  # Global learning rate for FLtrust aggregation
+glob_learn_rate=${9:-1.0}  # Global learning rate for FLtrust aggregation
 local_learn_rate=${10:-0.01}  
-n_byz_clnts=${11:-2}         
+n_byz_clnts=${11:-0}         
 if [ "$use_mnist" = true ]; then
   # MNIST dataset 60000 training images
   load_use_mnist_param="--load"
@@ -32,7 +32,7 @@ if [ "$use_mnist" = true ]; then
   if [ $# -lt 8 ]; then batch_size=32; fi
   clnt_subset_size=${12:-5900}
   srvr_subset_size=${13:-1000}
-  glob_iters_fl=${14:-3}
+  glob_iters_fl=${14:-6}
   local_steps_rbyz=${15:-5}
   glob_iters_rbyz=${16:-3}
 else

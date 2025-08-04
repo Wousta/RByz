@@ -454,7 +454,7 @@ void RByzSrvr::waitTimeout(ClientDataRbyz &clnt_data, int round) {
 
       } else {
         long int new_limit = static_cast<long int>(
-            std::ceil(clnt_data.limit_step_time.count() * TIMEOUT_MULT_));
+            std::ceil(clnt_data.limit_step_time.count() * TIMEOUT_MULT));
         clnt_data.limit_step_time = millis(new_limit);
         clnt_data.steps_to_finish = timeouts_.step_range(rng);
 

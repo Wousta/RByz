@@ -1,6 +1,0 @@
-BasedOnStyle: Google
-ColumnLimit: 0
-IndentWidth: 2
-AccessModifierOffset: -1
-AlignAfterOpenBracket: Align
-AllowShortFunctionsOnASingleLine: Inline
